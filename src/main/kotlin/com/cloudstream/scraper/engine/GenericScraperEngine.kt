@@ -256,6 +256,11 @@ class GenericScraperEngine(
             ?: return null
 
         val fullUrl = Transformer.resolveUrl(baseUrl, rawUrl) ?: rawUrl
+        if (defaultType == MediaType.MOVIE || defaultType == MediaType.NSFW) {
+            if (fullUrl.contains("/categories/") || fullUrl.contains("/tags/") || fullUrl.contains("/channels/")) {
+                return null
+            }
+        }
         val titleRule = fields["title"] ?: fields["name"]
         val title = RuleEvaluator.extractString(element, titleRule, baseUrl)
             ?: element.selectFirst("h1, h2, h3, h4, .title, .name, .actor-name, a")?.text()?.trim()

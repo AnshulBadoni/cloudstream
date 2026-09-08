@@ -54,15 +54,15 @@ class PornTrexPlugin : Plugin() {
         val searchConfig = SearchConfig(
             urlTemplate = "/search/{query}/?page={page}",
             method = "GET",
-            itemSelector = ".list-videos .item, .video-preview-screen, #list_videos_common_videos_list_items .item, .item",
+            itemSelector = ".list-videos .item:has(a[href*='/videos/']), .list-videos .item:has(a.thumb), #list_videos_videos_list_search_result_items .item, #list_videos_common_videos_list_items .item, .video-preview-screen",
             fields = mapOf(
-                "id" to ExtractionRule(selector = "a", attribute = "href"),
+                "id" to ExtractionRule(selector = "a[href*='/videos/'], a.thumb, a", attribute = "href"),
                 "title" to ExtractionRule(
-                    selector = "strong.title, p.inf a, .title, a[title]",
+                    selector = "strong.title, a.title, p.inf a, .title, a[title]",
                     extraction = ExtractionType.TEXT,
                     transforms = listOf(TransformConfig(trim = true))
                 ),
-                "url" to ExtractionRule(selector = "a", attribute = "href"),
+                "url" to ExtractionRule(selector = "a[href*='/videos/'], a.thumb, a", attribute = "href"),
                 "posterUrl" to ExtractionRule(
                     selector = "img.thumb, img.cover, img",
                     attribute = "data-src",
@@ -80,13 +80,15 @@ class PornTrexPlugin : Plugin() {
             )
         )
 
+        val videoItemSelector = ".list-videos .item:has(a[href*='/videos/']), .list-videos .item:has(a.thumb), #list_videos_common_videos_list_items .item, #list_videos_latest_videos_list_items .item, #list_videos_top_rated_videos_items .item, #list_videos_most_popular_videos_items .item, .video-preview-screen"
+
         val catalogs = listOf(
             CatalogConfig(
                 id = "latest",
                 name = "Latest Videos",
                 type = CatalogType.MOVIES,
                 urlTemplate = "/latest-updates/?page={page}",
-                itemSelector = ".list-videos .item, .video-preview-screen, .item",
+                itemSelector = videoItemSelector,
                 pagination = PaginationConfig(type = "query", param = "page", nextSelector = ".pagination .next, a.next")
             ),
             CatalogConfig(
@@ -94,15 +96,15 @@ class PornTrexPlugin : Plugin() {
                 name = "Models & Stars",
                 type = CatalogType.PEOPLE,
                 urlTemplate = "/models/?page={page}",
-                itemSelector = ".list-models .item, #list_models_models_list_items .item, a.item",
+                itemSelector = ".list-models .item:has(a[href*='/models/']), .list-models .item:has(a[href*='/pornstars/']), #list_models_models_list_items .item, #list_models_common_models_list_items .item",
                 fields = mapOf(
                     "name" to ExtractionRule(
-                        selector = "strong.title, .title",
+                        selector = "strong.title, .title, a",
                         extraction = ExtractionType.TEXT,
                         transforms = listOf(TransformConfig(trim = true))
                     ),
                     "url" to ExtractionRule(
-                        selector = "a",
+                        selector = "a[href*='/models/'], a[href*='/pornstars/'], a",
                         attribute = "href",
                         fallbacks = listOf(ExtractionRule(attribute = "href"))
                     ),
@@ -118,14 +120,14 @@ class PornTrexPlugin : Plugin() {
                 name = "Top Rated",
                 type = CatalogType.MOVIES,
                 urlTemplate = "/top-rated/?page={page}",
-                itemSelector = ".list-videos .item, .video-preview-screen, .item"
+                itemSelector = videoItemSelector
             ),
             CatalogConfig(
                 id = "most-popular",
                 name = "Most Popular",
                 type = CatalogType.MOVIES,
                 urlTemplate = "/most-popular/?page={page}",
-                itemSelector = ".list-videos .item, .video-preview-screen, .item"
+                itemSelector = videoItemSelector
             )
         )
 
