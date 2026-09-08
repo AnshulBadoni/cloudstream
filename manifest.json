@@ -1,0 +1,10 @@
+{
+  "name": "PornTrex",
+  "pluginClassName": "com.cloudstream.scraper.cloudstream.PornTrexPlugin",
+  "version": 1,
+  "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
+  "authors": ["CloudStream Developer"],
+  "status": 1,
+  "types": ["NSFW"],
+  "iconUrl": "https://www.porntrex.com/favicon.ico"
+}

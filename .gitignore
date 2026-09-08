@@ -1,0 +1,21 @@
+# Gradle build directories & caches
+.gradle/
+build/
+bin/
+out/
+
+# IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+# OS & Temp files
+.DS_Store
+Thumbs.db
+*.log
+
+# Scraper temporary debug outputs
+*.html
+fetch_html.js
