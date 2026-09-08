@@ -89,8 +89,20 @@ tasks.register("makePlugin") {
 ]
         """.trimIndent()
 
+        val repoJson = """
+{
+  "name": "PornTrex",
+  "description": "High quality adult streaming provider with actor catalogs and multi-resolution streaming.",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/plugins.json"
+  ]
+}
+        """.trimIndent()
+
         File(distDir, "plugins.json").writeText(pluginsJson)
         File(distDir, "builds.json").writeText(pluginsJson)
-        println("✓ Successfully generated plugins.json and PornTrex.cs3 in ${distDir.absolutePath}")
+        File(distDir, "repo.json").writeText(repoJson)
+        println("✓ Successfully generated repo.json, plugins.json, and PornTrex.cs3 in ${distDir.absolutePath}")
     }
 }
