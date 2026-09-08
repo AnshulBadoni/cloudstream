@@ -23,6 +23,16 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Android SDK build-tools (for d8 DEX compiler)
+        run: |
+          mkdir -p $HOME/android-sdk/cmdline-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdtools.zip
+          unzip -q /tmp/cmdtools.zip -d $HOME/android-sdk/cmdline-tools
+          mv $HOME/android-sdk/cmdline-tools/cmdline-tools $HOME/android-sdk/cmdline-tools/latest
+          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --install "build-tools;35.0.0" --sdk_root=$HOME/android-sdk
+          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "$HOME/android-sdk/build-tools/35.0.0" >> $GITHUB_PATH
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
@@ -31,6 +41,16 @@ jobs:
 
       - name: Build Plugins & Manifest
         run: ./gradlew test makePlugin
+
+      - name: Verify classes.dex in cs3
+        run: |
+          if unzip -l build/dist/PornTrex.cs3 | grep -q "classes.dex"; then
+            echo "✓ classes.dex found in PornTrex.cs3"
+          else
+            echo "✗ ERROR: classes.dex NOT in PornTrex.cs3!"
+            unzip -l build/dist/PornTrex.cs3
+            exit 1
+          fi
 
       - name: Deploy to Builds Branch
         uses: peaceiris/actions-gh-pages@v3
