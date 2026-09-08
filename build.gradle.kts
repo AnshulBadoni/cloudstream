@@ -63,6 +63,7 @@ application {
 
 tasks.jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    exclude("android/**")
 }
 
 tasks.register("makePlugin") {
