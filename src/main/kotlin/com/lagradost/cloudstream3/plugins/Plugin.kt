@@ -1,5 +1,6 @@
 package com.lagradost.cloudstream3.plugins
 
+import android.content.Context
 import com.lagradost.cloudstream3.MainAPI
 
 @Target(AnnotationTarget.CLASS)
@@ -11,6 +12,7 @@ abstract class Plugin {
     open var filename: String? = null
     val registeredAPIs = mutableListOf<MainAPI>()
 
+    open fun load(context: Context) {}
     open fun load(context: Any? = null) {}
 
     fun registerMainAPI(api: MainAPI) {
