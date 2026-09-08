@@ -22,23 +22,19 @@ object CloudStreamMapper {
         val tvType = toTvType(result.type)
         val score = result.rating?.let { Score.from10(it) }
         return when (tvType) {
-            TvType.TvSeries -> api.newTvSeriesSearchResponse(
-                name = result.title,
-                url = result.url,
-                type = tvType
-            ) {
-                this.posterUrl = result.posterUrl
-                this.year = result.releaseYear
-                this.score = score
+            TvType.TvSeries -> {
+                val res = CloudStreamBridge.createTvSeriesSearchResponse(api, result.title, result.url, tvType)
+                CloudStreamBridge.setField(res, "posterUrl", result.posterUrl)
+                CloudStreamBridge.setField(res, "year", result.releaseYear)
+                CloudStreamBridge.setField(res, "score", score)
+                res
             }
-            else -> api.newMovieSearchResponse(
-                name = result.title,
-                url = result.url,
-                type = tvType
-            ) {
-                this.posterUrl = result.posterUrl
-                this.year = result.releaseYear
-                this.score = score
+            else -> {
+                val res = CloudStreamBridge.createMovieSearchResponse(api, result.title, result.url, tvType)
+                CloudStreamBridge.setField(res, "posterUrl", result.posterUrl)
+                CloudStreamBridge.setField(res, "year", result.releaseYear)
+                CloudStreamBridge.setField(res, "score", score)
+                res
             }
         }
     }
@@ -73,53 +69,56 @@ object CloudStreamMapper {
 
         return when (details) {
             is Movie -> {
-                api.newMovieLoadResponse(
+                val res = CloudStreamBridge.createMovieLoadResponse(
+                    api = api,
                     name = details.title,
                     url = details.url,
                     type = tvType,
                     dataUrl = details.url
-                ) {
-                    this.posterUrl = details.posterUrl
-                    this.year = details.releaseYear
-                    this.plot = details.description
-                    this.score = score
-                    this.tags = (details.genres + details.tags).distinct().ifEmpty { null }
-                    this.duration = details.durationMinutes
-                    this.actors = actors
-                }
+                )
+                CloudStreamBridge.setField(res, "posterUrl", details.posterUrl)
+                CloudStreamBridge.setField(res, "year", details.releaseYear)
+                CloudStreamBridge.setField(res, "plot", details.description)
+                CloudStreamBridge.setField(res, "score", score)
+                CloudStreamBridge.setField(res, "tags", (details.genres + details.tags).distinct().ifEmpty { null })
+                CloudStreamBridge.setField(res, "duration", details.durationMinutes)
+                CloudStreamBridge.setField(res, "actors", actors)
+                res
             }
             is Series -> {
                 val flatEpisodes = details.seasons.flatMap { it.episodes }.map { toEpisode(it) }
-                api.newTvSeriesLoadResponse(
+                val res = CloudStreamBridge.createTvSeriesLoadResponse(
+                    api = api,
                     name = details.title,
                     url = details.url,
                     type = tvType,
                     episodes = flatEpisodes
-                ) {
-                    this.posterUrl = details.posterUrl
-                    this.year = details.releaseYear
-                    this.plot = details.description
-                    this.score = score
-                    this.tags = (details.genres + details.tags).distinct().ifEmpty { null }
-                    this.actors = actors
-                }
+                )
+                CloudStreamBridge.setField(res, "posterUrl", details.posterUrl)
+                CloudStreamBridge.setField(res, "year", details.releaseYear)
+                CloudStreamBridge.setField(res, "plot", details.description)
+                CloudStreamBridge.setField(res, "score", score)
+                CloudStreamBridge.setField(res, "tags", (details.genres + details.tags).distinct().ifEmpty { null })
+                CloudStreamBridge.setField(res, "actors", actors)
+                res
             }
         }
     }
 
     suspend fun toLoadResponse(person: Person, api: MainAPI): LoadResponse {
         val videoRecommendations = person.knownFor.map { toSearchResponse(it, api) }.ifEmpty { null }
-        return api.newMovieLoadResponse(
+        val res = CloudStreamBridge.createMovieLoadResponse(
+            api = api,
             name = person.name,
             url = person.url,
             type = TvType.NSFW,
             dataUrl = person.url
-        ) {
-            this.posterUrl = person.photoUrl
-            this.plot = person.biography ?: "Performer profile with ${person.knownFor.size} videos."
-            this.recommendations = videoRecommendations
-            this.actors = listOf(ActorData(Actor(person.name, person.photoUrl), roleString = "Performer"))
-        }
+        )
+        CloudStreamBridge.setField(res, "posterUrl", person.photoUrl)
+        CloudStreamBridge.setField(res, "plot", person.biography ?: "Performer profile with ${person.knownFor.size} videos.")
+        CloudStreamBridge.setField(res, "recommendations", videoRecommendations)
+        CloudStreamBridge.setField(res, "actors", listOf(ActorData(Actor(person.name, person.photoUrl), roleString = "Performer")))
+        return res
     }
 
     fun toExtractorLink(source: MediaSource, apiName: String): ExtractorLink {

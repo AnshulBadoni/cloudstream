@@ -94,24 +94,27 @@ open class GenericCloudStreamProvider(
             // 4. Ultimate fallback
             val fallbackTitle = fullUrl.trimEnd('/').substringAfterLast('/').replace("-", " ")
                 .split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
-            newMovieLoadResponse(
+            val res = CloudStreamBridge.createMovieLoadResponse(
+                api = this,
                 name = fallbackTitle.ifBlank { name },
                 url = fullUrl,
                 type = if (config.isNsfw) TvType.NSFW else TvType.Movie,
                 dataUrl = fullUrl
-            ) {
-                this.plot = "Streaming video from $name"
-            }
+            )
+            CloudStreamBridge.setField(res, "plot", "Streaming video from $name")
+            res
         } catch (e: Throwable) {
             val fallbackTitle = fullUrl.trimEnd('/').substringAfterLast('/').replace("-", " ")
-            newMovieLoadResponse(
+                .split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+            val res = CloudStreamBridge.createMovieLoadResponse(
+                api = this,
                 name = fallbackTitle.ifBlank { name },
                 url = fullUrl,
                 type = if (config.isNsfw) TvType.NSFW else TvType.Movie,
                 dataUrl = fullUrl
-            ) {
-                this.plot = "Streaming video from $name"
-            }
+            )
+            CloudStreamBridge.setField(res, "plot", "Streaming video from $name")
+            res
         }
     }
 
