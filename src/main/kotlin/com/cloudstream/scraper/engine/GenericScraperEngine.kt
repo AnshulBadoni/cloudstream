@@ -115,7 +115,8 @@ class GenericScraperEngine(
         val response = httpClient.get(fullUrl, config.headers)
         if (!response.isSuccessful || response.body.isBlank()) return null
 
-        val document = HtmlParser.parse(response.body, config.baseUrl)
+        val html = response.body
+        val document = HtmlParser.parse(html, config.baseUrl)
         val detailsConfig = config.details ?: return null
 
         // Autodetect Media Type
@@ -135,23 +136,78 @@ class GenericScraperEngine(
             fieldMap.putAll(detailsConfig.movie)
         }
 
-        val title = RuleEvaluator.extractString(document, fieldMap["title"], config.baseUrl)
-            ?: document.title().ifBlank { "Unknown Title" }
+        // 1. Extract Title with multi-layered fallbacks
+        var title = RuleEvaluator.extractString(document, fieldMap["title"], config.baseUrl)
+        if (title.isNullOrBlank() || title == "Unknown Title") {
+            val flashTitle = Regex("""(?i)(?:video_title|title)\s*[:=]\s*['"]([^'"]+)['"]""").find(html)?.groupValues?.get(1)
+            title = flashTitle
+                ?: document.selectFirst("h1.title, h1, .headline h1, .video-details h1, .title")?.text()?.trim()
+                ?: document.selectFirst("meta[property='og:title'], meta[name='twitter:title']")?.attr("content")?.trim()
+                ?: document.title().substringBefore("|").substringBefore("-").trim()
+        }
+        if (title.isBlank()) title = "Unknown Title"
+        title = title.replace(Regex("""\s*\|\s*PornTrex.*$""", RegexOption.IGNORE_CASE), "").trim()
+
+        // 2. Extract ID
         val id = RuleEvaluator.extractString(document, fieldMap["id"], config.baseUrl)
             ?: deriveIdFromUrl(fullUrl)
         val originalTitle = RuleEvaluator.extractString(document, fieldMap["originalTitle"], config.baseUrl)
-        val posterUrl = RuleEvaluator.extractString(document, fieldMap["posterUrl"], config.baseUrl)
+
+        // 3. Extract Poster
+        var posterUrl = RuleEvaluator.extractString(document, fieldMap["posterUrl"], config.baseUrl)
+        if (posterUrl.isNullOrBlank()) {
+            val previewUrl = Regex("""(?i)(?:preview_url|poster_url|poster)\s*[:=]\s*['"]([^'"]+)['"]""").find(html)?.groupValues?.get(1)
+            posterUrl = previewUrl
+                ?: document.selectFirst("meta[property='og:image'], meta[name='twitter:image']")?.attr("content")
+                ?: document.selectFirst("#player-holder video[poster], .player-holder video[poster], video[poster]")?.attr("poster")
+                ?: document.selectFirst("link[rel='image_src']")?.attr("href")
+        }
+        posterUrl = posterUrl?.let { Transformer.resolveUrl(config.baseUrl, it) }
+
         val backdropUrl = RuleEvaluator.extractString(document, fieldMap["backdropUrl"], config.baseUrl)
-        val description = RuleEvaluator.extractString(document, fieldMap["description"], config.baseUrl)
+
+        // 4. Extract Description / Plot
+        var description = RuleEvaluator.extractString(document, fieldMap["description"], config.baseUrl)
+        if (description.isNullOrBlank()) {
+            description = document.selectFirst(".videodesc .items-holder, .videodesc, .description-block, .video-details .description, .description")
+                ?.text()?.replace(Regex("""^Description:\s*""", RegexOption.IGNORE_CASE), "")?.trim()
+                ?: document.selectFirst("meta[property='og:description'], meta[name='description']")?.attr("content")?.trim()
+        }
+
+        // 5. Extract Release Year
         val releaseYear = RuleEvaluator.extractInt(document, fieldMap["releaseYear"], config.baseUrl)
-        val rating = RuleEvaluator.extractDouble(document, fieldMap["rating"], config.baseUrl)
-        val genres = RuleEvaluator.extractList(document, fieldMap["genres"], config.baseUrl)
+
+        // 6. Extract Rating
+        var rating = RuleEvaluator.extractDouble(document, fieldMap["rating"], config.baseUrl)
+        if (rating == null) {
+            val ratingText = document.selectFirst(".vote-percentage, .rating, .rate")?.text()
+            if (ratingText != null) {
+                rating = Regex("""(\d+)""").find(ratingText)?.groupValues?.get(1)?.toDoubleOrNull()
+            }
+        }
+
+        // 7. Extract Genres & Tags
+        val genres = mutableListOf<String>()
+        genres.addAll(RuleEvaluator.extractList(document, fieldMap["genres"], config.baseUrl))
+        if (genres.isEmpty()) {
+            document.select(".block-details a[href*='/categories/'], .block-details a[href*='/tags/'], .item-categories a, .item-tags a, .tags a").forEach {
+                val tagText = it.text().trim()
+                if (tagText.isNotBlank() && !tagText.equals("Suggest", ignoreCase = true) && !tagText.startsWith("+")) {
+                    genres.add(tagText)
+                }
+            }
+        }
+        val flashTags = Regex("""(?i)(?:video_tags|tags)\s*[:=]\s*['"]([^'"]+)['"]""").find(html)?.groupValues?.get(1)
+        if (!flashTags.isNullOrBlank()) {
+            flashTags.split(",").map { it.trim() }.filter { it.isNotBlank() }.forEach { genres.add(it) }
+        }
+
         val tags = RuleEvaluator.extractList(document, fieldMap["tags"], config.baseUrl)
         val rawTrailerUrl = RuleEvaluator.extractString(document, fieldMap["trailerUrl"], config.baseUrl)
-        val streamSources = extractStreamSources(response.body, config.baseUrl)
-        val trailerUrl = rawTrailerUrl ?: streamSources.lastOrNull()?.url ?: streamSources.firstOrNull()?.url
+        val streamSources = extractStreamSources(html, config.baseUrl)
+        val trailerUrl = rawTrailerUrl ?: streamSources.firstOrNull()?.url
 
-        // Extract actors & directors if people rules are configured
+        // 8. Extract actors & directors
         val castMembers = extractCastMembers(document, config)
         val directors = extractDirectors(document, fieldMap["directors"], config.baseUrl)
 
@@ -173,7 +229,7 @@ class GenericScraperEngine(
                 description = description,
                 releaseYear = releaseYear,
                 rating = rating,
-                genres = genres,
+                genres = genres.distinct(),
                 tags = tags,
                 trailerUrl = trailerUrl,
                 cast = castMembers,
@@ -182,7 +238,13 @@ class GenericScraperEngine(
                 seasons = seasons
             )
         } else {
-            val duration = RuleEvaluator.extractInt(document, fieldMap["duration"], config.baseUrl)
+            var duration = RuleEvaluator.extractInt(document, fieldMap["duration"], config.baseUrl)
+            if (duration == null) {
+                val durText = document.selectFirst(".info-block .item:has(i.fa-clock-o) em, .info-block i.fa-clock-o + em, .durations, .duration, .time")?.text()
+                if (durText != null) {
+                    duration = Regex("""(\d+)""").find(durText)?.groupValues?.get(1)?.toIntOrNull()
+                }
+            }
 
             Movie(
                 id = id,
@@ -194,7 +256,7 @@ class GenericScraperEngine(
                 description = description,
                 releaseYear = releaseYear,
                 rating = rating,
-                genres = genres,
+                genres = genres.distinct(),
                 tags = tags,
                 trailerUrl = trailerUrl,
                 cast = castMembers,
@@ -218,20 +280,53 @@ class GenericScraperEngine(
         val response = httpClient.get(fullUrl, config.headers)
         if (!response.isSuccessful || response.body.isBlank()) return null
 
-        val document = HtmlParser.parse(response.body, config.baseUrl)
-        val name = RuleEvaluator.extractString(document, personConfig.name, config.baseUrl)
-            ?: document.title()
-        val photoUrl = RuleEvaluator.extractString(document, personConfig.photoUrl, config.baseUrl)
-        val biography = RuleEvaluator.extractString(document, personConfig.biography, config.baseUrl)
+        val html = response.body
+        val document = HtmlParser.parse(html, config.baseUrl)
+
+        // Extract Name with fallback chain
+        var name = RuleEvaluator.extractString(document, personConfig.name, config.baseUrl)
+        if (name.isNullOrBlank()) {
+            name = document.selectFirst(".profile-model-info h1, .profile-model-info .name h1, h1.title, h1, .headline h1")?.text()?.trim()
+        }
+        if (name.isNullOrBlank()) {
+            name = document.selectFirst("meta[property='og:title']")?.attr("content")?.trim()
+        }
+        if (name.isNullOrBlank()) {
+            name = document.title().substringBefore("|").substringBefore("-").trim()
+        }
+        if (name.isBlank()) {
+            name = deriveIdFromUrl(fullUrl).replace("-", " ").split(" ")
+                .joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
+        }
+
+        // Extract Photo
+        var photoUrl = RuleEvaluator.extractString(document, personConfig.photoUrl, config.baseUrl)
+        if (photoUrl.isNullOrBlank()) {
+            photoUrl = document.selectFirst(".profile-model-info img, .img-holder img, .avatar img, img.thumb")
+                ?.let { it.attr("data-src").ifBlank { it.attr("src") } }
+                ?.let { Transformer.resolveUrl(config.baseUrl, it) }
+        }
+        if (photoUrl.isNullOrBlank()) {
+            photoUrl = document.selectFirst("meta[property='og:image']")?.attr("content")
+                ?.let { Transformer.resolveUrl(config.baseUrl, it) }
+        }
+
+        // Extract Biography
+        var biography = RuleEvaluator.extractString(document, personConfig.biography, config.baseUrl)
+        if (biography.isNullOrBlank()) {
+            biography = document.selectFirst(".profile-model-info .description, .model-description, .description-block, .description, meta[property='og:description']")
+                ?.let { if (it.tagName() == "meta") it.attr("content") else it.text() }?.trim()
+        }
+
         val birthDate = RuleEvaluator.extractString(document, personConfig.birthDate, config.baseUrl)
 
-        val knownFor = if (!personConfig.knownForSelector.isNullOrBlank()) {
-            val items = HtmlParser.select(document, personConfig.knownForSelector)
-            items.mapNotNull { el ->
-                extractSearchResult(el, personConfig.knownForFields, config.baseUrl)
-            }
-        } else {
-            emptyList()
+        // Extract Known For Videos
+        val knownForSelector = personConfig.knownForSelector
+            ?: ".list-videos .item:has(a[href*='/videos/']), .list-videos .item:has(a.thumb), .video-preview-screen, .video-item, .item:has(a.thumb)"
+        val items = HtmlParser.select(document, knownForSelector)
+        val fields = if (personConfig.knownForFields.isNotEmpty()) personConfig.knownForFields else config.search?.fields ?: emptyMap()
+        val knownFor = items.mapNotNull { el ->
+            extractSearchResult(el, fields, config.baseUrl, defaultType = if (config.isNsfw) MediaType.NSFW else MediaType.MOVIE)
         }
 
         return Person(
@@ -263,7 +358,7 @@ class GenericScraperEngine(
         }
         val titleRule = fields["title"] ?: fields["name"]
         val title = RuleEvaluator.extractString(element, titleRule, baseUrl)
-            ?: element.selectFirst("h1, h2, h3, h4, .title, .name, .actor-name, a")?.text()?.trim()
+            ?: element.selectFirst("h1, h2, h3, h4, .title, .name, .actor-name, strong.title, a.title, a")?.text()?.trim()
             ?: return null
 
         if (title.isBlank()) return null
@@ -273,7 +368,7 @@ class GenericScraperEngine(
 
         val posterRule = fields["posterUrl"] ?: fields["photoUrl"]
         val posterUrl = RuleEvaluator.extractString(element, posterRule, baseUrl)
-            ?: element.selectFirst("img")?.attr("src")?.let { Transformer.resolveUrl(baseUrl, it) }
+            ?: element.selectFirst("img")?.let { it.attr("data-src").ifBlank { it.attr("src") } }?.let { Transformer.resolveUrl(baseUrl, it) }
 
         val typeStr = RuleEvaluator.extractString(element, fields["type"], baseUrl)
         val type = when (typeStr?.uppercase()) {
@@ -307,16 +402,26 @@ class GenericScraperEngine(
 
         val actorElements = HtmlParser.select(document, itemSelector)
         return actorElements.mapNotNull { el ->
-            val name = RuleEvaluator.extractString(el, peopleConfig.fields["name"], config.baseUrl)
-                ?: el.text().trim()
-            if (name.isBlank()) return@mapNotNull null
+            val isLink = el.tagName().equals("a", ignoreCase = true)
+            val name = if (isLink && el.text().isNotBlank()) {
+                el.text().trim()
+            } else {
+                RuleEvaluator.extractString(el, peopleConfig.fields["name"], config.baseUrl)
+                    ?: el.selectFirst("a, .name, .title, strong")?.text()?.trim()
+                    ?: el.text().trim()
+            }
+            if (name.isBlank() || name.equals("Suggest", ignoreCase = true) || name.startsWith("+")) return@mapNotNull null
 
-            val url = RuleEvaluator.extractString(el, peopleConfig.fields["url"], config.baseUrl)
-                ?: el.selectFirst("a")?.attr("href")?.let { Transformer.resolveUrl(config.baseUrl, it) }
-                ?: ""
+            val url = if (isLink && el.hasAttr("href")) {
+                Transformer.resolveUrl(config.baseUrl, el.attr("href")) ?: el.attr("href")
+            } else {
+                RuleEvaluator.extractString(el, peopleConfig.fields["url"], config.baseUrl)
+                    ?: el.selectFirst("a")?.attr("href")?.let { Transformer.resolveUrl(config.baseUrl, it) }
+                    ?: ""
+            }
             val photoUrl = RuleEvaluator.extractString(el, peopleConfig.fields["photoUrl"], config.baseUrl)
-                ?: el.selectFirst("img")?.attr("src")?.let { Transformer.resolveUrl(config.baseUrl, it) }
-            val character = RuleEvaluator.extractString(el, peopleConfig.fields["character"], config.baseUrl)
+                ?: el.selectFirst("img")?.let { it.attr("data-src").ifBlank { it.attr("src") } }?.let { Transformer.resolveUrl(config.baseUrl, it) }
+            val character = RuleEvaluator.extractString(el, peopleConfig.fields["character"], config.baseUrl) ?: "Performer"
 
             CastMember(
                 person = Person(
@@ -414,43 +519,62 @@ class GenericScraperEngine(
 
     fun extractStreamSources(html: String, baseUrl: String): List<MediaSource> {
         val sources = mutableListOf<MediaSource>()
+        val seenUrls = mutableSetOf<String>()
 
-        // 1. Check video_url, video_alt_url, video_alt_url2, etc. in script blocks
-        val videoUrlRegex = Regex("""(?:video_url|video_alt_url\d*)\s*:\s*['"]([^'"]+)['"]""")
-        val textRegex = Regex("""(?:video_url_text|video_alt_url\d*_text)\s*:\s*['"]([^'"]+)['"]""")
+        fun addSource(name: String, rawUrl: String, qualityStr: String? = null) {
+            if (rawUrl.isBlank()) return
+            val unescaped = rawUrl.replace("\\/", "/").trim()
+            val resolvedUrl = Transformer.resolveUrl(baseUrl, unescaped) ?: unescaped
+            if (seenUrls.contains(resolvedUrl)) return
+            seenUrls.add(resolvedUrl)
 
-        val urlMatches = videoUrlRegex.findAll(html).map { it.groupValues[1] }.toList()
-        val textMatches = textRegex.findAll(html).map { it.groupValues[1] }.toList()
+            val qualityInt = qualityStr?.let { Regex("""(\d+)""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+                ?: Regex("""(\d{3,4})p?""").find(name)?.groupValues?.get(1)?.toIntOrNull()
+                ?: Regex("""(\d{3,4})p?""").find(resolvedUrl)?.groupValues?.get(1)?.toIntOrNull()
 
-        urlMatches.forEachIndexed { index, url ->
-            val resolvedUrl = Transformer.resolveUrl(baseUrl, url) ?: url
-            val qualityText = textMatches.getOrNull(index) ?: "Default"
-            val qualityInt = Regex("""(\d+)""").find(qualityText)?.groupValues?.get(1)?.toIntOrNull()
+            val label = if (qualityInt != null) "${qualityInt}p" else name
+
             sources.add(
                 MediaSource(
-                    name = qualityText,
+                    name = label,
                     url = resolvedUrl,
                     quality = qualityInt,
-                    isM3u8 = resolvedUrl.contains(".m3u8")
+                    isM3u8 = resolvedUrl.contains(".m3u8", ignoreCase = true)
                 )
             )
         }
 
-        // 2. Check <video><source src="..." /> tags
-        if (sources.isEmpty()) {
-            val doc = HtmlParser.parse(html, baseUrl)
-            doc.select("video source, video[src]").forEach { el ->
-                val src = el.attr("src").ifBlank { el.attr("data-src") }
-                if (src.isNotBlank()) {
-                    val resolved = Transformer.resolveUrl(baseUrl, src) ?: src
-                    sources.add(
-                        MediaSource(
-                            name = "Direct MP4",
-                            url = resolved,
-                            isM3u8 = resolved.contains(".m3u8")
-                        )
-                    )
-                }
+        // 1. KVS Flashvars patterns (covers video_url, video_alt_url, video_alt_url2..4, hls_url with : or = or [])
+        val kvsPattern = Regex("""(?i)(?:['"]?(?:video_url|video_alt_url\d*|hls_url)['"]?|flashvars\[['"](?:video_url|video_alt_url\d*|hls_url)['"]\]|flashvars\.(?:video_url|video_alt_url\d*|hls_url))\s*[:=]\s*['"]([^'"]+)['"]""")
+        val kvsTextPattern = Regex("""(?i)(?:['"]?(?:video_url_text|video_alt_url\d*_text)['"]?|flashvars\[['"](?:video_url_text|video_alt_url\d*_text)['"]\]|flashvars\.(?:video_url_text|video_alt_url\d*_text))\s*[:=]\s*['"]([^'"]+)['"]""")
+
+        val urlMatches = kvsPattern.findAll(html).map { it.groupValues[1] }.toList()
+        val textMatches = kvsTextPattern.findAll(html).map { it.groupValues[1] }.toList()
+
+        urlMatches.forEachIndexed { index, url ->
+            val qualityText = textMatches.getOrNull(index) ?: "Stream ${index + 1}"
+            addSource(qualityText, url, qualityText)
+        }
+
+        // 2. Direct HLS / M3U8 URLs in scripts
+        val m3u8Regex = Regex("""(?i)['"](https?://[^\s"'<>]+\.m3u8(?:\?[^\s"'<>]*)?)['"]""")
+        m3u8Regex.findAll(html).forEach { match ->
+            addSource("HLS Stream", match.groupValues[1])
+        }
+
+        // 3. Direct MP4 URLs in scripts (including /get_file/ links)
+        val mp4Regex = Regex("""(?i)['"]((?:https?://|/)[^\s"'<>]+\.mp4(?:\?[^\s"'<>]*)?)['"]""")
+        mp4Regex.findAll(html).forEach { match ->
+            addSource("Direct MP4", match.groupValues[1])
+        }
+
+        // 4. Check HTML5 <video> and <source> tags
+        val doc = HtmlParser.parse(html, baseUrl)
+        doc.select("video source, video[src], a[href*='.mp4'], a[href*='.m3u8']").forEach { el ->
+            val src = el.attr("src").ifBlank { el.attr("data-src") }.ifBlank { el.attr("href") }
+            if (src.isNotBlank()) {
+                val label = el.attr("title").ifBlank { el.attr("label") }.ifBlank { "Direct Video" }
+                addSource(label, src)
             }
         }
 

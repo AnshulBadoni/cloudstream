@@ -6,6 +6,7 @@ import com.cloudstream.scraper.config.SiteConfig
 import com.cloudstream.scraper.engine.GenericScraperEngine
 import com.cloudstream.scraper.engine.OkHttpScraperClient
 import com.cloudstream.scraper.engine.ScraperHttpClient
+import com.cloudstream.scraper.engine.Transformer
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 
@@ -60,29 +61,30 @@ open class GenericCloudStreamProvider(
     }
 
     override suspend fun load(url: String): LoadResponse? {
-        val customDetails = adapter.onCustomLoad(config, url, httpClient)
+        val fullUrl = Transformer.resolveUrl(config.baseUrl, url) ?: url
+        val customDetails = adapter.onCustomLoad(config, fullUrl, httpClient)
         if (customDetails != null) {
             return CloudStreamMapper.toLoadResponse(customDetails, name)
         }
 
         // 1. If URL matches actor/model pattern, fetch person filmography
-        val isPersonUrl = url.contains("/models/") || url.contains("/actor/") || url.contains("/person/") || url.contains("/model/")
+        val isPersonUrl = fullUrl.contains("/models/") || fullUrl.contains("/pornstars/") || fullUrl.contains("/actor/") || fullUrl.contains("/person/") || fullUrl.contains("/model/")
         if (isPersonUrl && config.people?.detail != null) {
-            val person = engine.getPerson(config, url)
+            val person = engine.getPerson(config, fullUrl)
             if (person != null && (person.name.isNotBlank() || person.knownFor.isNotEmpty())) {
                 return CloudStreamMapper.toLoadResponse(person, name)
             }
         }
 
         // 2. Otherwise load video / movie / series details
-        val details = engine.load(config, url)
+        val details = engine.load(config, fullUrl)
         if (details != null) {
             return CloudStreamMapper.toLoadResponse(details, name)
         }
 
         // 3. Fallback: try getPerson if load returned null
         if (config.people?.detail != null) {
-            val person = engine.getPerson(config, url)
+            val person = engine.getPerson(config, fullUrl)
             if (person != null) {
                 return CloudStreamMapper.toLoadResponse(person, name)
             }
@@ -97,7 +99,8 @@ open class GenericCloudStreamProvider(
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val customSources = adapter.onCustomLoadLinks(config, data, httpClient)
+        val fullDataUrl = Transformer.resolveUrl(config.baseUrl, data) ?: data
+        val customSources = adapter.onCustomLoadLinks(config, fullDataUrl, httpClient)
         if (customSources != null) {
             customSources.forEach { source ->
                 callback(CloudStreamMapper.toExtractorLink(source, name))
@@ -108,7 +111,7 @@ open class GenericCloudStreamProvider(
             return true
         }
 
-        val response = httpClient.get(data, config.headers)
+        val response = httpClient.get(fullDataUrl, config.headers)
         if (response.isSuccessful && response.body.isNotBlank()) {
             val sources = engine.extractStreamSources(response.body, config.baseUrl)
             sources.forEach { source ->

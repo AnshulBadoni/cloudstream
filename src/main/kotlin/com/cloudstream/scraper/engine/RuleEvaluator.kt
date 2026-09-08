@@ -32,7 +32,7 @@ object RuleEvaluator {
     }
 
     private fun evaluateSingleRule(element: Element, rule: ExtractionRule, baseUrl: String): Any? {
-        val targetElements = if (rule.selector.isNullOrBlank()) {
+        val targetElements = if (rule.selector.isNullOrBlank() || rule.selector.trim().equals("self", ignoreCase = true)) {
             listOf(element)
         } else {
             HtmlParser.select(element, rule.selector)

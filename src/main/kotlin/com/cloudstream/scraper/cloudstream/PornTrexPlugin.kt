@@ -134,27 +134,39 @@ class PornTrexPlugin : Plugin() {
         val detailsCommon = mapOf(
             "id" to ExtractionRule(selector = "meta[property='og:url']", attribute = "content"),
             "title" to ExtractionRule(
-                selector = "script:containsData(video_title), script:containsData(flashvars)",
-                extraction = ExtractionType.TEXT,
+                selector = "meta[property='og:title']",
+                attribute = "content",
                 transforms = listOf(
-                    TransformConfig(regex = "video_title:\\s*['\"]([^'\"]+)['\"]", group = 1),
+                    TransformConfig(regex = "^(.*?)(?:\\s*\\|.*)?$", group = 1),
                     TransformConfig(trim = true)
                 ),
                 fallbacks = listOf(
                     ExtractionRule(
-                        selector = "h1.title, h1, .headline h1",
+                        selector = "h1.title, h1, .headline h1, .video-details h1",
                         extraction = ExtractionType.TEXT,
                         transforms = listOf(
                             TransformConfig(regex = "^(.*?)(?:\\s*\\|.*)?$", group = 1),
+                            TransformConfig(trim = true)
+                        )
+                    ),
+                    ExtractionRule(
+                        selector = "script:containsData(video_title)",
+                        extraction = ExtractionType.TEXT,
+                        transforms = listOf(
+                            TransformConfig(regex = """(?i)(?:video_title|title)\s*[:=]\s*['"]([^'"]+)['"]""", group = 1),
                             TransformConfig(trim = true)
                         )
                     )
                 )
             ),
             "posterUrl" to ExtractionRule(
-                selector = "meta[property='og:image'], #player-holder video, .player-holder video",
-                attribute = "poster",
-                fallbacks = listOf(ExtractionRule(selector = "meta[property='og:image']", attribute = "content"))
+                selector = "meta[property='og:image']",
+                attribute = "content",
+                fallbacks = listOf(
+                    ExtractionRule(selector = "meta[name='twitter:image']", attribute = "content"),
+                    ExtractionRule(selector = "#player-holder video[poster], .player-holder video[poster], video[poster]", attribute = "poster"),
+                    ExtractionRule(selector = "link[rel='image_src']", attribute = "href")
+                )
             ),
             "description" to ExtractionRule(
                 selector = ".videodesc .items-holder em.des-link, .videodesc .des-link, .videodesc .items-holder, .videodesc, .main-container .description-block, .description-block, .video-details, .description",
@@ -162,6 +174,10 @@ class PornTrexPlugin : Plugin() {
                 transforms = listOf(
                     TransformConfig(replaceRegex = "^Description:\\s*", replacement = ""),
                     TransformConfig(trim = true)
+                ),
+                fallbacks = listOf(
+                    ExtractionRule(selector = "meta[property='og:description']", attribute = "content"),
+                    ExtractionRule(selector = "meta[name='description']", attribute = "content")
                 )
             ),
             "rating" to ExtractionRule(
@@ -171,11 +187,11 @@ class PornTrexPlugin : Plugin() {
                 type = FieldType.DOUBLE
             ),
             "genres" to ExtractionRule(
-                selector = ".block-details .items-holder.js-categories a:not(.js-open-suggest), .items-holder.js-categories a:not(.js-open-suggest), .item-categories a, .tags a, .categories-wrapper a",
+                selector = ".block-details a[href*='/categories/'], .block-details a[href*='/tags/'], .item-categories a, .item-tags a, .tags a",
                 extraction = ExtractionType.TEXT_LIST
             ),
             "tags" to ExtractionRule(
-                selector = ".block-details .items-holder.js-categories a:not(.js-open-suggest), .items-holder.js-categories a:not(.js-open-suggest), .tags a, .item-tags a",
+                selector = ".block-details a[href*='/tags/'], .item-tags a, .tags a",
                 extraction = ExtractionType.TEXT_LIST
             ),
             "releaseYear" to ExtractionRule(
@@ -196,14 +212,17 @@ class PornTrexPlugin : Plugin() {
         )
 
         val peopleConfig = PeopleConfig(
-            itemSelector = ".block-details .items-holder a[href*='/models/'], .item-models a, .models-list a, .list-models .item",
+            itemSelector = ".block-details a[href*='/models/'], .block-details a[href*='/pornstars/'], .item-models a, a[href*='/models/'], a[href*='/pornstars/'], .list-models .item",
             fields = mapOf(
                 "name" to ExtractionRule(
-                    selector = "self, a, strong.title, .title",
+                    selector = "self",
                     extraction = ExtractionType.TEXT,
-                    transforms = listOf(TransformConfig(trim = true))
+                    transforms = listOf(TransformConfig(trim = true)),
+                    fallbacks = listOf(
+                        ExtractionRule(selector = "strong.title, .title, a", extraction = ExtractionType.TEXT)
+                    )
                 ),
-                "url" to ExtractionRule(selector = "self, a", attribute = "href"),
+                "url" to ExtractionRule(selector = "self", attribute = "href", fallbacks = listOf(ExtractionRule(selector = "a", attribute = "href"))),
                 "photoUrl" to ExtractionRule(
                     selector = "img.thumb, img",
                     attribute = "data-src",
@@ -211,11 +230,20 @@ class PornTrexPlugin : Plugin() {
                 )
             ),
             detail = PersonDetailConfig(
-                name = ExtractionRule(selector = ".profile-model-info .name h1, h1.title, h1", extraction = ExtractionType.TEXT),
-                biography = ExtractionRule(
-                    selector = ".main-container .description-block, .profile-model-info .description-block, .profile-model-info .description, .model-description, .description-block",
+                name = ExtractionRule(
+                    selector = ".profile-model-info h1, .profile-model-info .name h1, h1.title, h1, meta[property='og:title']",
                     extraction = ExtractionType.TEXT,
-                    transforms = listOf(TransformConfig(trim = true))
+                    fallbacks = listOf(
+                        ExtractionRule(selector = "meta[property='og:title']", attribute = "content")
+                    )
+                ),
+                biography = ExtractionRule(
+                    selector = ".profile-model-info .description-block, .profile-model-info .description, .model-description, .main-container .description-block, .description-block",
+                    extraction = ExtractionType.TEXT,
+                    transforms = listOf(TransformConfig(trim = true)),
+                    fallbacks = listOf(
+                        ExtractionRule(selector = "meta[property='og:description']", attribute = "content")
+                    )
                 ),
                 photoUrl = ExtractionRule(
                     selector = ".profile-model-info .img-holder img, .profile-model-info img, .img-holder img",
@@ -225,10 +253,10 @@ class PornTrexPlugin : Plugin() {
                         ExtractionRule(selector = "meta[property='og:image']", attribute = "content")
                     )
                 ),
-                knownForSelector = ".video-preview-screen, .video-item, .list-videos .item",
+                knownForSelector = ".list-videos .item:has(a[href*='/videos/']), .list-videos .item:has(a.thumb), .video-preview-screen, .video-item, .item:has(a.thumb)",
                 knownForFields = mapOf(
                     "title" to ExtractionRule(selector = "p.inf a, strong.title, .title, a[title]", extraction = ExtractionType.TEXT),
-                    "url" to ExtractionRule(selector = "a.thumb, a", attribute = "href"),
+                    "url" to ExtractionRule(selector = "a.thumb, a[href*='/videos/'], a", attribute = "href"),
                     "posterUrl" to ExtractionRule(
                         selector = "img.cover, img.thumb, img",
                         attribute = "data-src",
