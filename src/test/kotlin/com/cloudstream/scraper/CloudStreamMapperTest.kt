@@ -11,6 +11,11 @@ import org.junit.jupiter.api.Test
 
 class CloudStreamMapperTest {
 
+    private val testApi = object : MainAPI() {
+        override var name = "TestProvider"
+        override var mainUrl = "https://example.com"
+    }
+
     @Test
     fun `toSearchResponse should map Movie and TV search results to CloudStream classes`() {
         val movieResult = SearchResult(
@@ -22,7 +27,7 @@ class CloudStreamMapperTest {
             releaseYear = 2023,
             rating = 8.5
         )
-        val response = CloudStreamMapper.toSearchResponse(movieResult, "TestProvider")
+        val response = CloudStreamMapper.toSearchResponse(movieResult, testApi)
         assertTrue(response is MovieSearchResponse)
         assertEquals("Test Movie", response.name)
         assertEquals("https://example.com/movie/1", response.url)
@@ -35,13 +40,13 @@ class CloudStreamMapperTest {
             url = "https://example.com/tv/1",
             type = MediaType.TV_SERIES
         )
-        val seriesResponse = CloudStreamMapper.toSearchResponse(seriesResult, "TestProvider")
+        val seriesResponse = CloudStreamMapper.toSearchResponse(seriesResult, testApi)
         assertTrue(seriesResponse is TvSeriesSearchResponse)
         assertEquals(TvType.TvSeries, seriesResponse.type)
     }
 
     @Test
-    fun `toLoadResponse should map Movie and Series details into LoadResponse`() {
+    fun `toLoadResponse should map Movie and Series details into LoadResponse`() = runBlocking {
         val movie = Movie(
             id = "m1",
             title = "Inception",
@@ -58,15 +63,14 @@ class CloudStreamMapperTest {
                 )
             )
         )
-        val loadResponse = CloudStreamMapper.toLoadResponse(movie, "TestProvider")
-        assertTrue(loadResponse is TvSeriesLoadResponse)
+        val loadResponse = CloudStreamMapper.toLoadResponse(movie, testApi)
+        assertTrue(loadResponse is MovieLoadResponse)
         assertEquals("Inception", loadResponse.name)
-        assertEquals(148, (loadResponse as TvSeriesLoadResponse).duration)
+        assertEquals(148, (loadResponse as MovieLoadResponse).duration)
         assertEquals(88, loadResponse.rating)
         assertEquals(1, loadResponse.actors?.size)
         assertEquals("Leonardo DiCaprio", loadResponse.actors?.get(0)?.actor?.name)
         assertEquals("Cobb", loadResponse.actors?.get(0)?.roleString)
-        assertEquals(1, loadResponse.episodes.size)
     }
 
     @Test
@@ -101,7 +105,7 @@ class CloudStreamMapperTest {
         val loadResult = provider.load("https://trexton.com/movie/the-dark-knight")
         assertNotNull(loadResult)
         assertEquals("The Dark Knight", loadResult?.name)
-        assertTrue(loadResult is TvSeriesLoadResponse)
+        assertTrue(loadResult is MovieLoadResponse)
 
         // 4. Main Page (Catalog)
         val homePage = provider.getMainPage(1, MainPageRequest("Latest Movies", "latest"))
@@ -112,7 +116,7 @@ class CloudStreamMapperTest {
     }
 
     @Test
-    fun `toLoadResponse should map Person profile and filmography into LoadResponse`() {
+    fun `toLoadResponse should map Person profile and filmography into LoadResponse`() = runBlocking {
         val person = Person(
             id = "p1",
             name = "Angela White",
@@ -136,13 +140,12 @@ class CloudStreamMapperTest {
                 )
             )
         )
-        val loadResponse = CloudStreamMapper.toLoadResponse(person, "TestProvider")
-        assertTrue(loadResponse is TvSeriesLoadResponse)
+        val loadResponse = CloudStreamMapper.toLoadResponse(person, testApi)
+        assertTrue(loadResponse is MovieLoadResponse)
         assertEquals("Angela White", loadResponse.name)
         assertEquals("https://example.com/models/angela-white", loadResponse.url)
         assertEquals("https://example.com/photo.jpg", loadResponse.posterUrl)
         assertEquals("Star performer", loadResponse.plot)
-        assertEquals(2, (loadResponse as TvSeriesLoadResponse).episodes.size)
         assertEquals(2, loadResponse.recommendations?.size)
         assertEquals("Scene 1", loadResponse.recommendations?.get(0)?.name)
         assertEquals("Scene 2", loadResponse.recommendations?.get(1)?.name)

@@ -18,28 +18,26 @@ object CloudStreamMapper {
         }
     }
 
-    fun toSearchResponse(result: SearchResult, apiName: String): SearchResponse {
+    fun toSearchResponse(result: SearchResult, api: MainAPI): SearchResponse {
         val tvType = toTvType(result.type)
         val score = result.rating?.let { Score.from10(it) }
         return when (tvType) {
-            TvType.TvSeries -> TvSeriesSearchResponse(
+            TvType.TvSeries -> api.newTvSeriesSearchResponse(
                 name = result.title,
                 url = result.url,
-                apiName = apiName,
                 type = tvType
-            ).apply {
-                posterUrl = result.posterUrl
-                year = result.releaseYear
+            ) {
+                this.posterUrl = result.posterUrl
+                this.year = result.releaseYear
                 this.score = score
             }
-            else -> MovieSearchResponse(
+            else -> api.newMovieSearchResponse(
                 name = result.title,
                 url = result.url,
-                apiName = apiName,
                 type = tvType
-            ).apply {
-                posterUrl = result.posterUrl
-                year = result.releaseYear
+            ) {
+                this.posterUrl = result.posterUrl
+                this.year = result.releaseYear
                 this.score = score
             }
         }
@@ -68,109 +66,59 @@ object CloudStreamMapper {
         }
     }
 
-    fun toLoadResponse(details: MediaDetails, apiName: String): LoadResponse {
+    suspend fun toLoadResponse(details: MediaDetails, api: MainAPI): LoadResponse {
         val actors = details.cast.map { toActorData(it) }.ifEmpty { null }
         val score = details.rating?.let { Score.from10(it) }
         val tvType = toTvType(details.type)
-        val trailers = details.trailerUrl?.let { mutableListOf(TrailerData(it)) } ?: mutableListOf()
 
         return when (details) {
             is Movie -> {
-                val singleEpisode = Episode(
-                    data = details.url
-                ).apply {
-                    name = details.title
-                    season = 1
-                    episode = 1
-                    posterUrl = details.posterUrl
-                    this.score = score
-                    description = details.description
-                }
-                TvSeriesLoadResponse(
+                api.newMovieLoadResponse(
                     name = details.title,
                     url = details.url,
-                    apiName = apiName,
                     type = tvType,
-                    episodes = listOf(singleEpisode)
-                ).apply {
-                    posterUrl = details.posterUrl
-                    year = details.releaseYear
-                    plot = details.description
+                    dataUrl = details.url
+                ) {
+                    this.posterUrl = details.posterUrl
+                    this.year = details.releaseYear
+                    this.plot = details.description
                     this.score = score
-                    tags = (details.genres + details.tags).distinct().ifEmpty { null }
-                    duration = details.durationMinutes
-                    this.trailers = trailers
+                    this.tags = (details.genres + details.tags).distinct().ifEmpty { null }
+                    this.duration = details.durationMinutes
                     this.actors = actors
                 }
             }
             is Series -> {
                 val flatEpisodes = details.seasons.flatMap { it.episodes }.map { toEpisode(it) }
-                TvSeriesLoadResponse(
+                api.newTvSeriesLoadResponse(
                     name = details.title,
                     url = details.url,
-                    apiName = apiName,
                     type = tvType,
-                    episodes = flatEpisodes.ifEmpty {
-                        listOf(
-                            Episode(data = details.url).apply {
-                                name = details.title
-                                season = 1
-                                episode = 1
-                                posterUrl = details.posterUrl
-                            }
-                        )
-                    }
-                ).apply {
-                    posterUrl = details.posterUrl
-                    year = details.releaseYear
-                    plot = details.description
+                    episodes = flatEpisodes
+                ) {
+                    this.posterUrl = details.posterUrl
+                    this.year = details.releaseYear
+                    this.plot = details.description
                     this.score = score
-                    tags = (details.genres + details.tags).distinct().ifEmpty { null }
-                    this.trailers = trailers
+                    this.tags = (details.genres + details.tags).distinct().ifEmpty { null }
                     this.actors = actors
                 }
             }
         }
     }
 
-    fun toLoadResponse(person: Person, apiName: String): LoadResponse {
-        val episodes = if (person.knownFor.isNotEmpty()) {
-            person.knownFor.mapIndexed { idx, item ->
-                Episode(
-                    data = item.url
-                ).apply {
-                    name = item.title
-                    episode = idx + 1
-                    season = 1
-                    posterUrl = item.posterUrl
-                    this.score = item.rating?.let { Score.from10(it) }
-                }
-            }
-        } else {
-            listOf(
-                Episode(
-                    data = person.url
-                ).apply {
-                    name = person.name
-                    episode = 1
-                    season = 1
-                    posterUrl = person.photoUrl
-                    description = person.biography
-                }
-            )
-        }
-        val videoRecommendations = person.knownFor.map { toSearchResponse(it, apiName) }.ifEmpty { null }
-        return TvSeriesLoadResponse(
+    suspend fun toLoadResponse(person: Person, api: MainAPI): LoadResponse {
+        val videoRecommendations = person.knownFor.map { toSearchResponse(it, api) }.ifEmpty { null }
+        return api.newMovieLoadResponse(
             name = person.name,
             url = person.url,
-            apiName = apiName,
             type = TvType.NSFW,
-            episodes = episodes
-        ).apply {
-            posterUrl = person.photoUrl
-            plot = person.biography ?: "Performer profile with ${person.knownFor.size} videos."
-            recommendations = videoRecommendations
-            actors = listOf(ActorData(Actor(person.name, person.photoUrl), roleString = "Performer"))
+            dataUrl = person.url
+        ) {
+            this.posterUrl = person.photoUrl
+            this.plot = person.biography ?: "Performer profile with ${person.knownFor.size} videos."
+            this.recommendations = videoRecommendations
+            this.actors = listOf(ActorData(Actor(person.name, person.photoUrl), roleString = "Performer"))
         }
     }
 

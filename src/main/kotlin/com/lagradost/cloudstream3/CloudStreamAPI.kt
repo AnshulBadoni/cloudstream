@@ -277,3 +277,129 @@ abstract class MainAPI {
         callback: (ExtractorLink) -> Unit = {}
     ): Boolean = false
 }
+
+suspend fun MainAPI.newMovieLoadResponse(
+    name: String,
+    url: String,
+    type: TvType,
+    dataUrl: String,
+    builder: suspend MovieLoadResponse.() -> Unit = {}
+): MovieLoadResponse {
+    val res = MovieLoadResponse(
+        name = name,
+        url = url,
+        apiName = this.name,
+        type = type,
+        dataUrl = dataUrl,
+        posterUrl = null,
+        year = null,
+        plot = null,
+        score = null,
+        tags = null,
+        duration = null,
+        trailers = mutableListOf(),
+        recommendations = null,
+        actors = null,
+        comingSoon = false,
+        syncData = mutableMapOf(),
+        posterHeaders = null,
+        backgroundPosterUrl = null,
+        logoUrl = null,
+        contentRating = null
+    )
+    res.builder()
+    return res
+}
+
+suspend fun MainAPI.newTvSeriesLoadResponse(
+    name: String,
+    url: String,
+    type: TvType,
+    episodes: List<Episode>,
+    builder: suspend TvSeriesLoadResponse.() -> Unit = {}
+): TvSeriesLoadResponse {
+    val res = TvSeriesLoadResponse(
+        name = name,
+        url = url,
+        apiName = this.name,
+        type = type,
+        episodes = episodes,
+        posterUrl = null,
+        year = null,
+        plot = null,
+        showStatus = null,
+        score = null,
+        tags = null,
+        duration = null,
+        trailers = mutableListOf(),
+        recommendations = null,
+        actors = null,
+        comingSoon = false,
+        syncData = mutableMapOf(),
+        posterHeaders = null,
+        nextAiring = null,
+        seasonNames = null,
+        backgroundPosterUrl = null,
+        logoUrl = null,
+        contentRating = null
+    )
+    res.builder()
+    return res
+}
+
+fun MainAPI.newMovieSearchResponse(
+    name: String,
+    url: String,
+    type: TvType = TvType.Movie,
+    fix: Boolean = true,
+    builder: MovieSearchResponse.() -> Unit = {}
+): MovieSearchResponse {
+    val res = MovieSearchResponse(
+        name = name,
+        url = url,
+        apiName = this.name,
+        type = type,
+        posterUrl = null,
+        year = null,
+        id = null,
+        quality = null,
+        posterHeaders = null,
+        score = null
+    )
+    res.builder()
+    return res
+}
+
+fun MainAPI.newTvSeriesSearchResponse(
+    name: String,
+    url: String,
+    type: TvType = TvType.TvSeries,
+    fix: Boolean = true,
+    builder: TvSeriesSearchResponse.() -> Unit = {}
+): TvSeriesSearchResponse {
+    val res = TvSeriesSearchResponse(
+        name = name,
+        url = url,
+        apiName = this.name,
+        type = type,
+        posterUrl = null,
+        year = null,
+        episodes = null,
+        id = null,
+        quality = null,
+        posterHeaders = null,
+        score = null
+    )
+    res.builder()
+    return res
+}
+
+fun MainAPI.newHomePageResponse(
+    items: List<HomePageList>,
+    hasNext: Boolean = false
+): HomePageResponse {
+    return HomePageResponse(
+        items = items,
+        hasNext = hasNext
+    )
+}

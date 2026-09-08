@@ -41,14 +41,14 @@ open class GenericCloudStreamProvider(
         val customCatalog = adapter.onCustomGetCatalog(config, catalogConfig, page, httpClient)
         val catalog = customCatalog ?: engine.getCatalog(config, catalogConfig, page)
 
-        val searchResponses = catalog.items.map { CloudStreamMapper.toSearchResponse(it, name) }
+        val searchResponses = catalog.items.map { CloudStreamMapper.toSearchResponse(it, this) }
         val homePageList = HomePageList(
             name = catalog.name,
             list = searchResponses,
             isHorizontalImages = request.horizontalImages
         )
 
-        return HomePageResponse(
+        return newHomePageResponse(
             items = listOf(homePageList),
             hasNext = catalog.hasNextPage
         )
@@ -57,7 +57,7 @@ open class GenericCloudStreamProvider(
     override suspend fun search(query: String): List<SearchResponse> {
         val customResults = adapter.onCustomSearch(config, query, page = 1, httpClient)
         val results = customResults ?: engine.search(config, query, page = 1)
-        return results.map { CloudStreamMapper.toSearchResponse(it, name) }
+        return results.map { CloudStreamMapper.toSearchResponse(it, this) }
     }
 
     override suspend fun load(url: String): LoadResponse? {
@@ -65,7 +65,7 @@ open class GenericCloudStreamProvider(
         return try {
             val customDetails = adapter.onCustomLoad(config, fullUrl, httpClient)
             if (customDetails != null) {
-                return CloudStreamMapper.toLoadResponse(customDetails, name)
+                return CloudStreamMapper.toLoadResponse(customDetails, this)
             }
 
             // 1. If URL matches actor/model pattern, fetch person filmography
@@ -73,48 +73,45 @@ open class GenericCloudStreamProvider(
             if (isPersonUrl && config.people?.detail != null) {
                 val person = engine.getPerson(config, fullUrl)
                 if (person != null && (person.name.isNotBlank() || person.knownFor.isNotEmpty())) {
-                    return CloudStreamMapper.toLoadResponse(person, name)
+                    return CloudStreamMapper.toLoadResponse(person, this)
                 }
             }
 
             // 2. Otherwise load video / movie / series details
             val details = engine.load(config, fullUrl)
             if (details != null) {
-                return CloudStreamMapper.toLoadResponse(details, name)
+                return CloudStreamMapper.toLoadResponse(details, this)
             }
 
             // 3. Fallback: try getPerson if load returned null
             if (config.people?.detail != null) {
                 val person = engine.getPerson(config, fullUrl)
                 if (person != null) {
-                    return CloudStreamMapper.toLoadResponse(person, name)
+                    return CloudStreamMapper.toLoadResponse(person, this)
                 }
             }
 
-            // 4. Fallback: Always return a valid MovieLoadResponse so the app NEVER says "no episode available"
+            // 4. Ultimate fallback
             val fallbackTitle = fullUrl.trimEnd('/').substringAfterLast('/').replace("-", " ")
                 .split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
-            MovieLoadResponse(
+            newMovieLoadResponse(
                 name = fallbackTitle.ifBlank { name },
                 url = fullUrl,
-                apiName = name,
                 type = if (config.isNsfw) TvType.NSFW else TvType.Movie,
-                dataUrl = fullUrl,
-                posterUrl = null,
-                plot = "Streaming video from $name"
-            )
+                dataUrl = fullUrl
+            ) {
+                this.plot = "Streaming video from $name"
+            }
         } catch (e: Throwable) {
             val fallbackTitle = fullUrl.trimEnd('/').substringAfterLast('/').replace("-", " ")
-                .split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
-            MovieLoadResponse(
+            newMovieLoadResponse(
                 name = fallbackTitle.ifBlank { name },
                 url = fullUrl,
-                apiName = name,
                 type = if (config.isNsfw) TvType.NSFW else TvType.Movie,
-                dataUrl = fullUrl,
-                posterUrl = null,
-                plot = "Streaming video from $name"
-            )
+                dataUrl = fullUrl
+            ) {
+                this.plot = "Streaming video from $name"
+            }
         }
     }
 
