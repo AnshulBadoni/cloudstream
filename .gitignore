@@ -17,5 +17,6 @@ Thumbs.db
 *.log
 
 # Scraper temporary debug outputs
-*.html
+/*.html
+!src/test/resources/**
 fetch_html.js
