@@ -1,6 +1,7 @@
 package com.cloudstream.scraper.cloudstream
 
 import com.cloudstream.scraper.config.ConfigLoader
+import com.cloudstream.scraper.config.SiteConfig
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 import com.lagradost.cloudstream3.plugins.Plugin
 
@@ -8,10 +9,20 @@ import com.lagradost.cloudstream3.plugins.Plugin
 class PornTrexPlugin : Plugin() {
     override fun load(context: Any?) {
         try {
-            val config = ConfigLoader.loadFromResource("/sites/first-site.yaml")
-            registerMainAPI(GenericCloudStreamProvider(config))
-        } catch (e: Exception) {
+            val config = loadConfig()
+            val provider = GenericCloudStreamProvider(config)
+            registerMainAPI(provider)
+            println("✓ Successfully registered PornTrex provider: ${provider.name}")
+        } catch (e: Throwable) {
             println("Failed to initialize PornTrexPlugin: ${e.message}")
+        }
+    }
+
+    private fun loadConfig(): SiteConfig {
+        return try {
+            ConfigLoader.loadFromResource("/sites/first-site.yaml")
+        } catch (e: Throwable) {
+            ConfigLoader.loadFromString(EMBEDDED_PORNTREX_YAML)
         }
     }
 }

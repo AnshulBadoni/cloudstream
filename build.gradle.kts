@@ -151,12 +151,13 @@ tasks.register("makePlugin") {
 [
   {
     "name": "PornTrex",
+    "internalName": "PornTrex",
     "pluginClassName": "com.cloudstream.scraper.cloudstream.PornTrexPlugin",
     "version": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],
-    "status": 1,
-    "types": ["NSFW"],
+    "status": 3,
+    "types": ["NSFW", "Movie", "Others"],
     "iconUrl": "https://www.porntrex.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PornTrex.cs3",
     "fileSize": ${if (cs3File.exists()) cs3File.length() else 102400}
