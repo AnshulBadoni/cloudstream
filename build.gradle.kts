@@ -109,16 +109,37 @@ tasks.register("makePlugin") {
             return null
         }
 
+        fun findAndroidJar(): String? {
+            val androidHome = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+                ?: System.getenv("LOCALAPPDATA")?.let { "$it/Android/Sdk" }
+            if (androidHome != null) {
+                val platformsDir = File(androidHome, "platforms")
+                if (platformsDir.exists()) {
+                    val latestPlatform = platformsDir.listFiles()?.filter { it.isDirectory }?.maxByOrNull { it.name }
+                    val jar = latestPlatform?.let { File(it, "android.jar") }
+                    if (jar != null && jar.exists()) return jar.absolutePath
+                }
+            }
+            return null
+        }
+
         val d8Path = findD8()
+        val androidJar = findAndroidJar()
         if (d8Path != null && File(d8Path).exists()) {
             println("Converting JAR to Dalvik DEX via d8 ($d8Path)...")
-            val process = ProcessBuilder(
+            val cmd = mutableListOf(
                 d8Path,
                 "--release",
-                "--min-api", "26",
-                "--output", dexDir.absolutePath,
-                jarFile.absolutePath
-            ).redirectErrorStream(true).start()
+                "--min-api", "21",
+                "--output", dexDir.absolutePath
+            )
+            if (androidJar != null) {
+                cmd.add("--lib")
+                cmd.add(androidJar)
+            }
+            cmd.add(jarFile.absolutePath)
+
+            val process = ProcessBuilder(cmd).redirectErrorStream(true).start()
 
             val output = process.inputStream.bufferedReader().readText()
             process.waitFor()
