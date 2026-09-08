@@ -56,3 +56,41 @@ tasks.test {
 application {
     mainClass.set("com.cloudstream.scraper.cli.ScraperDebugRunnerKt")
 }
+
+tasks.register("makePlugin") {
+    dependsOn("jar")
+    doLast {
+        val distDir = file("build/dist")
+        distDir.mkdirs()
+
+        val libsDir = file("build/libs")
+        val jarFile = libsDir.listFiles()?.firstOrNull { it.extension == "jar" && !it.name.contains("plain") }
+            ?: file("build/libs/cloudstrem_Scrapper-1.0.0.jar")
+
+        val cs3File = File(distDir, "PornTrex.cs3")
+        if (jarFile.exists()) {
+            jarFile.copyTo(cs3File, overwrite = true)
+        }
+
+        val pluginsJson = """
+[
+  {
+    "name": "PornTrex",
+    "pluginClassName": "com.cloudstream.scraper.cloudstream.PornTrexPlugin",
+    "version": 1,
+    "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
+    "authors": ["AnshulBadoni"],
+    "status": 1,
+    "types": ["NSFW"],
+    "iconUrl": "https://www.porntrex.com/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PornTrex.cs3",
+    "fileSize": ${if (cs3File.exists()) cs3File.length() else 102400}
+  }
+]
+        """.trimIndent()
+
+        File(distDir, "plugins.json").writeText(pluginsJson)
+        File(distDir, "builds.json").writeText(pluginsJson)
+        println("✓ Successfully generated plugins.json and PornTrex.cs3 in ${distDir.absolutePath}")
+    }
+}
