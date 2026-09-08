@@ -65,6 +65,8 @@ tasks.jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     exclude("android/**")
     exclude("com/lagradost/**")
+    exclude("com/cloudstream/scraper/cli/**")
+    exclude("com/cloudstream/scraper/config/ConfigLoader*")
 }
 
 tasks.register("makePlugin") {
@@ -127,23 +129,17 @@ tasks.register("makePlugin") {
 
         val cs3File = File(distDir, "PornTrex.cs3")
         val manifestFile = file("manifest.json")
-        val yamlFile = file("src/main/resources/sites/first-site.yaml")
 
-        // Create .cs3 ZIP archive containing all classes*.dex, manifest.json, and site yaml
+        // Create .cs3 ZIP archive containing manifest.json first, then classes*.dex
         ZipOutputStream(FileOutputStream(cs3File)).use { zos ->
-            dexDir.listFiles()?.filter { it.extension == "dex" }?.sortedBy { it.name }?.forEach { dexFile ->
-                zos.putNextEntry(ZipEntry(dexFile.name))
-                dexFile.inputStream().use { it.copyTo(zos) }
-                zos.closeEntry()
-            }
             if (manifestFile.exists()) {
                 zos.putNextEntry(ZipEntry("manifest.json"))
                 manifestFile.inputStream().use { it.copyTo(zos) }
                 zos.closeEntry()
             }
-            if (yamlFile.exists()) {
-                zos.putNextEntry(ZipEntry("sites/first-site.yaml"))
-                yamlFile.inputStream().use { it.copyTo(zos) }
+            dexDir.listFiles()?.filter { it.extension == "dex" }?.sortedBy { it.name }?.forEach { dexFile ->
+                zos.putNextEntry(ZipEntry(dexFile.name))
+                dexFile.inputStream().use { it.copyTo(zos) }
                 zos.closeEntry()
             }
         }
@@ -158,7 +154,9 @@ tasks.register("makePlugin") {
     "apiVersion": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,
+    "language": "en",
     "types": ["NSFW", "Movie", "Others"],
     "tvTypes": ["NSFW", "Movie", "Others"],
     "iconUrl": "https://www.porntrex.com/favicon.ico",

@@ -19,6 +19,10 @@ import com.lagradost.cloudstream3.plugins.Plugin
 @CloudstreamPlugin
 class PornTrexPlugin : Plugin() {
 
+    override fun load() {
+        initPlugin()
+    }
+
     override fun load(context: Context) {
         initPlugin()
     }

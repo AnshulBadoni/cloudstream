@@ -7,15 +7,24 @@ import com.lagradost.cloudstream3.MainAPI
 @Retention(AnnotationRetention.RUNTIME)
 annotation class CloudstreamPlugin
 
-abstract class Plugin {
-    open var resources: Any? = null
+abstract class BasePlugin {
     open var filename: String? = null
     val registeredAPIs = mutableListOf<MainAPI>()
 
-    open fun load(context: Context) {}
-    open fun load(context: Any? = null) {}
+    open fun load() {}
 
     fun registerMainAPI(api: MainAPI) {
         registeredAPIs.add(api)
+    }
+}
+
+abstract class Plugin : BasePlugin() {
+    open var resources: Any? = null
+
+    open fun load(context: Context) {
+        load()
+    }
+    open fun load(context: Any?) {
+        load()
     }
 }
