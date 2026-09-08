@@ -75,21 +75,33 @@ object CloudStreamMapper {
         val trailers = details.trailerUrl?.let { mutableListOf(TrailerData(it)) } ?: mutableListOf()
 
         return when (details) {
-            is Movie -> MovieLoadResponse(
-                name = details.title,
-                url = details.url,
-                apiName = apiName,
-                type = tvType,
-                dataUrl = details.url
-            ).apply {
-                posterUrl = details.posterUrl
-                year = details.releaseYear
-                plot = details.description
-                this.score = score
-                tags = (details.genres + details.tags).distinct().ifEmpty { null }
-                duration = details.durationMinutes
-                this.trailers = trailers
-                this.actors = actors
+            is Movie -> {
+                val singleEpisode = Episode(
+                    data = details.url
+                ).apply {
+                    name = details.title
+                    season = 1
+                    episode = 1
+                    posterUrl = details.posterUrl
+                    this.score = score
+                    description = details.description
+                }
+                TvSeriesLoadResponse(
+                    name = details.title,
+                    url = details.url,
+                    apiName = apiName,
+                    type = tvType,
+                    episodes = listOf(singleEpisode)
+                ).apply {
+                    posterUrl = details.posterUrl
+                    year = details.releaseYear
+                    plot = details.description
+                    this.score = score
+                    tags = (details.genres + details.tags).distinct().ifEmpty { null }
+                    duration = details.durationMinutes
+                    this.trailers = trailers
+                    this.actors = actors
+                }
             }
             is Series -> {
                 val flatEpisodes = details.seasons.flatMap { it.episodes }.map { toEpisode(it) }
@@ -98,7 +110,16 @@ object CloudStreamMapper {
                     url = details.url,
                     apiName = apiName,
                     type = tvType,
-                    episodes = flatEpisodes
+                    episodes = flatEpisodes.ifEmpty {
+                        listOf(
+                            Episode(data = details.url).apply {
+                                name = details.title
+                                season = 1
+                                episode = 1
+                                posterUrl = details.posterUrl
+                            }
+                        )
+                    }
                 ).apply {
                     posterUrl = details.posterUrl
                     year = details.releaseYear
@@ -113,13 +134,38 @@ object CloudStreamMapper {
     }
 
     fun toLoadResponse(person: Person, apiName: String): LoadResponse {
+        val episodes = if (person.knownFor.isNotEmpty()) {
+            person.knownFor.mapIndexed { idx, item ->
+                Episode(
+                    data = item.url
+                ).apply {
+                    name = item.title
+                    episode = idx + 1
+                    season = 1
+                    posterUrl = item.posterUrl
+                    this.score = item.rating?.let { Score.from10(it) }
+                }
+            }
+        } else {
+            listOf(
+                Episode(
+                    data = person.url
+                ).apply {
+                    name = person.name
+                    episode = 1
+                    season = 1
+                    posterUrl = person.photoUrl
+                    description = person.biography
+                }
+            )
+        }
         val videoRecommendations = person.knownFor.map { toSearchResponse(it, apiName) }.ifEmpty { null }
-        return MovieLoadResponse(
+        return TvSeriesLoadResponse(
             name = person.name,
             url = person.url,
             apiName = apiName,
             type = TvType.NSFW,
-            dataUrl = person.url
+            episodes = episodes
         ).apply {
             posterUrl = person.photoUrl
             plot = person.biography ?: "Performer profile with ${person.knownFor.size} videos."
