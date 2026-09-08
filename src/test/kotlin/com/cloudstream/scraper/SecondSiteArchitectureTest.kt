@@ -1,7 +1,7 @@
 package com.cloudstream.scraper
 
 import com.cloudstream.scraper.cloudstream.GenericCloudStreamProvider
-import com.cloudstream.scraper.cloudstream.MainPageRequest
+import com.lagradost.cloudstream3.MainPageRequest
 import com.cloudstream.scraper.config.ConfigLoader
 import com.cloudstream.scraper.engine.GenericScraperEngine
 import com.cloudstream.scraper.engine.MockScraperHttpClient

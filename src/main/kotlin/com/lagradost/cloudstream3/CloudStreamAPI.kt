@@ -1,9 +1,6 @@
-package com.cloudstream.scraper.cloudstream
+package com.lagradost.cloudstream3
 
-/**
- * Standard CloudStream API contracts matching com.lagradost.cloudstream3.*
- * This guarantees exact API compatibility without tying the standalone engine compile phase to Android libraries.
- */
+import com.lagradost.cloudstream3.utils.ExtractorLink
 
 enum class TvType {
     Movie,
@@ -29,6 +26,10 @@ enum class Qualities(val value: Int) {
 data class Actor(val name: String, val image: String? = null)
 data class ActorData(val actor: Actor, val roleString: String? = null, val voiceActor: Actor? = null)
 
+enum class SearchQuality {
+    SD, HD, UHD, Cam, TeleSync, BlueRay, FourK
+}
+
 interface SearchResponse {
     val name: String
     val url: String
@@ -38,10 +39,6 @@ interface SearchResponse {
     var id: Int?
     var quality: SearchQuality?
     var posterHeaders: Map<String, String>?
-}
-
-enum class SearchQuality {
-    SD, HD, UHD, Cam, TeleSync, BlueRay, FourK
 }
 
 data class MovieSearchResponse(
@@ -106,7 +103,7 @@ data class TvSeriesLoadResponse(
     override val url: String,
     override val apiName: String,
     override val type: TvType = TvType.TvSeries,
-    val episodes: List<CloudStreamEpisode>,
+    val episodes: List<Episode>,
     override var posterUrl: String? = null,
     override var year: Int? = null,
     override var plot: String? = null,
@@ -118,7 +115,7 @@ data class TvSeriesLoadResponse(
     override var trailerUrl: String? = null
 ) : LoadResponse
 
-data class CloudStreamEpisode(
+data class Episode(
     val data: String,
     val name: String? = null,
     val season: Int? = null,
@@ -128,6 +125,8 @@ data class CloudStreamEpisode(
     val description: String? = null,
     val date: String? = null
 )
+
+typealias CloudStreamEpisode = Episode
 
 data class MainPageData(
     val name: String,
@@ -150,16 +149,6 @@ data class HomePageList(
 data class HomePageResponse(
     val items: List<HomePageList>,
     val hasNext: Boolean = false
-)
-
-data class ExtractorLink(
-    val source: String,
-    val name: String,
-    val url: String,
-    val referer: String = "",
-    val quality: Int = Qualities.Unknown.value,
-    val isM3u8: Boolean = false,
-    val headers: Map<String, String> = emptyMap()
 )
 
 data class SubtitleFile(
@@ -185,18 +174,4 @@ abstract class MainAPI {
         subtitleCallback: (SubtitleFile) -> Unit = {},
         callback: (ExtractorLink) -> Unit = {}
     ): Boolean = false
-}
-
-annotation class CloudstreamPlugin
-
-abstract class Plugin {
-    open var resources: Any? = null
-    open var filename: String? = null
-    val registeredAPIs = mutableListOf<MainAPI>()
-
-    open fun load(context: Any? = null) {}
-
-    fun registerMainAPI(api: MainAPI) {
-        registeredAPIs.add(api)
-    }
 }

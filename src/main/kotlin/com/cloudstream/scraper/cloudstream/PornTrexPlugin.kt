@@ -1,6 +1,8 @@
 package com.cloudstream.scraper.cloudstream
 
 import com.cloudstream.scraper.config.ConfigLoader
+import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
+import com.lagradost.cloudstream3.plugins.Plugin
 
 @CloudstreamPlugin
 class PornTrexPlugin : Plugin() {

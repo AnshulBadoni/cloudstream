@@ -6,6 +6,8 @@ import com.cloudstream.scraper.config.SiteConfig
 import com.cloudstream.scraper.engine.GenericScraperEngine
 import com.cloudstream.scraper.engine.OkHttpScraperClient
 import com.cloudstream.scraper.engine.ScraperHttpClient
+import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.utils.ExtractorLink
 
 /**
  * Production Generic CloudStream Provider powered by declarative SiteConfig.

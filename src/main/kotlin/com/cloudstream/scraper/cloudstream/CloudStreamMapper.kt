@@ -1,6 +1,9 @@
 package com.cloudstream.scraper.cloudstream
 
 import com.cloudstream.scraper.model.*
+import com.cloudstream.scraper.model.Episode as ScraperEpisode
+import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.utils.ExtractorLink
 
 object CloudStreamMapper {
 
@@ -47,8 +50,8 @@ object CloudStreamMapper {
         )
     }
 
-    fun toEpisode(episode: Episode): CloudStreamEpisode {
-        return CloudStreamEpisode(
+    fun toEpisode(episode: ScraperEpisode): Episode {
+        return Episode(
             data = episode.url.ifBlank { episode.id },
             name = episode.title,
             season = episode.seasonNumber,

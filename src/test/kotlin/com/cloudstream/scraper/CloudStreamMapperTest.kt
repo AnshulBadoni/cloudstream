@@ -4,6 +4,7 @@ import com.cloudstream.scraper.cloudstream.*
 import com.cloudstream.scraper.config.ConfigLoader
 import com.cloudstream.scraper.engine.MockScraperHttpClient
 import com.cloudstream.scraper.model.*
+import com.lagradost.cloudstream3.*
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test

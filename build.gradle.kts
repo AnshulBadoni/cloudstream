@@ -1,3 +1,7 @@
+import java.util.zip.ZipOutputStream
+import java.util.zip.ZipEntry
+import java.io.FileOutputStream
+
 plugins {
     kotlin("jvm") version "1.9.23"
     kotlin("plugin.serialization") version "1.9.23"
@@ -57,6 +61,11 @@ application {
     mainClass.set("com.cloudstream.scraper.cli.ScraperDebugRunnerKt")
 }
 
+tasks.jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
+}
+
 tasks.register("makePlugin") {
     dependsOn("jar")
     doLast {
@@ -65,11 +74,77 @@ tasks.register("makePlugin") {
 
         val libsDir = file("build/libs")
         val jarFile = libsDir.listFiles()?.firstOrNull { it.extension == "jar" && !it.name.contains("plain") }
-            ?: file("build/libs/cloudstrem_Scrapper-1.0.0.jar")
+            ?: file("build/libs/cloudstream-scraper-1.0.0.jar")
+
+        val dexDir = file("build/dist/dex")
+        dexDir.mkdirs()
+
+        // Locate d8 executable
+        fun findD8(): String? {
+            val androidHome = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+            if (androidHome != null) {
+                val buildToolsDir = File(androidHome, "build-tools")
+                if (buildToolsDir.exists()) {
+                    val latestTools = buildToolsDir.listFiles()?.maxByOrNull { it.name }
+                    if (latestTools != null) {
+                        val d8Lin = File(latestTools, "d8")
+                        val d8Bat = File(latestTools, "d8.bat")
+                        if (d8Lin.exists()) return d8Lin.absolutePath
+                        if (d8Bat.exists()) return d8Bat.absolutePath
+                    }
+                }
+            }
+            val localAppData = System.getenv("LOCALAPPDATA")
+            if (localAppData != null) {
+                val winBuildTools = File(localAppData, "Android/Sdk/build-tools")
+                if (winBuildTools.exists()) {
+                    val latestTools = winBuildTools.listFiles()?.maxByOrNull { it.name }
+                    val d8Bat = File(latestTools, "d8.bat")
+                    if (d8Bat.exists()) return d8Bat.absolutePath
+                }
+            }
+            return null
+        }
+
+        val d8Path = findD8()
+        if (d8Path != null && File(d8Path).exists()) {
+            println("Converting JAR to Dalvik DEX via d8 ($d8Path)...")
+            val process = ProcessBuilder(
+                d8Path,
+                "--release",
+                "--min-api", "26",
+                "--output", dexDir.absolutePath,
+                jarFile.absolutePath
+            ).redirectErrorStream(true).start()
+
+            val output = process.inputStream.bufferedReader().readText()
+            process.waitFor()
+            println(output)
+        } else {
+            println("Warning: d8 not found, skipping DEX compilation.")
+        }
 
         val cs3File = File(distDir, "PornTrex.cs3")
-        if (jarFile.exists()) {
-            jarFile.copyTo(cs3File, overwrite = true)
+        val manifestFile = file("manifest.json")
+        val yamlFile = file("src/main/resources/sites/first-site.yaml")
+
+        // Create .cs3 ZIP archive containing all classes*.dex, manifest.json, and site yaml
+        ZipOutputStream(FileOutputStream(cs3File)).use { zos ->
+            dexDir.listFiles()?.filter { it.extension == "dex" }?.sortedBy { it.name }?.forEach { dexFile ->
+                zos.putNextEntry(ZipEntry(dexFile.name))
+                dexFile.inputStream().use { it.copyTo(zos) }
+                zos.closeEntry()
+            }
+            if (manifestFile.exists()) {
+                zos.putNextEntry(ZipEntry("manifest.json"))
+                manifestFile.inputStream().use { it.copyTo(zos) }
+                zos.closeEntry()
+            }
+            if (yamlFile.exists()) {
+                zos.putNextEntry(ZipEntry("sites/first-site.yaml"))
+                yamlFile.inputStream().use { it.copyTo(zos) }
+                zos.closeEntry()
+            }
         }
 
         val pluginsJson = """
@@ -103,6 +178,6 @@ tasks.register("makePlugin") {
         File(distDir, "plugins.json").writeText(pluginsJson)
         File(distDir, "builds.json").writeText(pluginsJson)
         File(distDir, "repo.json").writeText(repoJson)
-        println("✓ Successfully generated repo.json, plugins.json, and PornTrex.cs3 in ${distDir.absolutePath}")
+        println("✓ Successfully generated repo.json, plugins.json, and PornTrex.cs3 (size: ${cs3File.length()} bytes) in ${distDir.absolutePath}")
     }
 }
