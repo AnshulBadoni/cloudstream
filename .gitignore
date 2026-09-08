@@ -20,3 +20,7 @@ Thumbs.db
 /*.html
 !src/test/resources/**
 fetch_html.js
+
+
+# cli-commands-test
+cli.txt

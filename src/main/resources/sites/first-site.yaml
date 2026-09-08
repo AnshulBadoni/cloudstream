@@ -11,7 +11,7 @@ headers:
 
 
 search:
-  urlTemplate: "/search/{query}/?page={page}"
+  urlTemplate: "/search/{query}/"
   method: GET
   itemSelector: ".list-videos .item, .video-preview-screen, #list_videos_common_videos_list_items .item, .item"
   fields:
