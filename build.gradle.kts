@@ -64,6 +64,7 @@ application {
 tasks.jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     exclude("android/**")
+    exclude("com/lagradost/**")
 }
 
 tasks.register("makePlugin") {
