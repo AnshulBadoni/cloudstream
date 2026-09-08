@@ -1,3 +1,4 @@
+@file:JvmName("MainAPIKt")
 package com.lagradost.cloudstream3
 
 import com.lagradost.cloudstream3.utils.ExtractorLink
@@ -394,12 +395,22 @@ fun MainAPI.newTvSeriesSearchResponse(
     return res
 }
 
-fun MainAPI.newHomePageResponse(
+fun newHomePageResponse(
     items: List<HomePageList>,
     hasNext: Boolean = false
 ): HomePageResponse {
     return HomePageResponse(
         items = items,
+        hasNext = hasNext
+    )
+}
+
+fun newHomePageResponse(
+    item: HomePageList,
+    hasNext: Boolean = false
+): HomePageResponse {
+    return HomePageResponse(
+        items = listOf(item),
         hasNext = hasNext
     )
 }
