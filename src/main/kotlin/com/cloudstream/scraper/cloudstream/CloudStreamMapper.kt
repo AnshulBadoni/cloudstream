@@ -26,20 +26,22 @@ object CloudStreamMapper {
                 name = result.title,
                 url = result.url,
                 apiName = apiName,
-                type = tvType,
-                posterUrl = result.posterUrl,
-                year = result.releaseYear,
-                score = score
-            )
+                type = tvType
+            ).apply {
+                posterUrl = result.posterUrl
+                year = result.releaseYear
+                this.score = score
+            }
             else -> MovieSearchResponse(
                 name = result.title,
                 url = result.url,
                 apiName = apiName,
-                type = tvType,
-                posterUrl = result.posterUrl,
-                year = result.releaseYear,
-                score = score
-            )
+                type = tvType
+            ).apply {
+                posterUrl = result.posterUrl
+                year = result.releaseYear
+                this.score = score
+            }
         }
     }
 
@@ -55,15 +57,15 @@ object CloudStreamMapper {
 
     fun toEpisode(episode: ScraperEpisode): Episode {
         return Episode(
-            data = episode.url.ifBlank { episode.id },
-            name = episode.title,
-            season = episode.seasonNumber,
-            episode = episode.episodeNumber,
-            posterUrl = episode.posterUrl,
-            score = episode.rating?.let { Score.from10(it) },
-            description = episode.description,
-            date = null
-        )
+            data = episode.url.ifBlank { episode.id }
+        ).apply {
+            name = episode.title
+            season = episode.seasonNumber
+            this.episode = episode.episodeNumber
+            posterUrl = episode.posterUrl
+            this.score = episode.rating?.let { Score.from10(it) }
+            description = episode.description
+        }
     }
 
     fun toLoadResponse(details: MediaDetails, apiName: String): LoadResponse {
@@ -78,16 +80,17 @@ object CloudStreamMapper {
                 url = details.url,
                 apiName = apiName,
                 type = tvType,
-                dataUrl = details.url,
-                posterUrl = details.posterUrl,
-                year = details.releaseYear,
-                plot = details.description,
-                score = score,
-                tags = (details.genres + details.tags).distinct().ifEmpty { null },
-                duration = details.durationMinutes,
-                trailers = trailers,
-                actors = actors
-            )
+                dataUrl = details.url
+            ).apply {
+                posterUrl = details.posterUrl
+                year = details.releaseYear
+                plot = details.description
+                this.score = score
+                tags = (details.genres + details.tags).distinct().ifEmpty { null }
+                duration = details.durationMinutes
+                this.trailers = trailers
+                this.actors = actors
+            }
             is Series -> {
                 val flatEpisodes = details.seasons.flatMap { it.episodes }.map { toEpisode(it) }
                 TvSeriesLoadResponse(
@@ -95,15 +98,16 @@ object CloudStreamMapper {
                     url = details.url,
                     apiName = apiName,
                     type = tvType,
-                    episodes = flatEpisodes,
-                    posterUrl = details.posterUrl,
-                    year = details.releaseYear,
-                    plot = details.description,
-                    score = score,
-                    tags = (details.genres + details.tags).distinct().ifEmpty { null },
-                    trailers = trailers,
-                    actors = actors
-                )
+                    episodes = flatEpisodes
+                ).apply {
+                    posterUrl = details.posterUrl
+                    year = details.releaseYear
+                    plot = details.description
+                    this.score = score
+                    tags = (details.genres + details.tags).distinct().ifEmpty { null }
+                    this.trailers = trailers
+                    this.actors = actors
+                }
             }
         }
     }
@@ -115,12 +119,13 @@ object CloudStreamMapper {
             url = person.url,
             apiName = apiName,
             type = TvType.NSFW,
-            dataUrl = person.url,
-            posterUrl = person.photoUrl,
-            plot = person.biography ?: "Performer profile with ${person.knownFor.size} videos.",
-            recommendations = videoRecommendations,
+            dataUrl = person.url
+        ).apply {
+            posterUrl = person.photoUrl
+            plot = person.biography ?: "Performer profile with ${person.knownFor.size} videos."
+            recommendations = videoRecommendations
             actors = listOf(ActorData(Actor(person.name, person.photoUrl), roleString = "Performer"))
-        )
+        }
     }
 
     fun toExtractorLink(source: MediaSource, apiName: String): ExtractorLink {
