@@ -1,0 +1,8 @@
+{
+  "name": "PornTrex",
+  "description": "High quality adult streaming provider with actor catalogs and multi-resolution streaming.",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/plugins.json"
+  ]
+}
