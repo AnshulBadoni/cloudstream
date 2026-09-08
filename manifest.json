@@ -2,5 +2,5 @@
   "name": "PornTrex",
   "pluginClassName": "com.cloudstream.scraper.cloudstream.PornTrexPlugin",
   "requiresResources": false,
-  "version": 1
+  "version": 2
 }
