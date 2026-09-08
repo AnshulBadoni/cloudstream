@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cloudstream.scraper.TransformerTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-08T11:30:54" hostname="runnervmejwal" time="0.003">
+  <properties/>
+  <testcase name="resolveUrl should properly handle relative paths, scheme-relative, and full URLs()" classname="com.cloudstream.scraper.TransformerTest" time="0.0"/>
+  <testcase name="cast should properly convert string to int, double, boolean()" classname="com.cloudstream.scraper.TransformerTest" time="0.001"/>
+  <testcase name="transform should execute trim, regex capture, uppercase, lowercase, and replacement()" classname="com.cloudstream.scraper.TransformerTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

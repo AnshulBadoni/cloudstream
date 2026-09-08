@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cloudstream.scraper.CatalogTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-08T11:30:54" hostname="runnervmejwal" time="0.111">
+  <properties/>
+  <testcase name="getCatalog should extract actor items from the second catalog panel()" classname="com.cloudstream.scraper.CatalogTest" time="0.081"/>
+  <testcase name="actors panel should be explicitly configured as the second catalog()" classname="com.cloudstream.scraper.CatalogTest" time="0.002"/>
+  <testcase name="getCatalog should extract movies items and detect next page()" classname="com.cloudstream.scraper.CatalogTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

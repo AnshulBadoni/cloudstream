@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cloudstream.scraper.RuleEvaluatorTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-09-08T11:30:54" hostname="runnervmejwal" time="0.007">
+  <properties/>
+  <testcase name="extract attribute and resolve absolute URL()" classname="com.cloudstream.scraper.RuleEvaluatorTest" time="0.0"/>
+  <testcase name="extract text with trim and regex()" classname="com.cloudstream.scraper.RuleEvaluatorTest" time="0.001"/>
+  <testcase name="extract list of strings()" classname="com.cloudstream.scraper.RuleEvaluatorTest" time="0.001"/>
+  <testcase name="default value should be returned if all selectors fail()" classname="com.cloudstream.scraper.RuleEvaluatorTest" time="0.0"/>
+  <testcase name="fallback rule should be evaluated when primary is missing or empty()" classname="com.cloudstream.scraper.RuleEvaluatorTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

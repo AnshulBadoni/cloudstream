@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.cloudstream.scraper.PersonTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-08T11:30:54" hostname="runnervmejwal" time="0.003">
+  <properties/>
+  <testcase name="getPerson should extract person profile and known-for list()" classname="com.cloudstream.scraper.PersonTest" time="0.003"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
