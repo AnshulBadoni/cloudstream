@@ -68,7 +68,7 @@ class OkHttpScraperClient(
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(20, TimeUnit.SECONDS)
-        .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+        .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
         .connectionSpecs(listOf(
             okhttp3.ConnectionSpec.MODERN_TLS,
             okhttp3.ConnectionSpec.COMPATIBLE_TLS,

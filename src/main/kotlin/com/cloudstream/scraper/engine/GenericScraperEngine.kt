@@ -28,7 +28,11 @@ class GenericScraperEngine(
             .replace("{page}", page.toString())
 
         val fullUrl = Transformer.resolveUrl(config.baseUrl, searchUrl) ?: return emptyList()
-        val response = httpClient.get(fullUrl, config.headers)
+        val response = try {
+            httpClient.get(fullUrl, config.headers)
+        } catch (e: Throwable) {
+            return emptyList()
+        }
         if (!response.isSuccessful || response.body.isBlank()) return emptyList()
 
         val document = HtmlParser.parse(response.body, config.baseUrl)
@@ -50,7 +54,19 @@ class GenericScraperEngine(
         val catalogUrl = catalog.urlTemplate.replace("{page}", page.toString())
         val fullUrl = Transformer.resolveUrl(config.baseUrl, catalogUrl) ?: catalogUrl
 
-        val response = httpClient.get(fullUrl, config.headers)
+        val response = try {
+            httpClient.get(fullUrl, config.headers)
+        } catch (e: Throwable) {
+            return Catalog(
+                id = catalog.id,
+                name = catalog.name,
+                type = catalog.type,
+                url = fullUrl,
+                items = emptyList(),
+                page = page,
+                hasNextPage = false
+            )
+        }
         if (!response.isSuccessful || response.body.isBlank()) {
             return Catalog(
                 id = catalog.id,
@@ -112,7 +128,11 @@ class GenericScraperEngine(
         url: String
     ): MediaDetails? {
         val fullUrl = Transformer.resolveUrl(config.baseUrl, url) ?: url
-        val response = httpClient.get(fullUrl, config.headers)
+        val response = try {
+            httpClient.get(fullUrl, config.headers)
+        } catch (e: Throwable) {
+            return null
+        }
         if (!response.isSuccessful || response.body.isBlank()) return null
 
         val html = response.body
@@ -277,7 +297,11 @@ class GenericScraperEngine(
         val fullUrl = Transformer.resolveUrl(config.baseUrl, url) ?: url
         val personConfig = config.people?.detail ?: return null
 
-        val response = httpClient.get(fullUrl, config.headers)
+        val response = try {
+            httpClient.get(fullUrl, config.headers)
+        } catch (e: Throwable) {
+            return null
+        }
         if (!response.isSuccessful || response.body.isBlank()) return null
 
         val html = response.body
