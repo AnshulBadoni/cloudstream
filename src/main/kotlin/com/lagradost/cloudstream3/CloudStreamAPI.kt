@@ -6,9 +6,15 @@ enum class TvType {
     Movie,
     TvSeries,
     Anime,
+    AnimeMovie,
+    OVA,
+    Cartoon,
+    AsianDrama,
+    Documentary,
     Live,
     NSFW,
-    Others
+    Others,
+    Torrent
 }
 
 enum class Qualities(val value: Int) {
@@ -27,104 +33,199 @@ data class Actor(val name: String, val image: String? = null)
 data class ActorData(val actor: Actor, val roleString: String? = null, val voiceActor: Actor? = null)
 
 enum class SearchQuality {
-    SD, HD, UHD, Cam, TeleSync, BlueRay, FourK
+    Cam, CamRip, HdCam, Telesync, Telecine, WorkPrint, Dvd, Tvh, Hdtv, VOD, WebRip, WebDl, BluRay, FourK, Unknown
 }
+
+enum class ShowStatus {
+    Completed, Ongoing
+}
+
+enum class DubStatus(val id: Int) {
+    None(-1), Dubbed(1), Subbed(0)
+}
+
+class Score(val data: Int) {
+    fun toInt(maxScore: Int = 10): Int = ((data.toLong() * maxScore.toLong()) / 1000000000L).toInt()
+    fun toDouble(maxScore: Int = 10): Double = (data.toDouble() / 1000000000.0) * maxScore.toDouble()
+    override fun toString(): String = (data.toDouble() / 100000000.0).toString()
+
+    companion object {
+        fun from10(value: Double?): Score? {
+            if (value == null) return null
+            return Score((value.coerceIn(0.0, 10.0) * 100000000.0).toInt())
+        }
+        fun from(value: Number?, max: Number): Score? {
+            if (value == null) return null
+            val ratio = (value.toDouble() / max.toDouble()).coerceIn(0.0, 1.0)
+            return Score((ratio * 1000000000.0).toInt())
+        }
+    }
+}
+
+data class TrailerData(
+    val extractorUrl: String,
+    val referer: String? = null,
+    val raw: Boolean = false,
+    val headers: Map<String, String> = mapOf(),
+)
+
+data class NextAiring(val episode: Int, val unixTime: Long, val season: Int? = null)
+data class SeasonData(val season: Int, val name: String? = null, val displaySeason: Int? = null)
 
 interface SearchResponse {
     val name: String
     val url: String
     val apiName: String
-    val type: TvType
+    var type: TvType?
     var posterUrl: String?
     var id: Int?
     var quality: SearchQuality?
     var posterHeaders: Map<String, String>?
+    var score: Score?
 }
 
 data class MovieSearchResponse(
     override val name: String,
     override val url: String,
     override val apiName: String,
-    override val type: TvType = TvType.Movie,
+    override var type: TvType? = null,
     override var posterUrl: String? = null,
+    var year: Int? = null,
     override var id: Int? = null,
     override var quality: SearchQuality? = null,
     override var posterHeaders: Map<String, String>? = null,
-    var year: Int? = null
+    override var score: Score? = null,
 ) : SearchResponse
 
 data class TvSeriesSearchResponse(
     override val name: String,
     override val url: String,
     override val apiName: String,
-    override val type: TvType = TvType.TvSeries,
+    override var type: TvType? = null,
     override var posterUrl: String? = null,
+    var year: Int? = null,
+    var episodes: Int? = null,
     override var id: Int? = null,
     override var quality: SearchQuality? = null,
     override var posterHeaders: Map<String, String>? = null,
-    var year: Int? = null
+    override var score: Score? = null,
+) : SearchResponse
+
+data class AnimeSearchResponse(
+    override val name: String,
+    override val url: String,
+    override val apiName: String,
+    override var type: TvType? = null,
+    override var posterUrl: String? = null,
+    var year: Int? = null,
+    var dubStatus: MutableSet<DubStatus>? = null,
+    var otherName: String? = null,
+    var episodes: MutableMap<DubStatus, Int> = mutableMapOf(),
+    override var id: Int? = null,
+    override var quality: SearchQuality? = null,
+    override var posterHeaders: Map<String, String>? = null,
+    override var score: Score? = null,
 ) : SearchResponse
 
 interface LoadResponse {
-    val name: String
-    val url: String
-    val apiName: String
-    val type: TvType
+    var name: String
+    var url: String
+    var apiName: String
+    var type: TvType
     var posterUrl: String?
     var year: Int?
     var plot: String?
-    var rating: Int?
+    var score: Score?
     var tags: List<String>?
     var duration: Int?
-    var actors: List<ActorData>?
+    var trailers: MutableList<TrailerData>
     var recommendations: List<SearchResponse>?
+    var actors: List<ActorData>?
+    var comingSoon: Boolean
+    var syncData: MutableMap<String, String>
+    var posterHeaders: Map<String, String>?
+    var backgroundPosterUrl: String?
+    var logoUrl: String?
+    var contentRating: String?
+
+    var rating: Int?
+        get() = score?.toInt(100)
+        set(value) {
+            score = Score.from(value, 100)
+        }
     var trailerUrl: String?
+        get() = trailers.firstOrNull()?.extractorUrl
+        set(value) {
+            if (value != null) trailers = mutableListOf(TrailerData(value))
+        }
 }
 
 data class MovieLoadResponse(
-    override val name: String,
-    override val url: String,
-    override val apiName: String,
-    override val type: TvType = TvType.Movie,
-    val dataUrl: String,
+    override var name: String,
+    override var url: String,
+    override var apiName: String,
+    override var type: TvType,
+    var dataUrl: String,
     override var posterUrl: String? = null,
     override var year: Int? = null,
     override var plot: String? = null,
-    override var rating: Int? = null,
+    override var score: Score? = null,
     override var tags: List<String>? = null,
     override var duration: Int? = null,
-    override var actors: List<ActorData>? = null,
+    override var trailers: MutableList<TrailerData> = mutableListOf(),
     override var recommendations: List<SearchResponse>? = null,
-    override var trailerUrl: String? = null
+    override var actors: List<ActorData>? = null,
+    override var comingSoon: Boolean = false,
+    override var syncData: MutableMap<String, String> = mutableMapOf(),
+    override var posterHeaders: Map<String, String>? = null,
+    override var backgroundPosterUrl: String? = null,
+    override var logoUrl: String? = null,
+    override var contentRating: String? = null,
 ) : LoadResponse
 
 data class TvSeriesLoadResponse(
-    override val name: String,
-    override val url: String,
-    override val apiName: String,
-    override val type: TvType = TvType.TvSeries,
-    val episodes: List<Episode>,
+    override var name: String,
+    override var url: String,
+    override var apiName: String,
+    override var type: TvType,
+    var episodes: List<Episode>,
     override var posterUrl: String? = null,
     override var year: Int? = null,
     override var plot: String? = null,
-    override var rating: Int? = null,
+    var showStatus: ShowStatus? = null,
+    override var score: Score? = null,
     override var tags: List<String>? = null,
     override var duration: Int? = null,
-    override var actors: List<ActorData>? = null,
+    override var trailers: MutableList<TrailerData> = mutableListOf(),
     override var recommendations: List<SearchResponse>? = null,
-    override var trailerUrl: String? = null
+    override var actors: List<ActorData>? = null,
+    override var comingSoon: Boolean = false,
+    override var syncData: MutableMap<String, String> = mutableMapOf(),
+    override var posterHeaders: Map<String, String>? = null,
+    var nextAiring: NextAiring? = null,
+    var seasonNames: List<SeasonData>? = null,
+    override var backgroundPosterUrl: String? = null,
+    override var logoUrl: String? = null,
+    override var contentRating: String? = null,
 ) : LoadResponse
 
 data class Episode(
-    val data: String,
-    val name: String? = null,
-    val season: Int? = null,
-    val episode: Int? = null,
-    val posterUrl: String? = null,
-    val rating: Int? = null,
-    val description: String? = null,
-    val date: String? = null
-)
+    var data: String,
+    var name: String? = null,
+    var season: Int? = null,
+    var episode: Int? = null,
+    var posterUrl: String? = null,
+    var score: Score? = null,
+    var description: String? = null,
+    var date: Long? = null,
+    var runTime: Int? = null,
+) {
+    var rating: Int?
+        get() = score?.toInt(100)
+        set(value) {
+            score = Score.from(value, 100)
+        }
+}
 
 typealias CloudStreamEpisode = Episode
 
@@ -142,7 +243,7 @@ data class MainPageRequest(
 
 data class HomePageList(
     val name: String,
-    val list: List<SearchResponse>,
+    var list: List<SearchResponse>,
     val isHorizontalImages: Boolean = false
 )
 
@@ -164,6 +265,7 @@ abstract class MainAPI {
     open val isNsfw: Boolean = true
     open val hasMainPage: Boolean = false
     open val mainPage: List<MainPageData> = emptyList()
+    var sourcePlugin: String? = null
 
     open suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? = null
     open suspend fun search(query: String): List<SearchResponse> = emptyList()

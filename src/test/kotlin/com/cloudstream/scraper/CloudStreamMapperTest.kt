@@ -62,7 +62,7 @@ class CloudStreamMapperTest {
         assertTrue(loadResponse is MovieLoadResponse)
         assertEquals("Inception", loadResponse.name)
         assertEquals(148, (loadResponse as MovieLoadResponse).duration)
-        assertEquals(8800, loadResponse.rating)
+        assertEquals(88, loadResponse.rating)
         assertEquals(1, loadResponse.actors?.size)
         assertEquals("Leonardo DiCaprio", loadResponse.actors?.get(0)?.actor?.name)
         assertEquals("Cobb", loadResponse.actors?.get(0)?.roleString)

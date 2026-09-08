@@ -20,6 +20,7 @@ object CloudStreamMapper {
 
     fun toSearchResponse(result: SearchResult, apiName: String): SearchResponse {
         val tvType = toTvType(result.type)
+        val score = result.rating?.let { Score.from10(it) }
         return when (tvType) {
             TvType.TvSeries -> TvSeriesSearchResponse(
                 name = result.title,
@@ -27,7 +28,8 @@ object CloudStreamMapper {
                 apiName = apiName,
                 type = tvType,
                 posterUrl = result.posterUrl,
-                year = result.releaseYear
+                year = result.releaseYear,
+                score = score
             )
             else -> MovieSearchResponse(
                 name = result.title,
@@ -35,7 +37,8 @@ object CloudStreamMapper {
                 apiName = apiName,
                 type = tvType,
                 posterUrl = result.posterUrl,
-                year = result.releaseYear
+                year = result.releaseYear,
+                score = score
             )
         }
     }
@@ -57,15 +60,17 @@ object CloudStreamMapper {
             season = episode.seasonNumber,
             episode = episode.episodeNumber,
             posterUrl = episode.posterUrl,
+            score = episode.rating?.let { Score.from10(it) },
             description = episode.description,
-            date = episode.releaseDate
+            date = null
         )
     }
 
     fun toLoadResponse(details: MediaDetails, apiName: String): LoadResponse {
         val actors = details.cast.map { toActorData(it) }.ifEmpty { null }
-        val ratingInt = details.rating?.let { (it * 1000).toInt() } // CloudStream standard rating representation
+        val score = details.rating?.let { Score.from10(it) }
         val tvType = toTvType(details.type)
+        val trailers = details.trailerUrl?.let { mutableListOf(TrailerData(it)) } ?: mutableListOf()
 
         return when (details) {
             is Movie -> MovieLoadResponse(
@@ -77,11 +82,11 @@ object CloudStreamMapper {
                 posterUrl = details.posterUrl,
                 year = details.releaseYear,
                 plot = details.description,
-                rating = ratingInt,
+                score = score,
                 tags = (details.genres + details.tags).distinct().ifEmpty { null },
                 duration = details.durationMinutes,
-                actors = actors,
-                trailerUrl = details.trailerUrl
+                trailers = trailers,
+                actors = actors
             )
             is Series -> {
                 val flatEpisodes = details.seasons.flatMap { it.episodes }.map { toEpisode(it) }
@@ -94,10 +99,10 @@ object CloudStreamMapper {
                     posterUrl = details.posterUrl,
                     year = details.releaseYear,
                     plot = details.description,
-                    rating = ratingInt,
+                    score = score,
                     tags = (details.genres + details.tags).distinct().ifEmpty { null },
-                    actors = actors,
-                    trailerUrl = details.trailerUrl
+                    trailers = trailers,
+                    actors = actors
                 )
             }
         }
