@@ -400,7 +400,7 @@ class CustomScraper : MainAPI() {
             async {
                 val fixedEmbed = fixUrl(embedUrl)
                 runCatching {
-                    val embedHost = fixedEmbed.substringBefore("/", "").ifBlank { "https://xmovix.net" }
+                    val embedHost = getBaseUrl(fixedEmbed)
                     val embedDoc = app.get(fixedEmbed, headers = mapOf(
                         "referer" to "$mainUrl/",
                         "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -408,21 +408,21 @@ class CustomScraper : MainAPI() {
 
                     // Unpack VidHide / StreamHide JavaScript if packed via p.a.c.k.e.r
                     val unpacked = if (embedDoc.contains("eval(function(p,a,c,k,e,")) {
-                        unpackJs(embedDoc)
+                        unpackJs(embedDoc).replace("\\/", "/")
                     } else {
-                        embedDoc
+                        embedDoc.replace("\\/", "/")
                     }
 
                     // Extract master m3u8 playlist URLs from unpacked JavaScript
                     val m3u8Regex = Regex("""https?://[^\s"'\\<>]+\.m3u8[^\s"'\\<>]*""")
-                    val m3u8Matches = m3u8Regex.findAll(unpacked).map { it.value }.toList()
+                    val m3u8Matches = m3u8Regex.findAll(unpacked).map { it.value }.distinct().toList()
 
                     for (streamUrl in m3u8Matches) {
                         val playerLabel = "Player ${allEmbeds.size - index}"
                         callback(
                             ExtractorLink(
                                 source = name,
-                                name = "$name $playerLabel",
+                                name = "$name $playerLabel (1080p)",
                                 url = streamUrl,
                                 referer = "$embedHost/",
                                 quality = Qualities.P1080.value,
@@ -439,15 +439,19 @@ class CustomScraper : MainAPI() {
                     // Fallback to direct MP4 streams if no m3u8 was found
                     if (m3u8Matches.isEmpty()) {
                         val mp4Regex = Regex("""https?://[^\s"'\\<>]+\.mp4[^\s"'\\<>]*""")
-                        mp4Regex.findAll(unpacked).forEach { match ->
+                        mp4Regex.findAll(unpacked).map { it.value }.distinct().forEach { matchUrl ->
                             callback(
                                 ExtractorLink(
                                     source = name,
                                     name = "$name MP4",
-                                    url = match.value,
+                                    url = matchUrl,
                                     referer = "$embedHost/",
                                     quality = Qualities.P1080.value,
-                                    isM3u8 = false
+                                    isM3u8 = false,
+                                    headers = mapOf(
+                                        "referer" to "$embedHost/",
+                                        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                                    )
                                 )
                             )
                             count++
@@ -579,6 +583,16 @@ class CustomScraper : MainAPI() {
                 "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
         }
+    }
+
+    /**
+     * Extracts the base scheme + host URL (e.g. "https://morencius.com") for referer headers.
+     */
+    private fun getBaseUrl(url: String): String {
+        val clean = url.substringAfter("://")
+        val host = clean.substringBefore("/")
+        val scheme = if (url.startsWith("http://")) "http" else "https"
+        return "$scheme://$host"
     }
 
     /**
