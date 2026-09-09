@@ -30,7 +30,7 @@ class Porntrex : MainAPI() {
         val url = if (request.data.contains("mode=async")) {
             "$mainUrl/${request.data}$page"
         } else if (request.data.startsWith("models")) {
-            if (page <= 1) "$mainUrl/models/?sort_by=model_viewed" else "$mainUrl/models/$page/?sort_by=model_viewed"
+            if (page <= 1) "$mainUrl/models/" else "$mainUrl/models/?from_models=" + (if (page < 10) "0$page" else "$page")
         } else {
             if (page <= 1) "$mainUrl/${request.data}/" else "$mainUrl/${request.data}/$page/"
         }
