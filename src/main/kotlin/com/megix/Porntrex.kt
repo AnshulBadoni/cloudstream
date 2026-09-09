@@ -17,7 +17,7 @@ class Porntrex : MainAPI() {
         "latest-updates" to "Latest Videos",
         "most-popular/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_today&from4=" to "Most popular daily",
         "top-rated/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_today&from4=" to "Top rated daily",
-        "models" to "Models & Stars",
+        "models" to "Models",
         "most-popular/weekly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_week&from4=" to "Most popular weekly",
         "top-rated/weekly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_week&from4=" to "Top rated weekly",
         "most-popular/monthly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_month&from4=" to "Most popular monthly",
@@ -70,7 +70,7 @@ class Porntrex : MainAPI() {
 
     private fun extractFlashvar(key: String, text: String?): String? {
         if (text == null) return null
-        val pattern = Regex("""['"]?$key['"]?\s*:\s*['"]([^'"]+)['"]""")
+        val pattern = Regex("""['"]?$key['"]?\s*:\s*['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE)
         return pattern.find(text)?.groupValues?.getOrNull(1)
     }
 
@@ -144,10 +144,12 @@ class Porntrex : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val response = app.get(data).text
-        val flashvarsMatch = Regex("""var\s+flashvars\s*=\s*\{([^}]+)\}""").find(response)
+        
+        // Multi-line safe flashvars extraction
+        val flashvarsMatch = Regex("""var\s+flashvars\s*=\s*\{([^}]+)\}""", RegexOption.DOT_MATCHES_ALL).find(response)
         val scriptContent = flashvarsMatch?.groupValues?.get(1) ?: response
 
-        val extracted = mutableListOf<ExtractorLink>()
+        var count = 0
 
         val urlRegex = Regex("""(video_url|video_alt_url\d*)\s*:\s*['"]([^'"]+)['"]""")
         val textRegex = Regex("""(video_url_text|video_alt_url\d*_text)\s*:\s*['"]([^'"]+)['"]""")
@@ -166,27 +168,29 @@ class Porntrex : MainAPI() {
                 val qualityLabel = qualityMap[key] ?: "720p"
                 val qualityValue = getQualityFromName(qualityLabel)
 
-                val link = newExtractorLink(
-                    source = name,
-                    name = "$name $qualityLabel",
-                    url = streamUrl,
-                    type = ExtractorLinkType.VIDEO
-                ) {
-                    this.quality = qualityValue
-                    this.referer = "$mainUrl/"
-                }
-                callback(link)
-                extracted.add(link)
+                callback(
+                    ExtractorLink(
+                        source = name,
+                        name = "$name $qualityLabel",
+                        url = streamUrl,
+                        referer = "$mainUrl/",
+                        quality = qualityValue,
+                        type = ExtractorLinkType.VIDEO
+                    )
+                )
+                count++
             }
         }
 
-        return extracted.isNotEmpty()
+        return count > 0
     }
 
     private fun toSearchResult(element: Element): SearchResponse? {
-        val title = element.selectFirst("p.inf a, strong.title, a.title, a[title], .title")?.text()?.trim()
-            ?: element.selectFirst("a[title]")?.attr("title")?.trim() ?: return null
-        val href = fixUrl(element.selectFirst("p.inf a, a[href*='/videos/'], a[href*='/video/'], a.thumb, a")?.attr("href") ?: return null)
+        val linkEl = element.selectFirst("p.inf a, a[href*='/video/'], a[href*='/videos/']") ?: return null
+        val href = fixUrl(linkEl.attr("href"))
+        if (!href.contains("/video/") && !href.contains("/videos/")) return null
+        val title = element.selectFirst("p.inf a, strong.title, a.title, .title")?.text()?.trim()
+            ?: linkEl.attr("title").ifBlank { null } ?: return null
         val poster = fixUrlNull(element.selectFirst("img.cover, img.thumb, img")?.attr("data-src")?.ifBlank { null }
             ?: element.selectFirst("img.cover, img.thumb, img")?.attr("src"))
 
@@ -196,5 +200,3 @@ class Porntrex : MainAPI() {
         }
     }
 }
-
-

@@ -15,7 +15,9 @@ open class NiceResponse(
     open val okhttpResponse: Response? = null
 )
 
-open class Requests {
+open class Requests(
+    open var defaultHeaders: Map<String, String> = emptyMap()
+) {
     open suspend fun get(
         url: String,
         headers: Map<String, String> = emptyMap(),
@@ -30,9 +32,19 @@ open class Requests {
         verify: Boolean = true,
         responseParser: ResponseParser = ResponseParser()
     ): NiceResponse {
-        val client = okhttp3.OkHttpClient.Builder().build()
+        val client = okhttp3.OkHttpClient.Builder()
+            .followRedirects(allowRedirects)
+            .followSslRedirects(allowRedirects)
+            .build()
         val reqBuilder = okhttp3.Request.Builder().url(url)
-        headers.forEach { (k, v) -> reqBuilder.addHeader(k, v) }
+        val mergedHeaders = mutableMapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Referer" to "https://www.porntrex.com/"
+        )
+        mergedHeaders.putAll(defaultHeaders)
+        mergedHeaders.putAll(headers)
+        if (referer != null) mergedHeaders["Referer"] = referer
+        mergedHeaders.forEach { (k, v) -> reqBuilder.header(k, v) }
         val res = client.newCall(reqBuilder.build()).execute()
         val body = res.body?.string() ?: ""
         return NiceResponse(body, Jsoup.parse(body, url), url, res.code, res.headers, res)
