@@ -243,24 +243,32 @@ class Porntrex : MainAPI() {
             .mapNotNull { it.text().trim().ifBlank { null } }
         val tags = (actorsList + jsonTags.orEmpty() + htmlTags).distinct().filter { it.length > 1 }.ifEmpty { null }
 
+        val fullPlot = if (actorsList.isNotEmpty()) {
+            "Starring: " + actorsList.joinToString(", ") + if (!description.isNullOrBlank()) "\n\n$description" else ""
+        } else {
+            description
+        }
+
         val recommendations = document.select("div#list_videos_related_videos div.video-list div.video-item, div.video-list div.video-item, .list-videos .item, #list_videos_related_videos .item")
             .mapNotNull { element -> toSearchResult(element) }
             .ifEmpty { null }
 
-        return newMovieLoadResponse(title, url, TvType.Movie, url) {
+        return newMovieLoadResponse(title, url, TvType.NSFW, url) {
             this.posterUrl = poster
             this.posterHeaders = mapOf("referer" to "$mainUrl/")
-            this.plot = description?.ifBlank { null }
+            this.plot = fullPlot
             this.tags = tags
             this.duration = durationMinutes
             this.rating = ratingPercent
-            this.actors = actorsList.map {
-                ActorData(
-                    Actor(it, null),
-                    roleString = "Performer",
-                    voiceActor = null
-                )
-            }.ifEmpty { null }
+            runCatching {
+                this.actors = actorsList.map {
+                    ActorData(
+                        Actor(it, null),
+                        roleString = "Performer",
+                        voiceActor = null
+                    )
+                }
+            }
             this.recommendations = recommendations
         }
     }
@@ -384,7 +392,7 @@ class Porntrex : MainAPI() {
             ?: linkEl.attr("title").ifBlank { null } ?: return null
         val poster = getBestPoster(element)
 
-        return newMovieSearchResponse(title, href, TvType.Movie) {
+        return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = poster
             this.posterHeaders = mapOf("referer" to "$mainUrl/")
         }
