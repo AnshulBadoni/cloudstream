@@ -18,254 +18,135 @@ class Porntrex : MainAPI() {
         "latest-updates" to "Latest Videos",
         "most-popular/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_today&from4=" to "Most popular daily",
         "top-rated/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_today&from4=" to "Top rated daily",
-        "models" to "Models & Stars"
+        "models" to "Models",
+        "most-popular/weekly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_week&from4=" to "Most popular weekly",
+        "top-rated/weekly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_week&from4=" to "Top rated weekly",
+        "most-popular/monthly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_month&from4=" to "Most popular monthly",
+        "top-rated/monthly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_month&from4=" to "Top rated monthly",
+        "most-popular/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed&from4=" to "Most popular all time",
+        "top-rated/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating&from4=" to "Top rated all time"
     )
 
-    companion object {
-        var searchPages: Int = 2
-        var modelPages: Int = 3
-        val defaultHeaders = mapOf(
-            "referer" to "https://www.porntrex.com/",
-            "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            "accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "accept-language" to "en-US,en;q=0.9"
-        )
-    }
-
-    private suspend fun safeGetDoc(url: String): org.jsoup.nodes.Document {
-        for (i in 1..3) {
-            try {
-                return app.get(url, headers = defaultHeaders).document
-            } catch (e: Exception) {
-                if (i == 3) throw e
-                kotlinx.coroutines.delay(200)
-            }
-        }
-        return app.get(url, headers = defaultHeaders).document
-    }
-
-    override suspend fun getMainPage(
-        page: Int,
-        request: MainPageRequest
-    ): HomePageResponse {
-        val url = if (request.data == "models") {
-            if (page <= 1) "$mainUrl/models/" else "$mainUrl/models/$page/"
-        } else if (request.data == "latest-updates") {
-            if (page <= 1) "$mainUrl/latest-updates/" else "$mainUrl/latest-updates/$page/"
-        } else {
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        val url = if (request.data.contains("mode=async")) {
             "$mainUrl/${request.data}$page"
+        } else if (request.data.startsWith("models")) {
+            if (page <= 1) "$mainUrl/models/" else "$mainUrl/models/?from_models=" + (if (page < 10) "0$page" else "$page")
+        } else {
+            if (page <= 1) "$mainUrl/${request.data}/" else "$mainUrl/${request.data}/$page/"
         }
 
-        val document = safeGetDoc(url)
+        val document = app.get(url, headers = mapOf("referer" to "$mainUrl/", "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).document
 
-        val homeItems = if (request.data == "models") {
-            document.select(
-                "div.list-models div.item, #list_models_models_list_items .item, #list_models_common_models_list_items .item, .list-models .item, .item:has(a[href*='/models/'])"
-            ).mapNotNull { element ->
+        val items = if (request.data.startsWith("models")) {
+            document.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/']), .item:has(a[href*='/model/'])").mapNotNull { element ->
                 toModelSearchResult(element)
             }
         } else {
-            document.select(
-                "div.video-list div.video-item, div.video-preview-screen, #list_videos_common_videos_list_norm .item, #list_videos_latest_videos_list_norm .item, #list_videos_most_popular_videos_list_norm .item, #list_videos_top_rated_videos_list_norm .item, .list-videos .item, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])"
-            ).mapNotNull { element ->
+            document.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item").mapNotNull { element ->
                 toSearchResult(element)
             }
         }
 
-        return newHomePageResponse(
-            item = HomePageList(
-                name = request.name,
-                list = homeItems,
-                isHorizontalImages = request.data != "models"
-            ),
-            hasNext = homeItems.isNotEmpty()
-        )
+        val homePageList = HomePageList(request.name, items, isHorizontalImages = true)
+        return newHomePageResponse(homePageList, true)
     }
 
-    private fun toSearchResult(element: Element): SearchResponse? {
-        val linkElement = element.selectFirst("a.thumb, a[href*='/video/'], a[href*='/videos/'], a:has(img)") ?: return null
-        val rawHref = linkElement.attr("href").ifBlank { return null }
-        val href = fixUrl(rawHref)
-        if (href.contains("/models/") || href.contains("/model/")) {
-            return toModelSearchResult(element)
-        }
-
-        val title = element.selectFirst("span.title, a.title, strong.title, .title, a[title]")?.text()?.trim()
-            ?: element.selectFirst("img")?.attr("alt")?.trim()
-            ?: linkElement.attr("title").trim()
-
-        if (title.isBlank()) return null
-
-        val img = element.selectFirst("img.thumb, img.cover, img.preview, img")
-        val rawPoster = img?.attr("data-original")?.ifBlank { null }
-            ?: img?.attr("data-src")?.ifBlank { null }
-            ?: img?.attr("data-lazy")?.ifBlank { null }
-            ?: img?.attr("src")?.ifBlank { null }
-        val poster = fixUrlNull(rawPoster)
-
-        val durationText = element.selectFirst("span.duration, .durations, .time, .duration")?.text()?.trim()
-        val quality = if (element.selectFirst("span.is-hd, .hd, .badge-hd") != null) SearchQuality.Hdtv else null
-
-        return newMovieSearchResponse(title, href, TvType.NSFW) {
-            this.posterUrl = poster
-            this.posterHeaders = mapOf("referer" to "$mainUrl/")
-            this.quality = quality
-            this.score = Score.from(100, 100)
-        }
+    companion object {
+        var searchPages: Int = 2
+        var modelPages: Int = 3
     }
 
-    private fun toModelSearchResult(element: Element): SearchResponse? {
-        val linkElement = element.selectFirst("a[href*='/models/'], a[href*='/model/'], a.thumb, a") ?: return null
-        val rawHref = linkElement.attr("href").ifBlank { return null }
-        val href = fixUrl(rawHref)
+    override suspend fun search(query: String): List<SearchResponse> {
+        val cleanQuery = query.trim().replace(" ", "-")
+        val modelDirectUrl = "$mainUrl/models/$cleanQuery/"
+        val modelSearchUrl = "$mainUrl/models/search/$cleanQuery/"
 
-        val name = element.selectFirst("span.title, a.title, strong.title, .title, a.name, .name, span.name")?.text()?.trim()
-            ?: element.selectFirst("img")?.attr("alt")?.trim()
-            ?: linkElement.attr("title").trim()
+        val results = mutableListOf<SearchResponse>()
+        val queryWords = query.trim().split(Regex("""\s+""")).filter { it.isNotBlank() }
 
-        if (name.isBlank() || name.equals("models", ignoreCase = true)) return null
-
-        val img = element.selectFirst("img.thumb, img.cover, img.preview, img")
-        val rawPoster = img?.attr("data-original")?.ifBlank { null }
-            ?: img?.attr("data-src")?.ifBlank { null }
-            ?: img?.attr("data-lazy")?.ifBlank { null }
-            ?: img?.attr("src")?.ifBlank { null }
-        val poster = fixUrlNull(rawPoster)
-
-        return newTvSeriesSearchResponse(name, href, TvType.TvSeries) {
-            this.posterUrl = poster
-            this.posterHeaders = mapOf("referer" to "$mainUrl/")
-        }
-    }
-
-    private fun toEpisodeResult(element: Element, episodeNum: Int): Episode? {
-        val linkElement = element.selectFirst("a.thumb, a[href*='/video/'], a[href*='/videos/'], a:has(img)") ?: return null
-        val rawHref = linkElement.attr("href").ifBlank { return null }
-        val href = fixUrl(rawHref)
-        if (href.contains("/models/") || href.contains("/model/")) return null
-
-        val title = element.selectFirst("span.title, a.title, strong.title, .title, a[title]")?.text()?.trim()
-            ?: element.selectFirst("img")?.attr("alt")?.trim()
-            ?: linkElement.attr("title").trim()
-            ?: "Video $episodeNum"
-
-        val img = element.selectFirst("img.thumb, img.cover, img.preview, img")
-        val rawPoster = img?.attr("data-original")?.ifBlank { null }
-            ?: img?.attr("data-src")?.ifBlank { null }
-            ?: img?.attr("data-lazy")?.ifBlank { null }
-            ?: img?.attr("src")?.ifBlank { null }
-        val poster = fixUrlNull(rawPoster)
-
-        val durationText = element.selectFirst("span.duration, .durations, .time, .duration")?.text()?.trim()
-        val durationSeconds = if (!durationText.isNullOrBlank()) {
-            val parts = durationText.filter { it.isDigit() || it == ':' }.split(':')
-            if (parts.size == 2) {
-                val mins = parts[0].toIntOrNull() ?: 0
-                val secs = parts[1].toIntOrNull() ?: 0
-                mins * 60 + secs
-            } else if (parts.size == 3) {
-                val hours = parts[0].toIntOrNull() ?: 0
-                val mins = parts[1].toIntOrNull() ?: 0
-                val secs = parts[2].toIntOrNull() ?: 0
-                hours * 3600 + mins * 60 + secs
-            } else {
-                null
+        // 1a. Check direct performer profile
+        runCatching {
+            val directDoc = app.get(modelDirectUrl, headers = mapOf("referer" to "$mainUrl/", "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).document
+            val h1 = directDoc.selectFirst(".profile-model-info h1, .profile-model h1, .profile-model-info .name h1, h1")?.text()?.trim()
+            if (!h1.isNullOrBlank() && queryWords.all { word -> h1.contains(word, ignoreCase = true) }) {
+                val posterEl = directDoc.selectFirst(".profile-model-info .img-holder img, .profile-model .img-holder img, .img-holder img, .profile-model img:not(.cover-img), .profile-model-info img")
+                val rawPoster = posterEl?.attr("data-src")?.takeIf { !it.contains("data:image") && it.isNotBlank() }
+                    ?: posterEl?.attr("src")?.takeIf { !it.contains("data:image") && it.isNotBlank() }
+                    ?: directDoc.selectFirst(".profile-model img.cover-img")?.attr("data-src")
+                    ?: directDoc.selectFirst("meta[property='og:image']")?.attr("content")
+                val poster = fixUrlNull(rawPoster)
+                val modelRes = newTvSeriesSearchResponse(h1, modelDirectUrl, TvType.TvSeries) {
+                    this.posterUrl = poster
+                    this.posterHeaders = mapOf("referer" to "$mainUrl/")
+                }
+                results.add(modelRes)
             }
-        } else null
-
-        return newEpisode(href) {
-            this.name = title
-            this.season = 1
-            this.episode = episodeNum
-            this.posterUrl = poster
-            this.runTime = durationSeconds?.div(60)
         }
-    }
 
-    override suspend fun search(query: String): List<SearchResponse> = coroutineScope {
-        val searchClean = query.trim().replace(" ", "-")
+        // 1b. Search models directory
+        runCatching {
+            val modelDoc = app.get(modelSearchUrl, headers = mapOf("referer" to "$mainUrl/", "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).document
+            val models = modelDoc.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/']), .item:has(a[href*='/model/'])")
+                .mapNotNull { toModelSearchResult(it) }
 
-        val modelDeferred = async {
-            runCatching {
-                val modelUrl = "$mainUrl/models/$searchClean/"
-                val modelDoc = safeGetDoc(modelUrl)
-                val modelItems = modelDoc.select("div.list-models div.item, #list_models_models_list_items .item, #list_models_common_models_list_items .item, .list-models .item, .item:has(a[href*='/models/'])")
-                    .mapNotNull { toModelSearchResult(it) }
-
-                if (modelItems.isEmpty()) {
-                    val directName = modelDoc.selectFirst("h1.title, h1.headline, h1, .profile-model-info h1, .model-info h1")?.text()?.trim()
-                    val directImg = modelDoc.selectFirst(".profile-model-info img, .avatar img, .model-avatar img, a.thumb img")?.attr("src")
-                    if (!directName.isNullOrBlank() && (directName.contains(query, ignoreCase = true) || query.contains(directName, ignoreCase = true))) {
-                        listOf(
-                            newTvSeriesSearchResponse(directName, modelUrl, TvType.TvSeries) {
-                                this.posterUrl = fixUrlNull(directImg)
-                                this.posterHeaders = mapOf("referer" to "$mainUrl/")
-                            }
-                        )
-                    } else {
-                        emptyList()
+            val matchingModels = models.filter { model ->
+                val name = model.name
+                queryWords.all { word ->
+                    val wordPattern = Regex("""\b${Regex.escape(word)}\b""", RegexOption.IGNORE_CASE)
+                    wordPattern.containsMatchIn(name) || name.contains(word, ignoreCase = true)
+                }
+            }.sortedWith(
+                compareBy<SearchResponse> { model ->
+                    val name = model.name.lowercase().trim()
+                    val q = query.lowercase().trim()
+                    when {
+                        name == q -> 0
+                        name.startsWith(q) -> 1
+                        else -> 2
                     }
-                } else {
-                    modelItems
-                }
-            }.getOrDefault(emptyList())
+                }.thenBy { it.name.length }
+            )
+
+            results.addAll(matchingModels)
         }
 
-        val videoDeferred = async {
+        // 2. Search videos across configured number of pages
+        runCatching {
             val maxPages = searchPages.coerceIn(1, 4)
-            val pagesToFetch = (1..maxPages).toList()
-            val videoResults = pagesToFetch.map { p ->
-                async {
-                    runCatching {
-                        val videoUrl = if (p == 1) "$mainUrl/search/$searchClean/" else "$mainUrl/search/$searchClean/$p/"
-                        val videoDoc = safeGetDoc(videoUrl)
-                        videoDoc.select("div.video-list div.video-item, div.video-preview-screen, #list_videos_videos_search_search_result_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])")
-                            .mapNotNull { toSearchResult(it) }
-                    }.getOrDefault(emptyList())
+            for (page in 1..maxPages) {
+                runCatching {
+                    val url = if (page <= 1) "$mainUrl/search/$cleanQuery/" else "$mainUrl/search/$cleanQuery/$page/"
+                    val videoDoc = app.get(url, headers = mapOf("referer" to "$mainUrl/", "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).document
+                    val videoElements = videoDoc.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item")
+                    val pageResults = videoElements.mapNotNull { toSearchResult(it) }
+                    results.addAll(pageResults)
                 }
-            }.awaitAll().flatten().distinctBy { it.url }
-            videoResults
+            }
         }
 
-        val modelRes = modelDeferred.await()
-        val videoRes = videoDeferred.await()
-
-        val queryLower = query.lowercase().trim()
-        val sortedModels = modelRes.sortedWith(
-            compareBy<SearchResponse> {
-                val n = it.name.lowercase().trim()
-                when {
-                    n == queryLower -> 0
-                    n.startsWith(queryLower) -> 1
-                    n.contains(queryLower) -> 2
-                    else -> 3
-                }
-            }.thenBy { it.name.length }
-        )
-
-        sortedModels + videoRes
+        return results.distinctBy { it.url }
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = safeGetDoc(url)
+        val document = app.get(url, headers = mapOf("referer" to "$mainUrl/", "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).document
 
         // 1. Model / Performer Collection Page
-        if (url.contains("/models/") || url.contains("/model/")) {
-            val name = document.selectFirst("h1.title, h1.headline, h1, .profile-model-info h1, .model-info h1, meta[property='og:title']")?.text()
-                ?.substringBefore("|")?.trim()
+        if (url.contains("/models/") || url.contains("/pornstars/") || url.contains("/model/")) {
+            val name = document.selectFirst(".profile-model-info h1, .profile-model h1, .profile-model-info .name h1, h1")?.text()?.trim()
+                ?: document.selectFirst("meta[property='og:title']")?.attr("content")?.substringBefore("|")?.trim()
                 ?: "Model Profile"
 
-            val rawPoster = document.selectFirst(".profile-model-info img, .avatar img, .model-avatar img, a.thumb img.cover")?.attr("src")
+            val posterEl = document.selectFirst(".profile-model-info .img-holder img, .profile-model .img-holder img, .img-holder img, .profile-model img:not(.cover-img), .profile-model-info img")
+            val rawPoster = posterEl?.attr("data-src")?.takeIf { !it.contains("data:image") && it.isNotBlank() }
+                ?: posterEl?.attr("src")?.takeIf { !it.contains("data:image") && it.isNotBlank() }
+                ?: document.selectFirst(".profile-model img.cover-img")?.attr("data-src")
                 ?: document.selectFirst("meta[property='og:image']")?.attr("content")
             val poster = fixUrlNull(rawPoster)
 
-            val bio = document.selectFirst(".description-block, .profile-model-info .description-block, .profile-model-info .description, .model-description, .videodesc")?.text()
-                ?.replace(Regex("^Description:\\s*", RegexOption.IGNORE_CASE), "")?.trim()
-                ?: document.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
+            val bio = document.selectFirst(".profile-model-info .des, .profile-model .des, .description-block, .profile-model-info .description")?.text()?.trim()
 
-            val videoElements = document.select(
-                "div.video-list div.video-item, div.video-preview-screen, #list_videos_common_videos_list_norm .item, #list_videos_model_videos_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])"
-            ).toMutableList()
+            val videoElements = document.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item").toMutableList()
 
             val maxPagesAvailable = document.selectFirst(".pagination-holder li.page-playlist, .pagination li.page-playlist")?.attr("data-max")?.toIntOrNull()
                 ?: document.select(".pagination-holder li.page a, .pagination li.page a").mapNotNull { it.text().trim().toIntOrNull() }.maxOrNull()
@@ -277,10 +158,8 @@ class Porntrex : MainAPI() {
                 for (page in 2..targetPages) {
                     runCatching {
                         val pageUrl = "$baseUrl/$page/"
-                        val pageDoc = safeGetDoc(pageUrl)
-                        val extraElements = pageDoc.select(
-                            "div.video-list div.video-item, div.video-preview-screen, #list_videos_common_videos_list_norm .item, #list_videos_model_videos_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])"
-                        )
+                        val pageDoc = app.get(pageUrl, headers = mapOf("referer" to "$mainUrl/", "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).document
+                        val extraElements = pageDoc.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item")
                         videoElements.addAll(extraElements)
                     }
                 }
@@ -356,20 +235,14 @@ class Porntrex : MainAPI() {
             .mapNotNull { element -> toSearchResult(element) }
             .ifEmpty { null }
 
-        return newMovieLoadResponse(title, url, TvType.NSFW, url) {
+        return newMovieLoadResponse(title, url, TvType.Movie, url) {
             this.posterUrl = poster
             this.posterHeaders = mapOf("referer" to "$mainUrl/")
             this.plot = description
             this.tags = tags
             this.duration = durationMinutes
             this.rating = ratingPercent
-            this.actors = actorsList.map {
-                ActorData(
-                    Actor(it, null),
-                    roleString = "Performer",
-                    voiceActor = null
-                )
-            }
+            this.actors = actorsList.map { ActorData(Actor(it, null), roleString = "Performer", voiceActor = null) }
             this.recommendations = recommendations
         }
     }
@@ -405,23 +278,20 @@ class Porntrex : MainAPI() {
 
         urlRegex.findAll(scriptContent).forEach { match ->
             val key = match.groupValues[1]
-            val videoUrl = match.groupValues[2]
-
-            if (videoUrl.isNotBlank() && (videoUrl.startsWith("http://") || videoUrl.startsWith("https://"))) {
-                val label = qualityMap[key] ?: key
-                val qualityInt = Regex("""(\d{3,4})[pP]?""").find(label)?.groupValues?.get(1)?.toIntOrNull()
-                    ?: Qualities.Unknown.value
-
-                val isM3u8 = videoUrl.contains(".m3u8")
+            val streamUrl = match.groupValues[2]
+            if (streamUrl.startsWith("http")) {
+                val qualityLabel = qualityMap[key] ?: "720p"
+                val qualityValue = getQualityFromName(qualityLabel)
 
                 callback(
                     ExtractorLink(
                         source = name,
-                        name = "$name $label",
-                        url = videoUrl,
+                        name = "$name $qualityLabel",
+                        url = streamUrl,
                         referer = "$mainUrl/",
-                        quality = qualityInt,
-                        isM3u8 = isM3u8
+                        quality = qualityValue,
+                        isM3u8 = streamUrl.contains(".m3u8"),
+                        headers = mapOf("referer" to "$mainUrl/")
                     )
                 )
                 count++
@@ -429,6 +299,82 @@ class Porntrex : MainAPI() {
         }
 
         return count > 0
+    }
+
+    private fun getBestPoster(element: Element): String? {
+        val rawUrl = element.selectFirst(".img-holder img, div.img img, img.thumb, img.cover, img")?.attr("data-src")?.takeIf { !it.contains("data:image") && it.isNotBlank() }
+            ?: element.selectFirst(".img-holder img, div.img img, img.thumb, img.cover, img")?.attr("data-original")?.takeIf { !it.contains("data:image") && it.isNotBlank() }
+            ?: element.selectFirst(".img-holder img, div.img img, img.thumb, img.cover, img")?.attr("src")?.takeIf { !it.contains("data:image") && it.isNotBlank() }
+            ?: return null
+
+        var fixed = fixUrlNull(rawUrl) ?: return null
+        if (fixed.endsWith("/preview.jpg")) {
+            fixed = fixed.replace("/preview.jpg", "/preview_big.jpg")
+        }
+        return fixed
+    }
+
+    private fun toModelSearchResult(element: Element): SearchResponse? {
+        val linkEl = element.selectFirst("a[href*='/models/'], a[href*='/pornstars/'], a[href*='/model/']") ?: return null
+        val href = fixUrl(linkEl.attr("href"))
+        val title = element.selectFirst("strong.title, .title, p.inf a, a")?.text()?.trim() ?: return null
+        val poster = getBestPoster(element)
+
+        return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+            this.posterUrl = poster
+            this.posterHeaders = mapOf("referer" to "$mainUrl/")
+        }
+    }
+
+    private fun toEpisodeResult(element: Element, episodeNum: Int): Episode? {
+        val linkEl = element.selectFirst("p.inf a, a[href*='/video/'], a[href*='/videos/'], a.thumb, a") ?: return null
+        val href = fixUrl(linkEl.attr("href"))
+        if (!href.contains("/video/") && !href.contains("/videos/")) return null
+        val title = element.selectFirst("strong.title a, .title a, p.inf a, strong.title, .title")?.text()?.trim()
+            ?: linkEl.attr("title").ifBlank { null }
+            ?: element.selectFirst("img")?.attr("alt")?.ifBlank { null }
+            ?: "Video $episodeNum"
+        val poster = getBestPoster(element)
+        val duration = element.selectFirst(".durations, .duration, .time, .video-duration, span.min")?.text()?.trim()
+
+        val runTimeMinutes = if (!duration.isNullOrBlank()) {
+            val parts = duration.filter { it.isDigit() || it == ':' }.split(':')
+            if (parts.size == 2) {
+                val mins = parts[0].toIntOrNull() ?: 0
+                val secs = parts[1].toIntOrNull() ?: 0
+                mins + (if (secs >= 30) 1 else 0)
+            } else if (parts.size == 3) {
+                val hours = parts[0].toIntOrNull() ?: 0
+                val mins = parts[1].toIntOrNull() ?: 0
+                hours * 60 + mins
+            } else {
+                null
+            }
+        } else null
+
+        return Episode(
+            data = href,
+            name = title,
+            season = 1,
+            episode = episodeNum,
+            posterUrl = poster,
+            description = duration,
+            runTime = runTimeMinutes
+        )
+    }
+
+    private fun toSearchResult(element: Element): SearchResponse? {
+        val linkEl = element.selectFirst("p.inf a, a[href*='/video/'], a[href*='/videos/'], a.thumb, a") ?: return null
+        val href = fixUrl(linkEl.attr("href"))
+        if (!href.contains("/video/") && !href.contains("/videos/")) return null
+        val title = element.selectFirst("strong.title a, .title a, p.inf a, strong.title, .title")?.text()?.trim()
+            ?: linkEl.attr("title").ifBlank { null } ?: return null
+        val poster = getBestPoster(element)
+
+        return newMovieSearchResponse(title, href, TvType.Movie) {
+            this.posterUrl = poster
+            this.posterHeaders = mapOf("referer" to "$mainUrl/")
+        }
     }
 
     private fun extractFlashvar(key: String, script: String?): String? {
