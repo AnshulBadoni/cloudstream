@@ -176,6 +176,7 @@ data class TvSeriesLoadResponse(
     override var recommendations: List<SearchResponse>? = null,
     override var actors: List<ActorData>? = null,
     override var posterHeaders: Map<String, String>? = null,
+    var showStatus: ShowStatus? = null,
 ) : LoadResponse
 
 data class Episode(
@@ -188,6 +189,7 @@ data class Episode(
     var description: String? = null,
     var date: Long? = null,
     var runTime: Int? = null,
+    var posterHeaders: Map<String, String>? = null,
 ) {
     var rating: Int?
         get() = score?.toInt(100)
@@ -197,6 +199,15 @@ data class Episode(
 }
 
 typealias CloudStreamEpisode = Episode
+
+fun newEpisode(
+    data: String,
+    builder: Episode.() -> Unit = {}
+): Episode {
+    val ep = Episode(data = data)
+    ep.builder()
+    return ep
+}
 
 data class MainPageData(
     val name: String,

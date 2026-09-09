@@ -99,11 +99,16 @@ class PorntrexTest {
 
             if (modelUrl != null) {
                 println("Loading model URL: $modelUrl")
-                val modelDetails = provider.load(modelUrl) as? MovieLoadResponse
-                if (modelDetails != null) {
-                    println("  Name: ${modelDetails.name}")
-                    println("  Bio: ${modelDetails.plot}")
-                    println("  Filmography: ${modelDetails.recommendations?.size} videos found")
+                val response = provider.load(modelUrl)
+                if (response is TvSeriesLoadResponse) {
+                    println("  ✓ TV Series Model Name: ${response.name}")
+                    println("  ✓ Bio: ${response.plot}")
+                    println("  ✓ Episodes count: ${response.episodes.size} episodes")
+                    response.episodes.take(3).forEachIndexed { i, ep ->
+                        println("    - Episode ${i + 1}: ${ep.name} [Duration: ${ep.description}] -> ${ep.data}")
+                    }
+                } else if (response != null) {
+                    println("  Loaded as: ${response::class.simpleName} (${response.name})")
                 }
             } else {
                 println("No model found to test.")
