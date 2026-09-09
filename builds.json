@@ -12,12 +12,12 @@
     "tvTypes": ["NSFW", "Movie", "Others"],
     "iconUrl": "https://www.porntrex.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PornTrex.cs3",
-    "fileSize": 106293
+    "fileSize": 110640
   },
   {
     "name": "Multi-Source",
     "internalName": "MultiSource",
-    "version": 1,
+    "version": 3,
     "apiVersion": 1,
     "description": "Multi-source aggregator scraper with PornPics models, xmovix HD movies, Top 100, and multi-site seasons.",
     "authors": ["AnshulBadoni"],
@@ -27,6 +27,6 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://xmovix.net/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/MultiSource.cs3",
-    "fileSize": 106290
+    "fileSize": 110637
   }
 ]
