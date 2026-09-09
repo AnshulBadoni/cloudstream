@@ -55,6 +55,7 @@ class Porntrex : MainAPI() {
     companion object {
         var searchPages: Int = 2
         var modelPages: Int = 3
+        val avatarCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -146,6 +147,14 @@ class Porntrex : MainAPI() {
 
             val bio = document.selectFirst(".profile-model-info .des, .profile-model .des, .description-block, .profile-model-info .description")?.text()?.trim()
 
+            if (!poster.isNullOrBlank()) {
+                avatarCache[name.lowercase().trim()] = poster
+                val slug = url.trimEnd('/').substringAfterLast('/')
+                if (slug.isNotBlank()) {
+                    avatarCache[slug.lowercase().trim()] = poster
+                }
+            }
+
             val videoElements = document.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item").toMutableList()
 
             val maxPagesAvailable = document.selectFirst(".pagination-holder li.page-playlist, .pagination li.page-playlist")?.attr("data-max")?.toIntOrNull()
@@ -199,12 +208,57 @@ class Porntrex : MainAPI() {
             ?.replace(Regex("^Description:\\s*", RegexOption.IGNORE_CASE), "")?.trim()
             ?: document.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
 
-        val actorsList = document.select(
+        val modelElements = document.select(
             "#tab_video_info .item:has(span.title-item:matches((?i)model)) a[href*='/models/']:not(.js-open-suggest), .block-details .item:has(span.title-item:matches((?i)model)) a[href*='/models/']:not(.js-open-suggest), .item:has(span.title-item:matches((?i)model)) a[href*='/models/']:not(.js-open-suggest), #tab_video_info .items-holder a[href*='/models/']:not(.js-open-suggest), .block-details .items-holder a[href*='/models/']:not(.js-open-suggest)"
         )
-            .mapNotNull { it.text().replace(Regex("""^\+\s*\|\s*Suggest""", RegexOption.IGNORE_CASE), "").trim() }
-            .filter { it.isNotBlank() && it.length > 1 && !it.equals("models", ignoreCase = true) && !it.equals("suggest", ignoreCase = true) && !it.equals("all", ignoreCase = true) }
-            .distinct()
+        val modelEntries = modelElements.mapNotNull { el ->
+            val rawName = el.text().replace(Regex("""^\+\s*\|\s*Suggest""", RegexOption.IGNORE_CASE), "").trim()
+            val rawHref = el.attr("href")
+            if (rawName.isNotBlank() && rawName.length > 1 &&
+                !rawName.equals("models", ignoreCase = true) &&
+                !rawName.equals("suggest", ignoreCase = true) &&
+                !rawName.equals("all", ignoreCase = true)) {
+                Pair(rawName, fixUrl(rawHref))
+            } else null
+        }.distinctBy { it.first.lowercase().trim() }
+
+        val actorsData = coroutineScope {
+            modelEntries.map { (actorName, modelUrl) ->
+                async {
+                    val key = actorName.lowercase().trim()
+                    val slug = modelUrl.trimEnd('/').substringAfterLast('/').lowercase().trim()
+                    var avatar = avatarCache[key] ?: avatarCache[slug]
+
+                    if (avatar == null && modelUrl.isNotBlank()) {
+                        avatar = runCatching {
+                            withTimeoutOrNull(2000L) {
+                                val mDoc = app.get(modelUrl, headers = mapOf("referer" to "$mainUrl/")).document
+                                val posterEl = mDoc.selectFirst(".profile-model-info .img-holder img, .profile-model .img-holder img, .img-holder img, .profile-model img:not(.cover-img), .profile-model-info img")
+                                val rawPoster = posterEl?.attr("data-src")?.takeIf { !it.contains("data:image") && it.isNotBlank() }
+                                    ?: posterEl?.attr("src")?.takeIf { !it.contains("data:image") && it.isNotBlank() }
+                                    ?: mDoc.selectFirst(".profile-model img.cover-img")?.attr("data-src")
+                                    ?: mDoc.selectFirst("meta[property='og:image']")?.attr("content")
+                                fixUrlNull(rawPoster)
+                            }
+                        }.getOrNull()
+
+                        if (!avatar.isNullOrBlank()) {
+                            avatarCache[key] = avatar
+                            avatarCache[slug] = avatar
+                        }
+                    }
+
+                    ActorData(
+                        actor = Actor(actorName, avatar),
+                        role = null,
+                        roleString = "Performer",
+                        voiceActor = null
+                    )
+                }
+            }.awaitAll()
+        }
+
+        val actorsList = modelEntries.map { it.first }
 
         val durationText = document.selectFirst(".durations, .video-duration, span.duration, .time")?.text()?.trim()
         val durationMinutes = if (!durationText.isNullOrBlank()) {
@@ -242,14 +296,7 @@ class Porntrex : MainAPI() {
             this.tags = tags
             this.duration = durationMinutes
             this.rating = ratingPercent
-            this.actors = actorsList.map {
-                ActorData(
-                    actor = Actor(it, null),
-                    role = null,
-                    roleString = "Performer",
-                    voiceActor = null
-                )
-            }
+            this.actors = actorsData
             this.recommendations = recommendations
         }
     }
@@ -320,6 +367,14 @@ class Porntrex : MainAPI() {
         val href = fixUrl(linkEl.attr("href"))
         val title = element.selectFirst("strong.title, .title, p.inf a, a")?.text()?.trim() ?: return null
         val poster = getBestPoster(element)
+
+        if (!poster.isNullOrBlank()) {
+            avatarCache[title.lowercase().trim()] = poster
+            val slug = href.trimEnd('/').substringAfterLast('/')
+            if (slug.isNotBlank()) {
+                avatarCache[slug.lowercase().trim()] = poster
+            }
+        }
 
         return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
             this.posterUrl = poster
