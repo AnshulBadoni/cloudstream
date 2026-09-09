@@ -156,10 +156,10 @@ tasks.register("makePlugin") {
             }
         }
 
-        val cs3File = File(distDir, "PornTrex.cs3")
         val manifestFile = file("manifest.json")
+        val cs3File = File(distDir, "PornTrex.cs3")
 
-        // Create .cs3 ZIP archive containing manifest.json first, then classes*.dex
+        // 1. Create PornTrex.cs3
         ZipOutputStream(FileOutputStream(cs3File)).use { zos ->
             if (manifestFile.exists()) {
                 zos.putNextEntry(ZipEntry("manifest.json"))
@@ -173,12 +173,34 @@ tasks.register("makePlugin") {
             }
         }
 
+        // 2. Create MultiSource.cs3
+        val multiSourceManifest = """
+{
+  "name": "Multi-Source",
+  "pluginClassName": "com.custom.CustomProvider",
+  "requiresResources": false,
+  "version": 1
+}
+        """.trimIndent()
+        val multiSourceCs3 = File(distDir, "MultiSource.cs3")
+        ZipOutputStream(FileOutputStream(multiSourceCs3)).use { zos ->
+            zos.putNextEntry(ZipEntry("manifest.json"))
+            zos.write(multiSourceManifest.toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+
+            dexDir.listFiles()?.filter { it.extension == "dex" }?.sortedBy { it.name }?.forEach { dexFile ->
+                zos.putNextEntry(ZipEntry(dexFile.name))
+                dexFile.inputStream().use { it.copyTo(zos) }
+                zos.closeEntry()
+            }
+        }
+
         val pluginsJson = """
 [
   {
     "name": "PornTrex",
     "internalName": "PornTrex",
-    "version": 26,
+    "version": 42,
     "apiVersion": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],
@@ -189,14 +211,29 @@ tasks.register("makePlugin") {
     "iconUrl": "https://www.porntrex.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PornTrex.cs3",
     "fileSize": ${if (cs3File.exists()) cs3File.length() else 102400}
+  },
+  {
+    "name": "Multi-Source",
+    "internalName": "MultiSource",
+    "version": 1,
+    "apiVersion": 1,
+    "description": "Multi-source aggregator scraper with PornPics models, xmovix HD movies, Top 100, and multi-site seasons.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie", "TvSeries"],
+    "iconUrl": "https://xmovix.net/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/MultiSource.cs3",
+    "fileSize": ${if (multiSourceCs3.exists()) multiSourceCs3.length() else 102400}
   }
 ]
         """.trimIndent()
 
         val repoJson = """
 {
-  "name": "PornTrex",
-  "description": "High quality adult streaming provider with actor catalogs and multi-resolution streaming.",
+  "name": "Anshul Providers",
+  "description": "CloudStream adult and multi-source streaming providers repository.",
   "manifestVersion": 1,
   "pluginLists": [
     "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/plugins.json"
@@ -207,6 +244,6 @@ tasks.register("makePlugin") {
         File(distDir, "plugins.json").writeText(pluginsJson)
         File(distDir, "builds.json").writeText(pluginsJson)
         File(distDir, "repo.json").writeText(repoJson)
-        println("✓ Successfully generated repo.json, plugins.json, and PornTrex.cs3 (size: ${cs3File.length()} bytes) in ${distDir.absolutePath}")
+        println("✓ Successfully generated repo.json, plugins.json, PornTrex.cs3, and MultiSource.cs3 in ${distDir.absolutePath}")
     }
 }
