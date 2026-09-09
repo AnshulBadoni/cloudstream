@@ -24,6 +24,24 @@ class Porntrex : MainAPI() {
     companion object {
         var searchPages: Int = 2
         var modelPages: Int = 3
+        val defaultHeaders = mapOf(
+            "referer" to "https://www.porntrex.com/",
+            "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "accept-language" to "en-US,en;q=0.9"
+        )
+    }
+
+    private suspend fun safeGetDoc(url: String): org.jsoup.nodes.Document {
+        for (i in 1..3) {
+            try {
+                return app.get(url, headers = defaultHeaders).document
+            } catch (e: Exception) {
+                if (i == 3) throw e
+                kotlinx.coroutines.delay(200)
+            }
+        }
+        return app.get(url, headers = defaultHeaders).document
     }
 
     override suspend fun getMainPage(
@@ -38,7 +56,7 @@ class Porntrex : MainAPI() {
             "$mainUrl/${request.data}$page"
         }
 
-        val document = app.get(url, headers = mapOf("referer" to "$mainUrl/")).document
+        val document = safeGetDoc(url)
 
         val homeItems = if (request.data == "models") {
             document.select(
@@ -170,7 +188,7 @@ class Porntrex : MainAPI() {
         val modelDeferred = async {
             runCatching {
                 val modelUrl = "$mainUrl/models/$searchClean/"
-                val modelDoc = app.get(modelUrl, headers = mapOf("referer" to "$mainUrl/")).document
+                val modelDoc = safeGetDoc(modelUrl)
                 val modelItems = modelDoc.select("div.list-models div.item, #list_models_models_list_items .item, #list_models_common_models_list_items .item, .list-models .item, .item:has(a[href*='/models/'])")
                     .mapNotNull { toModelSearchResult(it) }
 
@@ -200,7 +218,7 @@ class Porntrex : MainAPI() {
                 async {
                     runCatching {
                         val videoUrl = if (p == 1) "$mainUrl/search/$searchClean/" else "$mainUrl/search/$searchClean/$p/"
-                        val videoDoc = app.get(videoUrl, headers = mapOf("referer" to "$mainUrl/")).document
+                        val videoDoc = safeGetDoc(videoUrl)
                         videoDoc.select("div.video-list div.video-item, div.video-preview-screen, #list_videos_videos_search_search_result_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])")
                             .mapNotNull { toSearchResult(it) }
                     }.getOrDefault(emptyList())
@@ -229,13 +247,7 @@ class Porntrex : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(
-            url,
-            headers = mapOf(
-                "referer" to "$mainUrl/",
-                "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-            )
-        ).document
+        val document = safeGetDoc(url)
 
         // 1. Model / Performer Collection Page
         if (url.contains("/models/") || url.contains("/model/")) {
@@ -265,7 +277,7 @@ class Porntrex : MainAPI() {
                 for (page in 2..targetPages) {
                     runCatching {
                         val pageUrl = "$baseUrl/$page/"
-                        val pageDoc = app.get(pageUrl, headers = mapOf("referer" to "$mainUrl/")).document
+                        val pageDoc = safeGetDoc(pageUrl)
                         val extraElements = pageDoc.select(
                             "div.video-list div.video-item, div.video-preview-screen, #list_videos_common_videos_list_norm .item, #list_videos_model_videos_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])"
                         )
