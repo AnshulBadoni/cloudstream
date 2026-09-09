@@ -21,23 +21,24 @@ class Porntrex : MainAPI() {
     )
 
     override val mainPage = mainPageOf(
-        "latest-updates" to "Latest Videos",
+        "most-popular/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_today&from4=" to "Most popular today",
+        "top-rated/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_today&from4=" to "Top rated today",
         "models" to "Models & Stars",
-        "top-rated" to "Top rated all time",
-        "top-rated/daily" to "Top rated daily",
-        "top-rated/weekly" to "Top rated weekly",
-        "top-rated/monthly" to "Top rated monthly",
-        "most-popular" to "Most popular all time",
-        "most-popular/daily" to "Most popular daily",
-        "most-popular/weekly" to "Most popular weekly",
-        "most-popular/monthly" to "Most popular monthly"
+        "most-popular/weekly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_week&from4=" to "Most popular weekly",
+        "top-rated/weekly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_week&from4=" to "Top rated weekly",
+        "most-popular/monthly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_month&from4=" to "Most popular monthly",
+        "top-rated/monthly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_month&from4=" to "Top rated monthly",
+        "most-popular/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed&from4=" to "Most popular all time",
+        "top-rated/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating&from4=" to "Top rated all time"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (request.data == "models") {
+        val url = if (request.data.contains("mode=async")) {
+            "$mainUrl/${request.data}$page"
+        } else if (request.data == "models") {
             if (page <= 1) "$mainUrl/models/" else "$mainUrl/models/?page=$page"
         } else {
-            if (page <= 1) "$mainUrl/${request.data}/" else "$mainUrl/${request.data}/?page=$page"
+            if (page <= 1) "$mainUrl/${request.data}/" else "$mainUrl/${request.data}/$page/"
         }
 
         val document = app.get(url, headers = headers).document
@@ -55,14 +56,15 @@ class Porntrex : MainAPI() {
                 res
             }
         } else {
-            document.select(".list-videos .item, div.video-list div.video-item, #list_videos_common_videos_list_items .item, .video-preview-screen").mapNotNull { element ->
+            document.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .video-preview-screen, .item").mapNotNull { element ->
                 toSearchResult(element)
             }
         }
 
-        val hasNext = document.selectFirst(".pagination .next, a.next, a:contains(Next)") != null
-        return HomePageResponse(listOf(HomePageList(request.name, items, isHorizontalImages = false)), hasNext)
+        val homePageList = HomePageList(request.name, items, isHorizontalImages = true)
+        return newHomePageResponse(homePageList, true)
     }
+
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/search/${query.trim().replace(" ", "-")}/?page=1"

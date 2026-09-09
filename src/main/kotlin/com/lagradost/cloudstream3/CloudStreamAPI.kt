@@ -398,21 +398,21 @@ fun MainAPI.newTvSeriesSearchResponse(
 
 fun newHomePageResponse(
     items: List<HomePageList>,
-    hasNext: Boolean = false
+    hasNext: Boolean? = false
 ): HomePageResponse {
     return HomePageResponse(
         items = items,
-        hasNext = hasNext
+        hasNext = hasNext ?: false
     )
 }
 
 fun newHomePageResponse(
     item: HomePageList,
-    hasNext: Boolean = false
+    hasNext: Boolean? = false
 ): HomePageResponse {
     return HomePageResponse(
         items = listOf(item),
-        hasNext = hasNext
+        hasNext = hasNext ?: false
     )
 }
 
