@@ -137,22 +137,14 @@ class Porntrex : MainAPI() {
             ?.replace(Regex("^Description:\\s*", RegexOption.IGNORE_CASE), "")?.trim()
             ?: document.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
 
-        // Extract Actors / Cast list
         val actorsList = document.select(".block-details a[href*='/models/']:not(.js-open-suggest), .block-details a[href*='/pornstars/']:not(.js-open-suggest), .item-models a, a[href*='/models/']:not(.js-open-suggest)")
             .mapNotNull {
                 val cleanName = it.text().replace(Regex("""^\+\s*\|\s*Suggest""", RegexOption.IGNORE_CASE), "").trim()
-                if (cleanName.isNotBlank() && cleanName.length > 1) {
-                    val actorImg = it.selectFirst("img")?.attr("data-src")?.ifBlank { null }
-                        ?: it.selectFirst("img")?.attr("src")
-                    ActorData(
-                        actor = Actor(cleanName, fixUrlNull(actorImg)),
-                        roleString = "Model"
-                    )
-                } else null
-            }.distinctBy { it.actor.name }
+                if (cleanName.isNotBlank() && cleanName.length > 1) cleanName else null
+            }.distinct()
 
         val fullPlot = if (actorsList.isNotEmpty()) {
-            "Starring: " + actorsList.joinToString(", ") { it.actor.name } + if (!description.isNullOrBlank()) "\n\n$description" else ""
+            "Starring: " + actorsList.joinToString(", ") + if (!description.isNullOrBlank()) "\n\n$description" else ""
         } else {
             description
         }
@@ -160,7 +152,7 @@ class Porntrex : MainAPI() {
         val jsonTags = extractFlashvar("video_tags", scriptText)?.split(", ")?.map { it.replace("-", "").trim() }?.filter { it.isNotBlank() }
         val htmlTags = document.select("div.video-tags a, .block-details a[href*='/categories/']:not(.js-open-suggest), .block-details a[href*='/tags/']:not(.js-open-suggest), .item-categories a, .item-tags a, .tags a")
             .mapNotNull { it.text().trim().ifBlank { null } }
-        val tags = (actorsList.map { it.actor.name } + jsonTags.orEmpty() + htmlTags).distinct().ifEmpty { null }
+        val tags = (actorsList + jsonTags.orEmpty() + htmlTags).distinct().ifEmpty { null }
 
         val recommendations = document.select("div#list_videos_related_videos div.video-list div.video-item, div.video-list div.video-item, .list-videos .item, #list_videos_related_videos .item")
             .mapNotNull { element -> toSearchResult(element) }
@@ -172,7 +164,6 @@ class Porntrex : MainAPI() {
             this.plot = fullPlot
             this.tags = tags
             this.recommendations = recommendations
-            this.actors = actorsList.ifEmpty { null }
         }
     }
 
@@ -260,13 +251,14 @@ class Porntrex : MainAPI() {
         val poster = getBestPoster(element)
         val duration = element.selectFirst(".durations, .duration, .time, .video-duration, span.min")?.text()?.trim()
 
-        return newEpisode(href) {
-            this.name = title
-            this.posterUrl = poster
-            this.description = duration
-            this.episode = episodeNum
-            this.season = 1
-        }
+        return Episode(
+            data = href,
+            name = title,
+            season = 1,
+            episode = episodeNum,
+            posterUrl = poster,
+            description = duration
+        )
     }
 
     private fun toSearchResult(element: Element): SearchResponse? {
