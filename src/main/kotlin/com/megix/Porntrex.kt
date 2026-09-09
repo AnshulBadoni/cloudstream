@@ -29,18 +29,19 @@ class Porntrex : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = if (request.data.contains("mode=async")) {
             "$mainUrl/${request.data}$page"
-        } else if (request.data == "models") {
-            if (page <= 1) "$mainUrl/models/" else "$mainUrl/models/?page=$page"
+        } else if (request.data.startsWith("models")) {
+            if (page <= 1) "$mainUrl/models/?sort_by=model_viewed" else "$mainUrl/models/$page/?sort_by=model_viewed"
         } else {
             if (page <= 1) "$mainUrl/${request.data}/" else "$mainUrl/${request.data}/$page/"
         }
 
         val document = app.get(url).document
 
-        val items = if (request.data == "models") {
-            document.select(".list-models .item, #list_models_models_list_items .item, .item:has(a[href*='/models/']), div.item:has(img.thumb)").mapNotNull { element ->
+        val items = if (request.data.startsWith("models")) {
+            document.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/'])").mapNotNull { element ->
+                val linkEl = element.selectFirst("a[href*='/models/'], a[href*='/pornstars/']") ?: return@mapNotNull null
+                val href = fixUrl(linkEl.attr("href"))
                 val title = element.selectFirst("strong.title, .title, p.inf a, a")?.text()?.trim() ?: return@mapNotNull null
-                val href = fixUrl(element.selectFirst("a[href*='/models/'], a[href*='/pornstars/'], a")?.attr("href") ?: return@mapNotNull null)
                 val poster = fixUrlNull(element.selectFirst("img.thumb, img")?.attr("data-src")?.ifBlank { null }
                     ?: element.selectFirst("img.thumb, img")?.attr("src"))
 
@@ -97,7 +98,6 @@ class Porntrex : MainAPI() {
                 this.posterUrl = poster
                 this.posterHeaders = mapOf("referer" to "$mainUrl/")
                 this.plot = bio ?: "Performer profile with ${modelVideos.size} videos."
-                this.actors = listOf(ActorData(Actor(name, poster), roleString = "Performer", voiceActor = null))
                 this.recommendations = modelVideos.ifEmpty { null }
             }
         }
@@ -119,23 +119,10 @@ class Porntrex : MainAPI() {
             ?.replace(Regex("^Description:\\s*", RegexOption.IGNORE_CASE), "")?.trim()
             ?: document.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
 
-        val ratingText = document.selectFirst(".vote-percentage, .rating")?.text()?.trim()
-        val rating = ratingText?.filter { it.isDigit() }?.toIntOrNull()
-
-        val durationText = document.selectFirst(".info-block .item span:has(i.fa-clock-o) em.badge, .info-block i.fa-clock-o + em, .durations, .duration")?.text()?.trim()
-        val duration = durationText?.filter { it.isDigit() }?.toIntOrNull()
-
         val jsonTags = extractFlashvar("video_tags", scriptText)?.split(", ")?.map { it.replace("-", "").trim() }?.filter { it.isNotBlank() }
         val htmlTags = document.select("div.video-tags a, .block-details a[href*='/categories/'], .block-details a[href*='/tags/'], .item-categories a, .item-tags a, .tags a")
             .mapNotNull { it.text().trim().ifBlank { null } }
         val tags = (jsonTags.orEmpty() + htmlTags).distinct().ifEmpty { null }
-
-        val actors = document.select(".block-details a[href*='/models/'], .block-details a[href*='/pornstars/'], .item-models a, a[href*='/models/'], a[href*='/pornstars/']")
-            .mapNotNull { element ->
-                val actorName = element.text().trim()
-                if (actorName.isBlank()) null
-                else ActorData(Actor(actorName, null), roleString = "Performer", voiceActor = null)
-            }.distinctBy { it.actor.name }.ifEmpty { null }
 
         val recommendations = document.select("div#list_videos_related_videos div.video-list div.video-item, div.video-list div.video-item, .list-videos .item")
             .mapNotNull { element -> toSearchResult(element) }
@@ -145,10 +132,7 @@ class Porntrex : MainAPI() {
             this.posterUrl = poster
             this.posterHeaders = mapOf("referer" to "$mainUrl/")
             this.plot = description
-            this.rating = rating
-            this.duration = duration
             this.tags = tags
-            this.actors = actors
             this.recommendations = recommendations
         }
     }
