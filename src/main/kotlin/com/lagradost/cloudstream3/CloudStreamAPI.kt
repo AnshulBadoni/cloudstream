@@ -265,6 +265,7 @@ abstract class MainAPI {
     open var lang: String = "en"
     open val isNsfw: Boolean = true
     open val hasMainPage: Boolean = false
+    open val hasDownloadSupport: Boolean = true
     open val mainPage: List<MainPageData> = emptyList()
     var sourcePlugin: String? = null
 
@@ -413,4 +414,19 @@ fun newHomePageResponse(
         items = listOf(item),
         hasNext = hasNext
     )
+}
+
+fun mainPageOf(vararg pages: Pair<String, String>): List<MainPageData> {
+    return pages.map { MainPageData(it.second, it.first) }
+}
+
+fun MainAPI.fixUrl(url: String): String {
+    if (url.startsWith("http://") || url.startsWith("https://")) return url
+    if (url.startsWith("//")) return "https:$url"
+    return mainUrl.trimEnd('/') + "/" + url.trimStart('/')
+}
+
+fun MainAPI.fixUrlNull(url: String?): String? {
+    if (url.isNullOrBlank()) return null
+    return fixUrl(url)
 }

@@ -201,3 +201,4 @@ people:
         fallbacks:
           - selector: "img.cover, img.thumb, img"
             attribute: "src"
+
