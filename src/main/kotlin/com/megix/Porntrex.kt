@@ -36,7 +36,7 @@ class Porntrex : MainAPI() {
             if (page <= 1) "$mainUrl/${request.data}/" else "$mainUrl/${request.data}/$page/"
         }
 
-        val document = app.get(url, headers = mapOf("referer" to "$mainUrl/", "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).document
+        val document = app.get(url, headers = mapOf("referer" to "$mainUrl/")).document
 
         val items = if (request.data.startsWith("models")) {
             document.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/']), .item:has(a[href*='/model/'])").mapNotNull { element ->
@@ -67,7 +67,7 @@ class Porntrex : MainAPI() {
 
         // 1a. Check direct performer profile
         runCatching {
-            val directDoc = app.get(modelDirectUrl, headers = mapOf("referer" to "$mainUrl/", "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).document
+            val directDoc = app.get(modelDirectUrl, headers = mapOf("referer" to "$mainUrl/")).document
             val h1 = directDoc.selectFirst(".profile-model-info h1, .profile-model h1, .profile-model-info .name h1, h1")?.text()?.trim()
             if (!h1.isNullOrBlank() && queryWords.all { word -> h1.contains(word, ignoreCase = true) }) {
                 val posterEl = directDoc.selectFirst(".profile-model-info .img-holder img, .profile-model .img-holder img, .img-holder img, .profile-model img:not(.cover-img), .profile-model-info img")
@@ -86,7 +86,7 @@ class Porntrex : MainAPI() {
 
         // 1b. Search models directory
         runCatching {
-            val modelDoc = app.get(modelSearchUrl, headers = mapOf("referer" to "$mainUrl/", "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).document
+            val modelDoc = app.get(modelSearchUrl, headers = mapOf("referer" to "$mainUrl/")).document
             val models = modelDoc.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/']), .item:has(a[href*='/model/'])")
                 .mapNotNull { toModelSearchResult(it) }
 
@@ -117,7 +117,7 @@ class Porntrex : MainAPI() {
             for (page in 1..maxPages) {
                 runCatching {
                     val url = if (page <= 1) "$mainUrl/search/$cleanQuery/" else "$mainUrl/search/$cleanQuery/$page/"
-                    val videoDoc = app.get(url, headers = mapOf("referer" to "$mainUrl/", "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).document
+                    val videoDoc = app.get(url, headers = mapOf("referer" to "$mainUrl/")).document
                     val videoElements = videoDoc.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item")
                     val pageResults = videoElements.mapNotNull { toSearchResult(it) }
                     results.addAll(pageResults)
@@ -129,7 +129,7 @@ class Porntrex : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url, headers = mapOf("referer" to "$mainUrl/", "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).document
+        val document = app.get(url, headers = mapOf("referer" to "$mainUrl/")).document
 
         // 1. Model / Performer Collection Page
         if (url.contains("/models/") || url.contains("/pornstars/") || url.contains("/model/")) {
@@ -158,7 +158,7 @@ class Porntrex : MainAPI() {
                 for (page in 2..targetPages) {
                     runCatching {
                         val pageUrl = "$baseUrl/$page/"
-                        val pageDoc = app.get(pageUrl, headers = mapOf("referer" to "$mainUrl/", "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")).document
+                        val pageDoc = app.get(pageUrl, headers = mapOf("referer" to "$mainUrl/")).document
                         val extraElements = pageDoc.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item")
                         videoElements.addAll(extraElements)
                     }
@@ -242,7 +242,14 @@ class Porntrex : MainAPI() {
             this.tags = tags
             this.duration = durationMinutes
             this.rating = ratingPercent
-            this.actors = actorsList.map { ActorData(Actor(it, null), roleString = "Performer", voiceActor = null) }
+            this.actors = actorsList.map {
+                ActorData(
+                    actor = Actor(it, null),
+                    role = null,
+                    roleString = "Performer",
+                    voiceActor = null
+                )
+            }
             this.recommendations = recommendations
         }
     }
@@ -253,13 +260,7 @@ class Porntrex : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val response = app.get(
-            data,
-            headers = mapOf(
-                "referer" to "$mainUrl/",
-                "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-            )
-        ).text
+        val response = app.get(data, headers = mapOf("referer" to "$mainUrl/")).text
 
         val flashvarsMatch = Regex("""var\s+flashvars\s*=\s*\{([^}]+)\}""", RegexOption.DOT_MATCHES_ALL).find(response)
         val scriptContent = flashvarsMatch?.groupValues?.get(1) ?: response

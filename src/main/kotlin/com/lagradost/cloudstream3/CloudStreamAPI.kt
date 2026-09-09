@@ -30,8 +30,19 @@ enum class Qualities(val value: Int) {
     P2160(2160)
 }
 
+enum class ActorRole {
+    Main,
+    Supporting,
+    Background,
+}
+
 data class Actor(val name: String, val image: String? = null)
-data class ActorData(val actor: Actor, val roleString: String? = null, val voiceActor: Actor? = null)
+data class ActorData(
+    val actor: Actor,
+    val role: ActorRole? = null,
+    val roleString: String? = null,
+    val voiceActor: Actor? = null
+)
 
 enum class SearchQuality {
     Cam, CamRip, HdCam, Telesync, Telecine, WorkPrint, Dvd, Tvh, Hdtv, VOD, WebRip, WebDl, BluRay, FourK, Unknown
