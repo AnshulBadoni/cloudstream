@@ -121,7 +121,32 @@ class PorntrexTest {
     @Test
     fun testModelProfileOffline() {
         println("\n=== 5. TESTING MODEL PROFILE OFFLINE HTML ===")
-        val html = java.io.File("model_sample.html").readText()
+        val htmlStream = javaClass.getResourceAsStream("/fixtures/model_sample.html")
+        val html = if (htmlStream != null) {
+            htmlStream.bufferedReader().readText()
+        } else {
+            java.io.File("model_sample.html").takeIf { it.exists() }?.readText()
+                ?: """
+                <html>
+                <body>
+                    <div class="profile-model-info">
+                        <h1>Blake Blossom</h1>
+                    </div>
+                    <div class="porntrex-box">
+                        <div class="video-list">
+                            <div class="video-preview-screen video-item thumb-item" data-item-id="3322928">
+                                <a href="https://www.porntrex.com/video/3322928/blake-blossom-hot-host" class="thumb rotator-screen">
+                                    <img class="cover lazyload" data-src="//ptx.cdntrex.com/preview.jpg" alt="Blake Blossom Hot Host" />
+                                </a>
+                                <div class="durations">38:14</div>
+                                <p class="inf"><a href="https://www.porntrex.com/video/3322928/blake-blossom-hot-host" title="Blake Blossom Hot Host">Blake Blossom Hot Host</a></p>
+                            </div>
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """.trimIndent()
+        }
         val document = org.jsoup.Jsoup.parse(html, "https://www.porntrex.com/models/blake-blossom/")
         
         val name = document.selectFirst("h1, .profile-model-info h1, .profile-model-info .name h1, h1.title")?.text()?.trim()
@@ -130,12 +155,13 @@ class PorntrexTest {
         println("Extracted Model Name: $name")
 
         val videoElements = document.select(
-            "#list_videos_model_videos_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, div.video-list div.video-item, div.video-preview-screen, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])"
+            "div.video-list div.video-item, div.video-preview-screen, #list_videos_common_videos_list_norm .item, #list_videos_model_videos_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])"
         )
         println("Matched video elements: ${videoElements.size}")
         val episodes = videoElements.mapIndexedNotNull { index, element ->
             val linkEl = element.selectFirst("p.inf a, a[href*='/video/'], a[href*='/videos/'], a.thumb, a") ?: return@mapIndexedNotNull null
             val href = linkEl.attr("href")
+            if (!href.contains("/video/") && !href.contains("/videos/")) return@mapIndexedNotNull null
             val title = element.selectFirst("strong.title a, .title a, p.inf a, strong.title, .title")?.text()?.trim()
                 ?: linkEl.attr("title").ifBlank { null }
                 ?: "Video ${index + 1}"
