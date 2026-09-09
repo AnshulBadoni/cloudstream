@@ -158,27 +158,30 @@ class PorntrexTest {
             "div.video-list div.video-item, div.video-preview-screen, #list_videos_common_videos_list_norm .item, #list_videos_model_videos_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])"
         )
         println("Matched video elements: ${videoElements.size}")
-        val episodes = videoElements.mapIndexedNotNull { index, element ->
-            val linkEl = element.selectFirst("p.inf a, a[href*='/video/'], a[href*='/videos/'], a.thumb, a") ?: return@mapIndexedNotNull null
+        val episodes = videoElements.mapNotNull { element ->
+            val linkEl = element.selectFirst("p.inf a, a[href*='/video/'], a[href*='/videos/'], a.thumb, a") ?: return@mapNotNull null
             val href = linkEl.attr("href")
-            if (!href.contains("/video/") && !href.contains("/videos/")) return@mapIndexedNotNull null
+            if (!href.contains("/video/") && !href.contains("/videos/")) return@mapNotNull null
             val title = element.selectFirst("strong.title a, .title a, p.inf a, strong.title, .title")?.text()?.trim()
                 ?: linkEl.attr("title").ifBlank { null }
-                ?: "Video ${index + 1}"
+                ?: "Video"
             val duration = element.selectFirst(".durations, .duration, .time, .video-duration, span.min")?.text()?.trim()
             Episode(
                 data = href,
                 name = title,
                 season = 1,
-                episode = index + 1,
+                episode = 1,
                 description = duration
             )
-        }.distinctBy { it.data }
+        }.distinctBy { it.data }.mapIndexed { index, ep ->
+            ep.copy(episode = index + 1)
+        }
         println("Extracted episodes: ${episodes.size}")
         episodes.take(5).forEach {
             println("  - Ep ${it.episode}: ${it.name} [${it.description}] -> ${it.data}")
         }
         assertTrue(episodes.isNotEmpty(), "Episodes should not be empty")
+        assertEquals(1, episodes.first().episode, "First episode should have index 1")
     }
 }
 

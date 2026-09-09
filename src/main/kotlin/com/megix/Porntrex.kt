@@ -54,6 +54,7 @@ class Porntrex : MainAPI() {
 
     companion object {
         var searchPages: Int = 2
+        var modelPages: Int = 3
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -153,14 +154,36 @@ class Porntrex : MainAPI() {
                 ?.replace(Regex("^Description:\\s*", RegexOption.IGNORE_CASE), "")?.trim()
                 ?: document.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
 
-            // Find all video items on the performer's page
+            // Find all video items on the performer's initial page
             val videoElements = document.select(
                 "div.video-list div.video-item, div.video-preview-screen, #list_videos_common_videos_list_norm .item, #list_videos_model_videos_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])"
-            )
+            ).toMutableList()
 
-            val episodes = videoElements.mapIndexedNotNull { index, element ->
-                toEpisodeResult(element, index + 1)
-            }.distinctBy { it.data }
+            // Check pagination for performers with multiple pages
+            val maxPagesAvailable = document.selectFirst(".pagination-holder li.page-playlist, .pagination li.page-playlist")?.attr("data-max")?.toIntOrNull()
+                ?: document.select(".pagination-holder li.page a, .pagination li.page a").mapNotNull { it.text().trim().toIntOrNull() }.maxOrNull()
+                ?: 1
+
+            val targetPages = modelPages.coerceIn(1, 10).coerceAtMost(maxPagesAvailable)
+            if (targetPages > 1) {
+                val baseUrl = url.trimEnd('/')
+                for (page in 2..targetPages) {
+                    runCatching {
+                        val pageUrl = "$baseUrl/$page/"
+                        val pageDoc = app.get(pageUrl, headers = mapOf("referer" to "$mainUrl/")).document
+                        val extraElements = pageDoc.select(
+                            "div.video-list div.video-item, div.video-preview-screen, #list_videos_common_videos_list_norm .item, #list_videos_model_videos_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])"
+                        )
+                        videoElements.addAll(extraElements)
+                    }
+                }
+            }
+
+            val episodes = videoElements.mapNotNull { element ->
+                toEpisodeResult(element, 1)
+            }.distinctBy { it.data }.mapIndexed { index, ep ->
+                ep.copy(episode = index + 1)
+            }
 
             return newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
@@ -216,7 +239,9 @@ class Porntrex : MainAPI() {
             this.posterHeaders = mapOf("referer" to "$mainUrl/")
             this.plot = fullPlot
             this.tags = tags
-            this.actors = actorsList.map { ActorData(Actor(it)) }.ifEmpty { null }
+            runCatching {
+                this.actors = actorsList.map { ActorData(Actor(it, null), null, null) }
+            }
             this.recommendations = recommendations
         }
     }
