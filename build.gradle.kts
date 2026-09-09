@@ -52,6 +52,7 @@ tasks.withType<JavaCompile> {
 
 tasks.test {
     useJUnitPlatform()
+    outputs.upToDateWhen { false }
     systemProperties(System.getProperties().mapKeys { it.key.toString() })
     testLogging {
         events("passed", "skipped", "failed")
