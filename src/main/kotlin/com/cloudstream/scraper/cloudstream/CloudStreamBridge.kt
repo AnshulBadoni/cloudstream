@@ -3,14 +3,25 @@ package com.cloudstream.scraper.cloudstream
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import sun.misc.Unsafe
 
 /**
  * Universal binary compatibility bridge for CloudStream, CloudStream Beta, Pre-release, and Zangetsu.
  *
- * Dynamically resolves constructors and properties at runtime to prevent NoSuchMethodError /
- * No direct method <init> crashes caused by data class constructor signature drift across host APK versions.
+ * Uses Unsafe.allocateInstance to bypass data class constructor signature drift across host APK versions,
+ * preventing NoSuchMethodError / No direct method <init> crashes entirely.
  */
 object CloudStreamBridge {
+
+    private val unsafe: Unsafe? by lazy {
+        try {
+            val field = Unsafe::class.java.getDeclaredField("theUnsafe")
+            field.isAccessible = true
+            field.get(null) as Unsafe
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
     @Suppress("UNCHECKED_CAST")
     fun createMovieLoadResponse(
@@ -20,7 +31,15 @@ object CloudStreamBridge {
         type: TvType,
         dataUrl: String
     ): MovieLoadResponse {
-        return tryCreateInstance("com.lagradost.cloudstream3.MovieLoadResponse", api, name, url, type, dataUrl)
+        val res = tryInstantiate<MovieLoadResponse>("com.lagradost.cloudstream3.MovieLoadResponse")
+        setField(res, "name", name)
+        setField(res, "url", url)
+        setField(res, "apiName", api.name)
+        setField(res, "type", type)
+        setField(res, "dataUrl", dataUrl)
+        setField(res, "trailers", mutableListOf<Any>())
+        setField(res, "syncData", mutableMapOf<String, String>())
+        return res
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -31,7 +50,15 @@ object CloudStreamBridge {
         type: TvType,
         episodes: List<Episode>
     ): TvSeriesLoadResponse {
-        return tryCreateInstance("com.lagradost.cloudstream3.TvSeriesLoadResponse", api, name, url, type, episodes)
+        val res = tryInstantiate<TvSeriesLoadResponse>("com.lagradost.cloudstream3.TvSeriesLoadResponse")
+        setField(res, "name", name)
+        setField(res, "url", url)
+        setField(res, "apiName", api.name)
+        setField(res, "type", type)
+        setField(res, "episodes", episodes)
+        setField(res, "trailers", mutableListOf<Any>())
+        setField(res, "syncData", mutableMapOf<String, String>())
+        return res
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -41,7 +68,10 @@ object CloudStreamBridge {
         url: String,
         type: TvType
     ): MovieSearchResponse {
-        val res: MovieSearchResponse = tryCreateInstance("com.lagradost.cloudstream3.MovieSearchResponse", api, name, url, type, null)
+        val res = tryInstantiate<MovieSearchResponse>("com.lagradost.cloudstream3.MovieSearchResponse")
+        setField(res, "name", name)
+        setField(res, "url", url)
+        setField(res, "apiName", api.name)
         setField(res, "type", type)
         return res
     }
@@ -53,11 +83,13 @@ object CloudStreamBridge {
         url: String,
         type: TvType
     ): TvSeriesSearchResponse {
-        val res: TvSeriesSearchResponse = tryCreateInstance("com.lagradost.cloudstream3.TvSeriesSearchResponse", api, name, url, type, null)
+        val res = tryInstantiate<TvSeriesSearchResponse>("com.lagradost.cloudstream3.TvSeriesSearchResponse")
+        setField(res, "name", name)
+        setField(res, "url", url)
+        setField(res, "apiName", api.name)
         setField(res, "type", type)
         return res
     }
-
 
     @Suppress("UNCHECKED_CAST")
     fun createExtractorLink(
@@ -68,125 +100,54 @@ object CloudStreamBridge {
         quality: Int,
         type: ExtractorLinkType = ExtractorLinkType.VIDEO
     ): ExtractorLink {
-        val clazz = ExtractorLink::class.java
-        val constructors = (clazz.declaredConstructors + clazz.constructors).distinct().sortedByDescending { it.parameterTypes.size }
-
-        for (constructor in constructors) {
-            try {
-                constructor.isAccessible = true
-                val paramTypes = constructor.parameterTypes
-                val args = arrayOfNulls<Any>(paramTypes.size)
-                var stringCount = 0
-
-                for (i in paramTypes.indices) {
-                    val pType = paramTypes[i]
-                    when {
-                        pType == String::class.java -> {
-                            when (stringCount) {
-                                0 -> args[i] = source
-                                1 -> args[i] = name
-                                2 -> args[i] = url
-                                3 -> args[i] = referer
-                                else -> args[i] = null
-                            }
-                            stringCount++
-                        }
-                        pType == java.lang.Integer.TYPE || pType == Integer::class.java -> args[i] = quality
-                        pType == java.lang.Boolean.TYPE || pType == java.lang.Boolean::class.java -> args[i] = false
-                        pType == Map::class.java -> args[i] = emptyMap<String, String>()
-                        pType.name.contains("ExtractorLinkType") -> args[i] = type
-                        pType.name.contains("DefaultConstructorMarker") -> args[i] = null
-                        else -> args[i] = null
-                    }
-                }
-                val instance = constructor.newInstance(*args) as ExtractorLink
-                setField(instance, "quality", quality)
-                setField(instance, "referer", referer)
-                return instance
-            } catch (_: Throwable) {}
-        }
-
-        return ExtractorLink(
-            source = source,
-            name = name,
-            url = url,
-            referer = referer,
-            quality = quality,
-            type = type
-        )
+        val res = tryInstantiate<ExtractorLink>("com.lagradost.cloudstream3.utils.ExtractorLink")
+        setField(res, "source", source)
+        setField(res, "name", name)
+        setField(res, "url", url)
+        setField(res, "referer", referer)
+        setField(res, "quality", quality)
+        setField(res, "type", type)
+        setField(res, "isM3u8", false)
+        setField(res, "headers", emptyMap<String, String>())
+        return res
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun <T : Any> tryCreateInstance(
-        className: String,
-        api: MainAPI,
-        name: String,
-        url: String,
-        type: TvType,
-        extraData: Any?
-    ): T {
+    private fun <T : Any> tryInstantiate(className: String): T {
         val clazz = Class.forName(className)
-        val constructors = (clazz.declaredConstructors + clazz.constructors).distinct().sortedByDescending { it.parameterTypes.size }
+        val u = unsafe
+        if (u != null) {
+            try {
+                return u.allocateInstance(clazz) as T
+            } catch (_: Throwable) {}
+        }
 
+        val constructors = (clazz.declaredConstructors + clazz.constructors).distinct().sortedBy { it.parameterTypes.size }
         for (constructor in constructors) {
             try {
                 constructor.isAccessible = true
                 val paramTypes = constructor.parameterTypes
                 val args = arrayOfNulls<Any>(paramTypes.size)
-                var stringCount = 0
-
-                val isSynthetic = paramTypes.isNotEmpty() && paramTypes.last().name.contains("DefaultConstructorMarker")
-
                 for (i in paramTypes.indices) {
-                    val pType = paramTypes[i]
+                    val p = paramTypes[i]
                     when {
-                        pType == String::class.java -> {
-                            when (stringCount) {
-                                0 -> args[i] = name
-                                1 -> args[i] = url
-                                2 -> args[i] = api.name
-                                3 -> args[i] = if (extraData is String) extraData else url
-                                else -> args[i] = null
-                            }
-                            stringCount++
-                        }
-                        pType.name.contains("TvType") -> args[i] = type
-                        pType == List::class.java -> {
-                            if (extraData is List<*>) {
-                                args[i] = extraData
-                            } else {
-                                args[i] = mutableListOf<Any>()
-                            }
-                        }
-                        pType == Map::class.java -> {
-                            args[i] = mutableMapOf<String, String>()
-                        }
-                        pType == Set::class.java -> {
-                            args[i] = mutableSetOf<Any>()
-                        }
-                        pType == java.lang.Boolean.TYPE -> args[i] = false
-                        pType == java.lang.Integer.TYPE -> {
-                            if (isSynthetic && i == paramTypes.size - 2) {
-                                args[i] = -1
-                            } else {
-                                args[i] = 0
-                            }
-                        }
-                        pType == java.lang.Long.TYPE -> args[i] = 0L
-                        pType == java.lang.Double.TYPE -> args[i] = 0.0
-                        pType == java.lang.Float.TYPE -> args[i] = 0.0f
-                        pType.name.contains("DefaultConstructorMarker") -> args[i] = null
+                        p == java.lang.Boolean.TYPE -> args[i] = false
+                        p == java.lang.Integer.TYPE -> args[i] = 0
+                        p == java.lang.Long.TYPE -> args[i] = 0L
+                        p == java.lang.Double.TYPE -> args[i] = 0.0
+                        p == java.lang.Float.TYPE -> args[i] = 0.0f
+                        p == List::class.java -> args[i] = mutableListOf<Any>()
+                        p == Map::class.java -> args[i] = mutableMapOf<String, String>()
+                        p == Set::class.java -> args[i] = mutableSetOf<Any>()
+                        p.name.contains("TvType") -> args[i] = TvType.NSFW
                         else -> args[i] = null
                     }
                 }
-
                 return constructor.newInstance(*args) as T
-            } catch (_: Throwable) {
-                // Try next available constructor
-            }
+            } catch (_: Throwable) {}
         }
 
-        throw IllegalStateException("Failed to instantiate $className on any available constructor")
+        throw IllegalStateException("Failed to instantiate $className")
     }
 
     fun setField(target: Any, name: String, value: Any?) {
@@ -259,4 +220,3 @@ object CloudStreamBridge {
         } catch (_: Throwable) {}
     }
 }
-
