@@ -90,6 +90,7 @@ object CloudStreamMapper {
         CloudStreamBridge.setField(res, "posterUrl", details.posterUrl)
         CloudStreamBridge.setField(res, "year", details.releaseYear)
         CloudStreamBridge.setField(res, "plot", details.description)
+        CloudStreamBridge.setField(res, "rating", (details.rating?.times(10))?.toInt())
         CloudStreamBridge.setField(res, "score", score)
         CloudStreamBridge.setField(res, "tags", (details.genres + details.tags).distinct().ifEmpty { null })
         val duration = if (details is Movie) details.durationMinutes else null

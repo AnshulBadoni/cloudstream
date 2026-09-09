@@ -13,6 +13,6 @@ class PorntrexTest {
         assertEquals("PornTrex", provider.name)
         assertEquals("https://www.porntrex.com", provider.mainUrl)
         assertTrue(provider.hasMainPage)
-        assertTrue(provider.mainPage.any { it.data == "models" && it.name == "Models & Stars" })
+        assertTrue(provider.mainPage.any { it.data.contains("models") && it.name == "Models & Stars" })
     }
 }

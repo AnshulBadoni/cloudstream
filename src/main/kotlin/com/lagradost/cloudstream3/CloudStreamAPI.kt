@@ -136,29 +136,12 @@ interface LoadResponse {
     var posterUrl: String?
     var year: Int?
     var plot: String?
-    var score: Score?
+    var rating: Int?
     var tags: List<String>?
     var duration: Int?
-    var trailers: MutableList<TrailerData>
     var recommendations: List<SearchResponse>?
     var actors: List<ActorData>?
-    var comingSoon: Boolean
-    var syncData: MutableMap<String, String>
     var posterHeaders: Map<String, String>?
-    var backgroundPosterUrl: String?
-    var logoUrl: String?
-    var contentRating: String?
-
-    var rating: Int?
-        get() = score?.toInt(100)
-        set(value) {
-            score = Score.from(value, 100)
-        }
-    var trailerUrl: String?
-        get() = trailers.firstOrNull()?.extractorUrl
-        set(value) {
-            if (value != null) trailers = mutableListOf(TrailerData(value))
-        }
 }
 
 data class MovieLoadResponse(
@@ -170,18 +153,12 @@ data class MovieLoadResponse(
     override var posterUrl: String? = null,
     override var year: Int? = null,
     override var plot: String? = null,
-    override var score: Score? = null,
+    override var rating: Int? = null,
     override var tags: List<String>? = null,
     override var duration: Int? = null,
-    override var trailers: MutableList<TrailerData> = mutableListOf(),
     override var recommendations: List<SearchResponse>? = null,
     override var actors: List<ActorData>? = null,
-    override var comingSoon: Boolean = false,
-    override var syncData: MutableMap<String, String> = mutableMapOf(),
     override var posterHeaders: Map<String, String>? = null,
-    override var backgroundPosterUrl: String? = null,
-    override var logoUrl: String? = null,
-    override var contentRating: String? = null,
 ) : LoadResponse
 
 data class TvSeriesLoadResponse(
@@ -193,21 +170,12 @@ data class TvSeriesLoadResponse(
     override var posterUrl: String? = null,
     override var year: Int? = null,
     override var plot: String? = null,
-    var showStatus: ShowStatus? = null,
-    override var score: Score? = null,
+    override var rating: Int? = null,
     override var tags: List<String>? = null,
     override var duration: Int? = null,
-    override var trailers: MutableList<TrailerData> = mutableListOf(),
     override var recommendations: List<SearchResponse>? = null,
     override var actors: List<ActorData>? = null,
-    override var comingSoon: Boolean = false,
-    override var syncData: MutableMap<String, String> = mutableMapOf(),
     override var posterHeaders: Map<String, String>? = null,
-    var nextAiring: NextAiring? = null,
-    var seasonNames: List<SeasonData>? = null,
-    override var backgroundPosterUrl: String? = null,
-    override var logoUrl: String? = null,
-    override var contentRating: String? = null,
 ) : LoadResponse
 
 data class Episode(
@@ -280,74 +248,42 @@ abstract class MainAPI {
     ): Boolean = false
 }
 
-suspend fun MainAPI.newMovieLoadResponse(
+fun MainAPI.newMovieLoadResponse(
     name: String,
     url: String,
     type: TvType,
     dataUrl: String,
-    builder: suspend MovieLoadResponse.() -> Unit = {}
+    builder: MovieLoadResponse.() -> Unit = {}
 ): MovieLoadResponse {
     val res = MovieLoadResponse(
         name = name,
         url = url,
         apiName = this.name,
         type = type,
-        dataUrl = dataUrl,
-        posterUrl = null,
-        year = null,
-        plot = null,
-        score = null,
-        tags = null,
-        duration = null,
-        trailers = mutableListOf(),
-        recommendations = null,
-        actors = null,
-        comingSoon = false,
-        syncData = mutableMapOf(),
-        posterHeaders = null,
-        backgroundPosterUrl = null,
-        logoUrl = null,
-        contentRating = null
+        dataUrl = dataUrl
     )
     res.builder()
     return res
 }
 
-suspend fun MainAPI.newTvSeriesLoadResponse(
+fun MainAPI.newTvSeriesLoadResponse(
     name: String,
     url: String,
     type: TvType,
     episodes: List<Episode>,
-    builder: suspend TvSeriesLoadResponse.() -> Unit = {}
+    builder: TvSeriesLoadResponse.() -> Unit = {}
 ): TvSeriesLoadResponse {
     val res = TvSeriesLoadResponse(
         name = name,
         url = url,
         apiName = this.name,
         type = type,
-        episodes = episodes,
-        posterUrl = null,
-        year = null,
-        plot = null,
-        showStatus = null,
-        score = null,
-        tags = null,
-        duration = null,
-        trailers = mutableListOf(),
-        recommendations = null,
-        actors = null,
-        comingSoon = false,
-        syncData = mutableMapOf(),
-        posterHeaders = null,
-        nextAiring = null,
-        seasonNames = null,
-        backgroundPosterUrl = null,
-        logoUrl = null,
-        contentRating = null
+        episodes = episodes
     )
     res.builder()
     return res
 }
+
 
 fun MainAPI.newMovieSearchResponse(
     name: String,
