@@ -238,12 +238,6 @@ class Porntrex : MainAPI() {
         val ratingPercent = Regex("""(\d{1,3})%""").find(ratingText.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
             ?: Regex("""(\d{1,3})""").find(ratingText.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
 
-        val fullPlot = if (actorsList.isNotEmpty()) {
-            "Starring: " + actorsList.joinToString(", ") + if (!description.isNullOrBlank()) "\n\n$description" else ""
-        } else {
-            description
-        }
-
         val jsonTags = extractFlashvar("video_tags", scriptText)?.split(", ")?.map { it.replace("-", "").trim() }?.filter { it.isNotBlank() }
         val htmlTags = document.select("div.video-tags a, #tab_video_info .block-details a[href*='/categories/']:not(.js-open-suggest), #tab_video_info .block-details a[href*='/tags/']:not(.js-open-suggest), .item-categories a, .item-tags a, .tags a")
             .mapNotNull { it.text().trim().ifBlank { null } }
@@ -256,13 +250,17 @@ class Porntrex : MainAPI() {
         return newMovieLoadResponse(title, url, TvType.Movie, url) {
             this.posterUrl = poster
             this.posterHeaders = mapOf("referer" to "$mainUrl/")
-            this.plot = fullPlot
+            this.plot = description?.ifBlank { null }
             this.tags = tags
             this.duration = durationMinutes
             this.rating = ratingPercent
-            runCatching {
-                this.actors = actorsList.map { ActorData(Actor(it, null), roleString = "Performer", voiceActor = null) }
-            }
+            this.actors = actorsList.map {
+                ActorData(
+                    Actor(it, null),
+                    roleString = "Performer",
+                    voiceActor = null
+                )
+            }.ifEmpty { null }
             this.recommendations = recommendations
         }
     }
