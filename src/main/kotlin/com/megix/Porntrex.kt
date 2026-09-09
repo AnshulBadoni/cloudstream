@@ -70,31 +70,31 @@ class Porntrex : MainAPI() {
 
         // 1. Model / Performer Profile Page - Treat as TV Series
         if (url.contains("/models/") || url.contains("/pornstars/")) {
-            val name = document.selectFirst(".profile-model-info h1, .profile-model-info .name h1, h1.title, h1")?.text()?.trim()
+            val name = document.selectFirst("h1, .profile-model-info h1, .profile-model-info .name h1, h1.title")?.text()?.trim()
                 ?: document.selectFirst("meta[property='og:title']")?.attr("content")?.substringBefore("|")?.trim()
                 ?: url.trimEnd('/').substringAfterLast('/').replace("-", " ")
 
             val poster = fixUrlNull(
-                document.selectFirst(".profile-model-info .img-holder img, .profile-model-info img, .img-holder img")?.attr("data-src")?.ifBlank { null }
-                    ?: document.selectFirst(".profile-model-info .img-holder img, .profile-model-info img, .img-holder img")?.attr("src")
+                document.selectFirst(".profile-model-info img, .img-holder img, img.cover, img.thumb")?.attr("data-src")?.ifBlank { null }
+                    ?: document.selectFirst(".profile-model-info img, .img-holder img, img.cover, img.thumb")?.attr("src")
                     ?: document.selectFirst("meta[property='og:image']")?.attr("content")
             )
 
-            val bio = document.selectFirst(".profile-model-info .description-block, .profile-model-info .description, .model-description, .description-block")?.text()?.trim()
+            val bio = document.selectFirst(".description-block, .profile-model-info .description-block, .profile-model-info .description, .model-description, .videodesc")?.text()
+                ?.replace(Regex("^Description:\\s*", RegexOption.IGNORE_CASE), "")?.trim()
                 ?: document.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
 
             // Parse ALL videos as episodes
             val episodes = document.select(
-                "div.video-list div.video-item, .list-videos .item, .video-preview-screen, .video-item"
+                "div.video-item, div.video-preview-screen, div.video-list div.item, .list-videos .item, .item:has(a[href*='/video/'])"
             ).mapNotNull { element ->
                 toEpisodeResult(element)
-            }
+            }.distinctBy { it.data }
 
             return newTvSeriesLoadResponse(name, url, TvType.NSFW, episodes) {
                 this.posterUrl = poster
                 this.posterHeaders = mapOf("referer" to "$mainUrl/")
                 this.plot = bio ?: "Complete collection of $name's videos (${episodes.size}+ videos)"
-                this.showStatus = ShowStatus.Ongoing
             }
         }
 
@@ -139,12 +139,15 @@ class Porntrex : MainAPI() {
             .mapNotNull { element -> toSearchResult(element) }
             .ifEmpty { null }
 
+        val actorsList = models.map { ActorData(Actor(it)) }.ifEmpty { null }
+
         return newMovieLoadResponse(title, url, TvType.NSFW, url) {
             this.posterUrl = poster
             this.posterHeaders = mapOf("referer" to "$mainUrl/")
             this.plot = fullPlot
             this.tags = tags
             this.recommendations = recommendations
+            this.actors = actorsList
         }
     }
 
@@ -210,7 +213,7 @@ class Porntrex : MainAPI() {
         val title = element.selectFirst("strong.title, .title, p.inf a, a")?.text()?.trim() ?: return null
         val poster = getBestPoster(element)
 
-        return newTvSeriesSearchResponse("👤 $title", href, TvType.NSFW) {
+        return newTvSeriesSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = poster
             this.posterHeaders = mapOf("referer" to "$mainUrl/")
         }
@@ -222,14 +225,14 @@ class Porntrex : MainAPI() {
         if (!href.contains("/video/") && !href.contains("/videos/")) return null
         val title = element.selectFirst("p.inf a, strong.title, a.title, .title")?.text()?.trim()
             ?: linkEl.attr("title").ifBlank { null }
+            ?: element.selectFirst("img")?.attr("alt")?.ifBlank { null }
             ?: "Video"
         val poster = getBestPoster(element)
-        val duration = element.selectFirst(".duration, .time, .video-duration, span.min")?.text()?.trim()
+        val duration = element.selectFirst(".durations, .duration, .time, .video-duration, span.min")?.text()?.trim()
 
         return newEpisode(href) {
             this.name = title
             this.posterUrl = poster
-            this.posterHeaders = mapOf("referer" to "$mainUrl/")
             this.description = duration
         }
     }
