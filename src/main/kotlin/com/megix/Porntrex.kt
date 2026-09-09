@@ -213,22 +213,35 @@ class Porntrex : MainAPI() {
             ?.replace(Regex("^Description:\\s*", RegexOption.IGNORE_CASE), "")?.trim()
             ?: document.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
 
-        val actorsList = document.select(".block-details a[href*='/models/']:not(.js-open-suggest), .block-details a[href*='/pornstars/']:not(.js-open-suggest), .item-models a, a[href*='/models/']:not(.js-open-suggest)")
-            .mapNotNull {
-                val cleanName = it.text().replace(Regex("""^\+\s*\|\s*Suggest""", RegexOption.IGNORE_CASE), "").trim()
-                if (cleanName.isNotBlank() && cleanName.length > 1) cleanName else null
-            }.distinct()
+        val actorsList = document.select("#tab_video_info .block-details .item:has(span.title-item:matches((?i)model)) a[href*='/models/']:not(.js-open-suggest), .block-details .info .item:first-child a[href*='/models/']:not(.js-open-suggest)")
+            .mapNotNull { it.text().replace(Regex("""^\+\s*\|\s*Suggest""", RegexOption.IGNORE_CASE), "").trim() }
+            .filter { it.isNotBlank() && it.length > 1 && !it.equals("models", ignoreCase = true) }
+            .distinct()
 
-        val fullPlot = if (actorsList.isNotEmpty()) {
-            "Starring: " + actorsList.joinToString(", ") + if (!description.isNullOrBlank()) "\n\n$description" else ""
-        } else {
-            description
-        }
+        val durationText = document.selectFirst(".durations, .video-duration, span.duration, .time")?.text()?.trim()
+        val durationMinutes = if (!durationText.isNullOrBlank()) {
+            val parts = durationText.filter { it.isDigit() || it == ':' }.split(':')
+            if (parts.size == 2) {
+                val mins = parts[0].toIntOrNull() ?: 0
+                val secs = parts[1].toIntOrNull() ?: 0
+                mins + (if (secs >= 30) 1 else 0)
+            } else if (parts.size == 3) {
+                val hours = parts[0].toIntOrNull() ?: 0
+                val mins = parts[1].toIntOrNull() ?: 0
+                hours * 60 + mins
+            } else {
+                null
+            }
+        } else null
+
+        val ratingText = document.selectFirst(".rating-container .voters, .rate, .rating, .vote-percent, .voters")?.text()
+        val ratingPercent = Regex("""(\d{1,3})%""").find(ratingText.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
+            ?: Regex("""(\d{1,3})""").find(ratingText.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
 
         val jsonTags = extractFlashvar("video_tags", scriptText)?.split(", ")?.map { it.replace("-", "").trim() }?.filter { it.isNotBlank() }
-        val htmlTags = document.select("div.video-tags a, .block-details a[href*='/categories/']:not(.js-open-suggest), .block-details a[href*='/tags/']:not(.js-open-suggest), .item-categories a, .item-tags a, .tags a")
+        val htmlTags = document.select("div.video-tags a, #tab_video_info .block-details a[href*='/categories/']:not(.js-open-suggest), #tab_video_info .block-details a[href*='/tags/']:not(.js-open-suggest), .item-categories a, .item-tags a, .tags a")
             .mapNotNull { it.text().trim().ifBlank { null } }
-        val tags = (actorsList + jsonTags.orEmpty() + htmlTags).distinct().ifEmpty { null }
+        val tags = (jsonTags.orEmpty() + htmlTags).distinct().filter { it.length > 1 }.ifEmpty { null }
 
         val recommendations = document.select("div#list_videos_related_videos div.video-list div.video-item, div.video-list div.video-item, .list-videos .item, #list_videos_related_videos .item")
             .mapNotNull { element -> toSearchResult(element) }
@@ -237,8 +250,10 @@ class Porntrex : MainAPI() {
         return newMovieLoadResponse(title, url, TvType.NSFW, url) {
             this.posterUrl = poster
             this.posterHeaders = mapOf("referer" to "$mainUrl/")
-            this.plot = fullPlot
+            this.plot = description?.ifBlank { null }
             this.tags = tags
+            this.duration = durationMinutes
+            this.rating = ratingPercent
             runCatching {
                 this.actors = actorsList.map { ActorData(Actor(it, null), null, null) }
             }
@@ -331,13 +346,29 @@ class Porntrex : MainAPI() {
         val poster = getBestPoster(element)
         val duration = element.selectFirst(".durations, .duration, .time, .video-duration, span.min")?.text()?.trim()
 
+        val runTimeMinutes = if (!duration.isNullOrBlank()) {
+            val parts = duration.filter { it.isDigit() || it == ':' }.split(':')
+            if (parts.size == 2) {
+                val mins = parts[0].toIntOrNull() ?: 0
+                val secs = parts[1].toIntOrNull() ?: 0
+                mins + (if (secs >= 30) 1 else 0)
+            } else if (parts.size == 3) {
+                val hours = parts[0].toIntOrNull() ?: 0
+                val mins = parts[1].toIntOrNull() ?: 0
+                hours * 60 + mins
+            } else {
+                null
+            }
+        } else null
+
         return Episode(
             data = href,
             name = title,
             season = 1,
             episode = episodeNum,
             posterUrl = poster,
-            description = duration
+            description = duration,
+            runTime = runTimeMinutes
         )
     }
 
