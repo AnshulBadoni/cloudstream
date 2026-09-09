@@ -9,6 +9,14 @@ class PorntrexProvider : Plugin() {
     override fun load(context: Context) {
         registerMainAPI(Porntrex())
 
+        try {
+            val prefs = context.javaClass.getMethod("getSharedPreferences", String::class.java, Int::class.javaPrimitiveType)
+                .invoke(context, "Porntrex_Settings", 0)
+            val getInt = prefs.javaClass.getMethod("getInt", String::class.java, Int::class.javaPrimitiveType)
+            val savedPages = getInt.invoke(prefs, "search_pages", 2) as? Int ?: 2
+            Porntrex.searchPages = savedPages
+        } catch (_: Exception) {}
+
         this.openSettings = { ctx ->
             try {
                 val prefs = ctx.javaClass.getMethod("getSharedPreferences", String::class.java, Int::class.javaPrimitiveType)
