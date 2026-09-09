@@ -23,4 +23,8 @@ fetch_html.js
 
 
 # cli-commands-test
-cli.txt
+cli.tx
+
+node_modules/
+dist/
+*.log

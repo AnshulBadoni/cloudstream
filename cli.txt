@@ -1,0 +1,58 @@
+.\gradlew.bat run --args="search first-site lana-rhoades"
+.\gradlew.bat run --args="person first-site 'https://www.porntrex.com/models/angela-white/'"
+.\gradlew.bat run --args="catalog first-site actors"
+.\gradlew.bat run --args="load first-site https://www.porntrex.com/video/40753/alix-lynx-alixs-party-2"
+
+Repository URL: https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/repo.json
+
+
+.kt test
+1. Test Search
+To test search queries and view matched video results:
+
+powershell
+
+
+./gradlew test --tests "com.megix.PorntrexTest.testSearch" --info
+./gradlew test --tests "com.megix.PorntrexTest.testSearch" -Dquery="eva elfie"
+
+2. Test Video Load & Stream Links
+To test video metadata and stream link resolution (1080p, 720p, etc.):
+
+powershell
+
+
+./gradlew test --tests "com.megix.PorntrexTest.testVideoLoadAndStreamExtraction" --info
+./gradlew test --tests "com.megix.PorntrexTest.testVideoLoadAndStreamExtraction" -Durl="https://www.porntrex.com/video/2753741/blake-blossomgizelle-blanco-cuddled-up"
+
+3. Test Home Page Catalogs (Videos & Models)
+To test all homepage rows (Most Popular, Top Rated, Models & Stars):
+
+powershell
+
+
+./gradlew test --tests "com.megix.PorntrexTest.testHomePageCatalogs" --info
+4. Test Model Profile & Filmography
+To test loading a model's page, bio, and their video list:
+
+powershell
+
+
+./gradlew test --tests "com.megix.PorntrexTest.testModelProfile" --info
+5. Run All Tests Together
+To run the entire test suite and print all live scraping outputs:
+
+powershell
+
+
+./gradlew test --tests "com.megix.PorntrexTest" --info
+6. Test & Build the Plugin (.cs3 and .dex)
+To test everything and compile the plugin for CloudStream / Zangetsu:
+
+powershell
+
+
+./gradlew test makePlugin
+TIP
+
+Adding --info at the end ensures all println output (extracted titles, stream URLs, qualities, and model names) is shown directly in your console.
