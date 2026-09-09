@@ -29,8 +29,8 @@ suspend fun newExtractorLink(
         source = source,
         name = name,
         url = url,
-        type = type
     )
+    link.type = type
     link.builder()
     return link
 }

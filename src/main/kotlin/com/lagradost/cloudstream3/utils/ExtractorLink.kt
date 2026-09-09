@@ -21,6 +21,7 @@ open class ExtractorLink(
     open var isM3u8: Boolean = false,
     open var headers: Map<String, String> = mapOf(),
     open var extractorData: String? = null,
-    open var type: ExtractorLinkType = ExtractorLinkType.VIDEO
-)
+) {
+    var type: ExtractorLinkType = if (isM3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+}
 
