@@ -175,7 +175,7 @@ tasks.register("makePlugin") {
   {
     "name": "PornTrex",
     "internalName": "PornTrex",
-    "version": 19,
+    "version": 20,
     "apiVersion": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],

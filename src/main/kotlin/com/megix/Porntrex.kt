@@ -10,12 +10,14 @@ class Porntrex : MainAPI() {
     override val hasMainPage = true
     override var lang = "en"
     override val hasDownloadSupport = true
+    override val vpnStatus = VPNStatus.MightBeNeeded
     override val supportedTypes = setOf(TvType.NSFW)
 
     override val mainPage = mainPageOf(
-        "most-popular/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_today&from4=" to "Most popular today",
-        "top-rated/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_today&from4=" to "Top rated today",
-        "models/?mode=async&function=get_block&block_id=list_models_models_list_items&sort_by=model_viewed&from_models=" to "Models & Stars",
+        "latest-updates" to "Latest Videos",
+        "most-popular/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_today&from4=" to "Most popular daily",
+        "top-rated/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_today&from4=" to "Top rated daily",
+        "models" to "Models & Stars",
         "most-popular/weekly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_week&from4=" to "Most popular weekly",
         "top-rated/weekly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_week&from4=" to "Top rated weekly",
         "most-popular/monthly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_month&from4=" to "Most popular monthly",
@@ -35,9 +37,9 @@ class Porntrex : MainAPI() {
 
         val document = app.get(url).document
 
-        val items = if (request.data.contains("list_models") || request.data == "models") {
-            document.select(".list-models .item, #list_models_models_list_items .item, .item:has(a[href*='/models/'])").mapNotNull { element ->
-                val title = element.selectFirst("strong.title, .title, a")?.text()?.trim() ?: return@mapNotNull null
+        val items = if (request.data == "models") {
+            document.select(".list-models .item, #list_models_models_list_items .item, .item:has(a[href*='/models/']), div.item:has(img.thumb)").mapNotNull { element ->
+                val title = element.selectFirst("strong.title, .title, p.inf a, a")?.text()?.trim() ?: return@mapNotNull null
                 val href = fixUrl(element.selectFirst("a[href*='/models/'], a[href*='/pornstars/'], a")?.attr("href") ?: return@mapNotNull null)
                 val poster = fixUrlNull(element.selectFirst("img.thumb, img")?.attr("data-src")?.ifBlank { null }
                     ?: element.selectFirst("img.thumb, img")?.attr("src"))
@@ -48,7 +50,7 @@ class Porntrex : MainAPI() {
                 }
             }
         } else {
-            document.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .video-preview-screen, .item").mapNotNull { element ->
+            document.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item").mapNotNull { element ->
                 toSearchResult(element)
             }
         }

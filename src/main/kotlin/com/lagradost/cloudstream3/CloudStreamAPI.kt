@@ -226,6 +226,12 @@ data class SubtitleFile(
     val url: String
 )
 
+enum class VPNStatus {
+    None,
+    MightBeNeeded,
+    Needed
+}
+
 abstract class MainAPI {
     open var mainUrl: String = ""
     open var name: String = ""
@@ -234,6 +240,7 @@ abstract class MainAPI {
     open val isNsfw: Boolean = true
     open val hasMainPage: Boolean = false
     open val hasDownloadSupport: Boolean = true
+    open val vpnStatus: VPNStatus = VPNStatus.None
     open val mainPage: List<MainPageData> = emptyList()
     var sourcePlugin: String? = null
 
@@ -248,12 +255,12 @@ abstract class MainAPI {
     ): Boolean = false
 }
 
-fun MainAPI.newMovieLoadResponse(
+suspend fun MainAPI.newMovieLoadResponse(
     name: String,
     url: String,
     type: TvType,
     dataUrl: String,
-    builder: MovieLoadResponse.() -> Unit = {}
+    builder: suspend MovieLoadResponse.() -> Unit = {}
 ): MovieLoadResponse {
     val res = MovieLoadResponse(
         name = name,
@@ -266,12 +273,12 @@ fun MainAPI.newMovieLoadResponse(
     return res
 }
 
-fun MainAPI.newTvSeriesLoadResponse(
+suspend fun MainAPI.newTvSeriesLoadResponse(
     name: String,
     url: String,
     type: TvType,
     episodes: List<Episode>,
-    builder: TvSeriesLoadResponse.() -> Unit = {}
+    builder: suspend TvSeriesLoadResponse.() -> Unit = {}
 ): TvSeriesLoadResponse {
     val res = TvSeriesLoadResponse(
         name = name,
