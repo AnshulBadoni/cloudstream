@@ -67,52 +67,52 @@ object CloudStreamMapper {
         val score = details.rating?.let { Score.from10(it) }
         val tvType = toTvType(details.type)
 
-        return when (details) {
-            is Movie -> {
-                val res = CloudStreamBridge.createMovieLoadResponse(
-                    api = api,
-                    name = details.title,
-                    url = details.url,
-                    type = tvType,
-                    dataUrl = details.url
-                )
-                CloudStreamBridge.setField(res, "posterUrl", details.posterUrl)
-                CloudStreamBridge.setField(res, "year", details.releaseYear)
-                CloudStreamBridge.setField(res, "plot", details.description)
-                CloudStreamBridge.setField(res, "score", score)
-                CloudStreamBridge.setField(res, "tags", (details.genres + details.tags).distinct().ifEmpty { null })
-                CloudStreamBridge.setField(res, "duration", details.durationMinutes)
-                CloudStreamBridge.setField(res, "actors", actors)
-                res
-            }
-            is Series -> {
-                val flatEpisodes = details.seasons.flatMap { it.episodes }.map { toEpisode(it) }
-                val res = CloudStreamBridge.createTvSeriesLoadResponse(
-                    api = api,
-                    name = details.title,
-                    url = details.url,
-                    type = tvType,
-                    episodes = flatEpisodes
-                )
-                CloudStreamBridge.setField(res, "posterUrl", details.posterUrl)
-                CloudStreamBridge.setField(res, "year", details.releaseYear)
-                CloudStreamBridge.setField(res, "plot", details.description)
-                CloudStreamBridge.setField(res, "score", score)
-                CloudStreamBridge.setField(res, "tags", (details.genres + details.tags).distinct().ifEmpty { null })
-                CloudStreamBridge.setField(res, "actors", actors)
-                res
-            }
+        val episodes = when (details) {
+            is Movie -> listOf(
+                Episode(data = details.url).apply {
+                    name = details.title
+                    episode = 1
+                    posterUrl = details.posterUrl
+                    this.score = score
+                    description = details.description
+                }
+            )
+            is Series -> details.seasons.flatMap { it.episodes }.map { toEpisode(it) }
         }
+
+        val res = CloudStreamBridge.createTvSeriesLoadResponse(
+            api = api,
+            name = details.title,
+            url = details.url,
+            type = tvType,
+            episodes = episodes
+        )
+        CloudStreamBridge.setField(res, "posterUrl", details.posterUrl)
+        CloudStreamBridge.setField(res, "year", details.releaseYear)
+        CloudStreamBridge.setField(res, "plot", details.description)
+        CloudStreamBridge.setField(res, "score", score)
+        CloudStreamBridge.setField(res, "tags", (details.genres + details.tags).distinct().ifEmpty { null })
+        val duration = if (details is Movie) details.durationMinutes else null
+        CloudStreamBridge.setField(res, "duration", duration)
+        CloudStreamBridge.setField(res, "actors", actors)
+        return res
     }
 
     suspend fun toLoadResponse(person: Person, api: MainAPI): LoadResponse {
         val videoRecommendations = person.knownFor.map { toSearchResponse(it, api) }.ifEmpty { null }
-        val res = CloudStreamBridge.createMovieLoadResponse(
+        val episodes = person.knownFor.mapIndexed { idx, item ->
+            Episode(data = item.url).apply {
+                name = item.title
+                episode = idx + 1
+                posterUrl = item.posterUrl
+            }
+        }
+        val res = CloudStreamBridge.createTvSeriesLoadResponse(
             api = api,
             name = person.name,
             url = person.url,
             type = TvType.NSFW,
-            dataUrl = person.url
+            episodes = episodes
         )
         CloudStreamBridge.setField(res, "posterUrl", person.photoUrl)
         CloudStreamBridge.setField(res, "plot", person.biography ?: "Performer profile with ${person.knownFor.size} videos.")

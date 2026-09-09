@@ -64,13 +64,15 @@ class CloudStreamMapperTest {
             )
         )
         val loadResponse = CloudStreamMapper.toLoadResponse(movie, testApi)
-        assertTrue(loadResponse is MovieLoadResponse)
+        assertTrue(loadResponse is TvSeriesLoadResponse)
         assertEquals("Inception", loadResponse.name)
-        assertEquals(148, (loadResponse as MovieLoadResponse).duration)
+        assertEquals(148, (loadResponse as TvSeriesLoadResponse).duration)
         assertEquals(88, loadResponse.rating)
         assertEquals(1, loadResponse.actors?.size)
         assertEquals("Leonardo DiCaprio", loadResponse.actors?.get(0)?.actor?.name)
         assertEquals("Cobb", loadResponse.actors?.get(0)?.roleString)
+        assertEquals(1, loadResponse.episodes.size)
+        assertEquals("Inception", loadResponse.episodes[0].name)
     }
 
     @Test
@@ -105,7 +107,7 @@ class CloudStreamMapperTest {
         val loadResult = provider.load("https://trexton.com/movie/the-dark-knight")
         assertNotNull(loadResult)
         assertEquals("The Dark Knight", loadResult?.name)
-        assertTrue(loadResult is MovieLoadResponse)
+        assertTrue(loadResult is TvSeriesLoadResponse)
 
         // 4. Main Page (Catalog)
         val homePage = provider.getMainPage(1, MainPageRequest("Latest Movies", "latest"))
@@ -141,7 +143,7 @@ class CloudStreamMapperTest {
             )
         )
         val loadResponse = CloudStreamMapper.toLoadResponse(person, testApi)
-        assertTrue(loadResponse is MovieLoadResponse)
+        assertTrue(loadResponse is TvSeriesLoadResponse)
         assertEquals("Angela White", loadResponse.name)
         assertEquals("https://example.com/models/angela-white", loadResponse.url)
         assertEquals("https://example.com/photo.jpg", loadResponse.posterUrl)
@@ -149,6 +151,7 @@ class CloudStreamMapperTest {
         assertEquals(2, loadResponse.recommendations?.size)
         assertEquals("Scene 1", loadResponse.recommendations?.get(0)?.name)
         assertEquals("Scene 2", loadResponse.recommendations?.get(1)?.name)
+        assertEquals(2, (loadResponse as TvSeriesLoadResponse).episodes.size)
     }
 
     @Test
