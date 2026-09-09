@@ -52,6 +52,7 @@ tasks.withType<JavaCompile> {
 
 tasks.test {
     useJUnitPlatform()
+    systemProperties(System.getProperties().mapKeys { it.key.toString() })
     testLogging {
         events("passed", "skipped", "failed")
         showStandardStreams = true

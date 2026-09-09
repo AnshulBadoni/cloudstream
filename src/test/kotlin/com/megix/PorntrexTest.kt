@@ -38,13 +38,13 @@ class PorntrexTest {
 
     @Test
     fun testSearch() = runBlocking {
-        println("\n=== 2. TESTING SEARCH ===")
-        val query = "blake"
+        val query = System.getProperty("query")?.takeIf { it.isNotBlank() } ?: "blake"
+        println("\n=== 2. TESTING SEARCH (Query: '$query') ===")
         try {
             val results = provider.search(query)
             println("Search results for '$query': ${results.size} found")
-            results.take(2).forEach {
-                println("  - ${it.name} -> ${it.url}")
+            results.take(5).forEach {
+                println("  - [${it.type}] ${it.name} -> ${it.url}")
             }
         } catch (e: Exception) {
             println("Search error: ${e.message}")
@@ -55,11 +55,17 @@ class PorntrexTest {
     fun testVideoLoadAndStreamExtraction() = runBlocking {
         println("\n=== 3. TESTING VIDEO LOAD & STREAM LINKS ===")
         try {
-            val mainPage = provider.getMainPage(1, MainPageRequest("Latest", "latest-updates", false))
-            val firstVideo = mainPage.items.firstOrNull()?.list?.firstOrNull()
-            if (firstVideo != null) {
-                println("Loading video: ${firstVideo.name} (${firstVideo.url})")
-                val details = provider.load(firstVideo.url) as? MovieLoadResponse
+            val targetUrl = System.getProperty("url")?.takeIf { it.isNotBlank() }
+            val videoUrl = if (targetUrl != null) {
+                targetUrl
+            } else {
+                val mainPage = provider.getMainPage(1, MainPageRequest("Latest", "latest-updates", false))
+                mainPage.items.firstOrNull()?.list?.firstOrNull()?.url
+            }
+
+            if (videoUrl != null) {
+                println("Loading video URL: $videoUrl")
+                val details = provider.load(videoUrl) as? MovieLoadResponse
                 if (details != null) {
                     println("  Title: ${details.name}")
                     println("  Poster: ${details.posterUrl}")
@@ -71,6 +77,8 @@ class PorntrexTest {
                         println("  ✓ Found Stream: [Quality: ${link.quality}] ${link.name} -> ${link.url}")
                     }
                 }
+            } else {
+                println("No video found to test.")
             }
         } catch (e: Exception) {
             println("Video load error: ${e.message}")
@@ -81,16 +89,24 @@ class PorntrexTest {
     fun testModelProfile() = runBlocking {
         println("\n=== 4. TESTING MODEL PROFILE ===")
         try {
-            val modelsPage = provider.getMainPage(1, MainPageRequest("Models & Stars", "models", false))
-            val firstModel = modelsPage.items.firstOrNull()?.list?.firstOrNull()
-            if (firstModel != null) {
-                println("Loading model: ${firstModel.name} (${firstModel.url})")
-                val modelDetails = provider.load(firstModel.url) as? MovieLoadResponse
+            val targetUrl = System.getProperty("url")?.takeIf { it.isNotBlank() }
+            val modelUrl = if (targetUrl != null) {
+                targetUrl
+            } else {
+                val modelsPage = provider.getMainPage(1, MainPageRequest("Models & Stars", "models", false))
+                modelsPage.items.firstOrNull()?.list?.firstOrNull()?.url
+            }
+
+            if (modelUrl != null) {
+                println("Loading model URL: $modelUrl")
+                val modelDetails = provider.load(modelUrl) as? MovieLoadResponse
                 if (modelDetails != null) {
                     println("  Name: ${modelDetails.name}")
                     println("  Bio: ${modelDetails.plot}")
                     println("  Filmography: ${modelDetails.recommendations?.size} videos found")
                 }
+            } else {
+                println("No model found to test.")
             }
         } catch (e: Exception) {
             println("Model load error: ${e.message}")
