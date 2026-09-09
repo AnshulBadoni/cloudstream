@@ -189,7 +189,6 @@ data class Episode(
     var description: String? = null,
     var date: Long? = null,
     var runTime: Int? = null,
-    var posterHeaders: Map<String, String>? = null,
 ) {
     var rating: Int?
         get() = score?.toInt(100)

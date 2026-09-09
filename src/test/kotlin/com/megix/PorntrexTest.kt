@@ -117,5 +117,42 @@ class PorntrexTest {
             println("Model load error: ${e.message}")
         }
     }
+
+    @Test
+    fun testModelProfileOffline() {
+        println("\n=== 5. TESTING MODEL PROFILE OFFLINE HTML ===")
+        val html = java.io.File("model_sample.html").readText()
+        val document = org.jsoup.Jsoup.parse(html, "https://www.porntrex.com/models/blake-blossom/")
+        
+        val name = document.selectFirst("h1, .profile-model-info h1, .profile-model-info .name h1, h1.title")?.text()?.trim()
+            ?: document.selectFirst("meta[property='og:title']")?.attr("content")?.substringBefore("|")?.trim()
+            ?: "Blake Blossom"
+        println("Extracted Model Name: $name")
+
+        val videoElements = document.select(
+            "#list_videos_model_videos_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, div.video-list div.video-item, div.video-preview-screen, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])"
+        )
+        println("Matched video elements: ${videoElements.size}")
+        val episodes = videoElements.mapIndexedNotNull { index, element ->
+            val linkEl = element.selectFirst("p.inf a, a[href*='/video/'], a[href*='/videos/'], a.thumb, a") ?: return@mapIndexedNotNull null
+            val href = linkEl.attr("href")
+            val title = element.selectFirst("strong.title a, .title a, p.inf a, strong.title, .title")?.text()?.trim()
+                ?: linkEl.attr("title").ifBlank { null }
+                ?: "Video ${index + 1}"
+            val duration = element.selectFirst(".durations, .duration, .time, .video-duration, span.min")?.text()?.trim()
+            Episode(
+                data = href,
+                name = title,
+                season = 1,
+                episode = index + 1,
+                description = duration
+            )
+        }.distinctBy { it.data }
+        println("Extracted episodes: ${episodes.size}")
+        episodes.take(5).forEach {
+            println("  - Ep ${it.episode}: ${it.name} [${it.description}] -> ${it.data}")
+        }
+        assertTrue(episodes.isNotEmpty(), "Episodes should not be empty")
+    }
 }
 

@@ -11,7 +11,7 @@ class Porntrex : MainAPI() {
     override var lang = "en"
     override val hasDownloadSupport = true
     override val vpnStatus = VPNStatus.MightBeNeeded
-    override val supportedTypes = setOf(TvType.NSFW)
+    override val supportedTypes = setOf(TvType.NSFW, TvType.TvSeries, TvType.Movie)
 
     override val mainPage = mainPageOf(
         "latest-updates" to "Latest Videos",
@@ -38,7 +38,7 @@ class Porntrex : MainAPI() {
         val document = app.get(url).document
 
         val items = if (request.data.startsWith("models")) {
-            document.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/'])").mapNotNull { element ->
+            document.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/']), .item:has(a[href*='/model/'])").mapNotNull { element ->
                 toModelSearchResult(element)
             }
         } else {
@@ -61,7 +61,7 @@ class Porntrex : MainAPI() {
         // 1. Search matching models first
         runCatching {
             val modelDoc = app.get(modelSearchUrl).document
-            val models = modelDoc.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/'])")
+            val models = modelDoc.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/']), .item:has(a[href*='/model/'])")
                 .mapNotNull { toModelSearchResult(it) }
             results.addAll(models)
         }
@@ -87,7 +87,7 @@ class Porntrex : MainAPI() {
         val document = app.get(url).document
 
         // 1. Model / Performer Profile Page - Treat as TV Series
-        if (url.contains("/models/") || url.contains("/pornstars/")) {
+        if (url.contains("/models/") || url.contains("/pornstars/") || url.contains("/model/")) {
             val name = document.selectFirst("h1, .profile-model-info h1, .profile-model-info .name h1, h1.title")?.text()?.trim()
                 ?: document.selectFirst("meta[property='og:title']")?.attr("content")?.substringBefore("|")?.trim()
                 ?: url.trimEnd('/').substringAfterLast('/').replace("-", " ")
@@ -104,17 +104,17 @@ class Porntrex : MainAPI() {
 
             // Find all video items on the performer's page
             val videoElements = document.select(
-                "#list_videos_model_videos_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, div.video-list div.video-item, div.video-preview-screen, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])"
+                "div.video-list div.video-item, div.video-preview-screen, #list_videos_common_videos_list_norm .item, #list_videos_model_videos_items .item, #list_videos_common_videos_list_items .item, .list-videos .item, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])"
             )
 
             val episodes = videoElements.mapIndexedNotNull { index, element ->
                 toEpisodeResult(element, index + 1)
             }.distinctBy { it.data }
 
-            return newTvSeriesLoadResponse(name, url, TvType.NSFW, episodes) {
+            return newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
                 this.posterHeaders = mapOf("referer" to "$mainUrl/")
-                this.plot = bio ?: "Complete collection of $name's videos (${episodes.size}+ videos)"
+                this.plot = if (!bio.isNullOrBlank()) bio else "Complete collection of $name's videos (${episodes.size} videos)"
             }
         }
 
@@ -229,12 +229,12 @@ class Porntrex : MainAPI() {
     }
 
     private fun toModelSearchResult(element: Element): SearchResponse? {
-        val linkEl = element.selectFirst("a[href*='/models/'], a[href*='/pornstars/']") ?: return null
+        val linkEl = element.selectFirst("a[href*='/models/'], a[href*='/pornstars/'], a[href*='/model/']") ?: return null
         val href = fixUrl(linkEl.attr("href"))
         val title = element.selectFirst("strong.title, .title, p.inf a, a")?.text()?.trim() ?: return null
         val poster = getBestPoster(element)
 
-        return newTvSeriesSearchResponse(title, href, TvType.NSFW) {
+        return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
             this.posterUrl = poster
             this.posterHeaders = mapOf("referer" to "$mainUrl/")
         }
