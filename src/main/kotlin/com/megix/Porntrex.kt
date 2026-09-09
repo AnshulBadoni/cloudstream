@@ -1,5 +1,6 @@
 package com.megix
 
+import com.cloudstream.scraper.cloudstream.CloudStreamBridge
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
@@ -48,9 +49,10 @@ class Porntrex : MainAPI() {
                 val poster = fixUrlNull(element.selectFirst("img.thumb, img")?.attr("data-src")?.ifBlank { null }
                     ?: element.selectFirst("img.thumb, img")?.attr("src"))
 
-                newMovieSearchResponse(title, href, TvType.NSFW) {
-                    this.posterUrl = poster
-                }
+                val res = CloudStreamBridge.createMovieSearchResponse(this, title, href, TvType.NSFW)
+                CloudStreamBridge.setField(res, "posterUrl", poster)
+                CloudStreamBridge.setField(res, "posterHeaders", mapOf("referer" to "$mainUrl/"))
+                res
             }
         } else {
             document.select(".list-videos .item, div.video-list div.video-item, #list_videos_common_videos_list_items .item, .video-preview-screen").mapNotNull { element ->
@@ -59,7 +61,7 @@ class Porntrex : MainAPI() {
         }
 
         val hasNext = document.selectFirst(".pagination .next, a.next, a:contains(Next)") != null
-        return newHomePageResponse(HomePageList(request.name, items, isHorizontalImages = false), hasNext)
+        return HomePageResponse(listOf(HomePageList(request.name, items, isHorizontalImages = false)), hasNext)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -90,12 +92,13 @@ class Porntrex : MainAPI() {
                 toSearchResult(element)
             }
 
-            return newMovieLoadResponse(name, url, TvType.NSFW, url) {
-                this.posterUrl = poster
-                this.plot = bio ?: "Performer profile with ${modelVideos.size} videos."
-                this.actors = listOf(ActorData(Actor(name, poster), roleString = "Performer", voiceActor = null))
-                this.recommendations = modelVideos.ifEmpty { null }
-            }
+            val res = CloudStreamBridge.createMovieLoadResponse(this, name, url, TvType.NSFW, url)
+            CloudStreamBridge.setField(res, "posterUrl", poster)
+            CloudStreamBridge.setField(res, "posterHeaders", mapOf("referer" to "$mainUrl/"))
+            CloudStreamBridge.setField(res, "plot", bio ?: "Performer profile with ${modelVideos.size} videos.")
+            CloudStreamBridge.setField(res, "actors", listOf(ActorData(Actor(name, poster), roleString = "Performer", voiceActor = null)))
+            CloudStreamBridge.setField(res, "recommendations", modelVideos.ifEmpty { null })
+            return res
         }
 
         // 2. Video Details Page
@@ -131,15 +134,16 @@ class Porntrex : MainAPI() {
             .mapNotNull { element -> toSearchResult(element) }
             .ifEmpty { null }
 
-        return newMovieLoadResponse(title, url, TvType.NSFW, url) {
-            this.posterUrl = poster
-            this.plot = description
-            this.rating = rating
-            this.duration = duration
-            this.tags = tags
-            this.actors = actors
-            this.recommendations = recommendations
-        }
+        val res = CloudStreamBridge.createMovieLoadResponse(this, title, url, TvType.NSFW, url)
+        CloudStreamBridge.setField(res, "posterUrl", poster)
+        CloudStreamBridge.setField(res, "posterHeaders", mapOf("referer" to "$mainUrl/"))
+        CloudStreamBridge.setField(res, "plot", description)
+        CloudStreamBridge.setField(res, "rating", rating)
+        CloudStreamBridge.setField(res, "duration", duration)
+        CloudStreamBridge.setField(res, "tags", tags)
+        CloudStreamBridge.setField(res, "actors", actors)
+        CloudStreamBridge.setField(res, "recommendations", recommendations)
+        return res
     }
 
     override suspend fun loadLinks(
@@ -171,15 +175,14 @@ class Porntrex : MainAPI() {
                 val qualityLabel = qualityMap[key] ?: "720p"
                 val qualityValue = getQualityFromName(qualityLabel)
 
-                val link = newExtractorLink(
+                val link = CloudStreamBridge.createExtractorLink(
                     source = name,
                     name = "$name $qualityLabel",
                     url = streamUrl,
+                    referer = "$mainUrl/",
+                    quality = qualityValue,
                     type = ExtractorLinkType.VIDEO
-                ) {
-                    this.quality = qualityValue
-                    this.referer = mainUrl
-                }
+                )
                 callback(link)
                 extracted.add(link)
             }
@@ -195,8 +198,10 @@ class Porntrex : MainAPI() {
         val poster = fixUrlNull(element.selectFirst("img.thumb, img.cover, img")?.attr("data-src")?.ifBlank { null }
             ?: element.selectFirst("img.thumb, img.cover, img")?.attr("src"))
 
-        return newMovieSearchResponse(title, href, TvType.NSFW) {
-            this.posterUrl = poster
-        }
+        val res = CloudStreamBridge.createMovieSearchResponse(this, title, href, TvType.NSFW)
+        CloudStreamBridge.setField(res, "posterUrl", poster)
+        CloudStreamBridge.setField(res, "posterHeaders", mapOf("referer" to "$mainUrl/"))
+        return res
     }
 }
+
