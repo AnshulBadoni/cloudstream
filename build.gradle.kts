@@ -215,7 +215,7 @@ tasks.register("makePlugin") {
   {
     "name": "Multi-Source",
     "internalName": "MultiSource",
-    "version": 1,
+    "version": 3,
     "apiVersion": 1,
     "description": "Multi-source aggregator scraper with PornPics models, xmovix HD movies, Top 100, and multi-site seasons.",
     "authors": ["AnshulBadoni"],
