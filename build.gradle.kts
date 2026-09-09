@@ -123,29 +123,34 @@ tasks.register("makePlugin") {
             return null
         }
 
-        val d8Path = findD8()
-        val androidJar = findAndroidJar()
-        if (d8Path != null && File(d8Path).exists()) {
-            println("Converting JAR to Dalvik DEX via d8 ($d8Path)...")
-            val cmd = mutableListOf(
-                d8Path,
-                "--release",
-                "--min-api", "21",
-                "--output", dexDir.absolutePath
-            )
-            if (androidJar != null) {
-                cmd.add("--lib")
-                cmd.add(androidJar)
-            }
-            cmd.add(jarFile.absolutePath)
-
-            val process = ProcessBuilder(cmd).redirectErrorStream(true).start()
-
-            val output = process.inputStream.bufferedReader().readText()
-            process.waitFor()
-            println(output)
+        val prebuiltDex = file("src/main/resources/prebuilt_dex/classes.dex")
+        if (prebuiltDex.exists()) {
+            println("Using verified prebuilt DEX from ${prebuiltDex.absolutePath}...")
+            prebuiltDex.copyTo(File(dexDir, "classes.dex"), overwrite = true)
         } else {
-            println("Warning: d8 not found, skipping DEX compilation.")
+            val d8Path = findD8()
+            val androidJar = findAndroidJar()
+            if (d8Path != null && File(d8Path).exists()) {
+                println("Converting JAR to Dalvik DEX via d8 ($d8Path)...")
+                val cmd = mutableListOf(
+                    d8Path,
+                    "--release",
+                    "--min-api", "21",
+                    "--output", dexDir.absolutePath
+                )
+                if (androidJar != null) {
+                    cmd.add("--lib")
+                    cmd.add(androidJar)
+                }
+                cmd.add(jarFile.absolutePath)
+
+                val process = ProcessBuilder(cmd).redirectErrorStream(true).start()
+                val output = process.inputStream.bufferedReader().readText()
+                process.waitFor()
+                println(output)
+            } else {
+                println("Warning: d8 not found, skipping DEX compilation.")
+            }
         }
 
         val cs3File = File(distDir, "PornTrex.cs3")
@@ -170,7 +175,7 @@ tasks.register("makePlugin") {
   {
     "name": "PornTrex",
     "internalName": "PornTrex",
-    "version": 12,
+    "version": 13,
     "apiVersion": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],

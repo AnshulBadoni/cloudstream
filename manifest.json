@@ -1,6 +1,6 @@
 {
   "name": "PornTrex",
-  "pluginClassName": "com.cloudstream.scraper.cloudstream.PornTrexPlugin",
+  "pluginClassName": "com.megix.PorntrexProvider",
   "requiresResources": false,
-  "version": 12
+  "version": 13
 }
