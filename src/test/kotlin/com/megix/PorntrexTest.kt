@@ -69,6 +69,10 @@ class PorntrexTest {
                 if (details != null) {
                     println("  Title: ${details.name}")
                     println("  Poster: ${details.posterUrl}")
+                    println("  Rating: ${details.rating}")
+                    println("  Duration: ${details.duration} mins")
+                    println("  Actors: ${details.actors?.map { it.actor.name }}")
+                    println("  Plot: ${details.plot?.take(100)}")
                     println("  Tags: ${details.tags?.take(5)}")
                     println("  Recommendations: ${details.recommendations?.size} items")
 
