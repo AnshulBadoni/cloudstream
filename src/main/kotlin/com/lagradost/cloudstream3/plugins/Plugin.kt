@@ -20,6 +20,7 @@ abstract class BasePlugin {
 
 abstract class Plugin : BasePlugin() {
     open var resources: Any? = null
+    open var openSettings: ((context: Context) -> Unit)? = null
 
     open fun load(context: Context) {
         load()

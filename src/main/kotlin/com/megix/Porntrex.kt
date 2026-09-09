@@ -2,6 +2,7 @@ package com.megix
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
+import kotlinx.coroutines.*
 import org.jsoup.nodes.Element
 
 class Porntrex : MainAPI() {
@@ -51,15 +52,37 @@ class Porntrex : MainAPI() {
         return newHomePageResponse(homePageList, true)
     }
 
+    companion object {
+        var searchPages: Int = 2
+    }
+
     override suspend fun search(query: String): List<SearchResponse> {
         val cleanQuery = query.trim().replace(" ", "-")
-        val videoSearchUrl = "$mainUrl/search/$cleanQuery/?page=1"
+        val modelDirectUrl = "$mainUrl/models/$cleanQuery/"
         val modelSearchUrl = "$mainUrl/models/search/$cleanQuery/"
 
         val results = mutableListOf<SearchResponse>()
         val queryWords = query.trim().split(Regex("""\s+""")).filter { it.isNotBlank() }
 
-        // 1. Search matching models first (only keep models matching the whole search query/words)
+        // 1a. Check direct performer profile (e.g. https://www.porntrex.com/models/angela-white/)
+        runCatching {
+            val directDoc = app.get(modelDirectUrl).document
+            val h1 = directDoc.selectFirst("h1, .profile-model-info h1, .profile-model-info .name h1, h1.title")?.text()?.trim()
+            if (!h1.isNullOrBlank() && queryWords.all { word -> h1.contains(word, ignoreCase = true) }) {
+                val poster = fixUrlNull(
+                    directDoc.selectFirst(".profile-model-info img, .img-holder img, img.cover, img.thumb")?.attr("data-src")?.ifBlank { null }
+                        ?: directDoc.selectFirst(".profile-model-info img, .img-holder img, img.cover, img.thumb")?.attr("src")
+                        ?: directDoc.selectFirst("meta[property='og:image']")?.attr("content")
+                )
+                val modelRes = newTvSeriesSearchResponse(h1, modelDirectUrl, TvType.TvSeries) {
+                    this.posterUrl = poster
+                    this.posterHeaders = mapOf("referer" to "$mainUrl/")
+                }
+                results.add(modelRes)
+            }
+        }
+
+        // 1b. Search models directory
         runCatching {
             val modelDoc = app.get(modelSearchUrl).document
             val models = modelDoc.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/']), .item:has(a[href*='/model/'])")
@@ -86,12 +109,28 @@ class Porntrex : MainAPI() {
             results.addAll(matchingModels)
         }
 
-        // 2. Search videos
+        // 2. Search videos across configured number of pages in parallel
         runCatching {
-            val videoDoc = app.get(videoSearchUrl).document
-            val videos = videoDoc.select("div.video-list div.video-item, .list-videos .item, #list_videos_videos_list_search_result_items .item, div.video-preview-screen, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])")
-                .mapNotNull { toSearchResult(it) }
-            results.addAll(videos)
+            val maxPages = searchPages.coerceIn(1, 4)
+            val pagesData = if (maxPages == 1) {
+                listOf(app.get("$mainUrl/search/$cleanQuery/?page=1").document)
+            } else {
+                coroutineScope {
+                    (1..maxPages).map { page ->
+                        async {
+                            runCatching {
+                                app.get("$mainUrl/search/$cleanQuery/?page=$page").document
+                            }.getOrNull()
+                        }
+                    }.awaitAll().filterNotNull()
+                }
+            }
+
+            for (videoDoc in pagesData) {
+                val videos = videoDoc.select("div.video-list div.video-item, .list-videos .item, #list_videos_videos_list_search_result_items .item, div.video-preview-screen, .item:has(a[href*='/video/']), .item:has(a[href*='/videos/'])")
+                    .mapNotNull { toSearchResult(it) }
+                results.addAll(videos)
+            }
         }
 
         return results.distinctBy { it.url }
@@ -135,6 +174,7 @@ class Porntrex : MainAPI() {
                 this.posterUrl = poster
                 this.posterHeaders = mapOf("referer" to "$mainUrl/")
                 this.plot = if (!bio.isNullOrBlank()) bio else "Complete collection of $name's videos (${episodes.size} videos)"
+                this.actors = listOf(ActorData(Actor(name, poster)))
             }
         }
 
@@ -178,11 +218,14 @@ class Porntrex : MainAPI() {
             .mapNotNull { element -> toSearchResult(element) }
             .ifEmpty { null }
 
+        val actorDataList = actorsList.map { ActorData(Actor(it)) }.ifEmpty { null }
+
         return newMovieLoadResponse(title, url, TvType.NSFW, url) {
             this.posterUrl = poster
             this.posterHeaders = mapOf("referer" to "$mainUrl/")
             this.plot = fullPlot
             this.tags = tags
+            this.actors = actorDataList
             this.recommendations = recommendations
         }
     }
