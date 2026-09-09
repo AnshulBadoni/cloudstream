@@ -166,7 +166,7 @@ class CustomScraper : MainAPI() {
         val videoSearchJob = async {
             val results = mutableListOf<SearchResponse>()
             runCatching {
-                val searchUrl = "$mainUrl/index.php?do=search&subaction=search&story=$querySearch"
+                val searchUrl = "$mainUrl/en/index.php?do=search&subaction=search&story=$querySearch"
                 val doc = app.get(searchUrl, headers = mapOf("referer" to "$mainUrl/")).document
                 val xmovixVideos = doc.select(".floats .short, .sect .short, div.short").mapNotNull {
                     parseXmovixShortItem(it)

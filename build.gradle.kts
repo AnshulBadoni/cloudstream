@@ -200,7 +200,7 @@ tasks.register("makePlugin") {
   {
     "name": "PornTrex",
     "internalName": "PornTrex",
-    "version": 42,
+    "version": 43,
     "apiVersion": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],
@@ -215,7 +215,7 @@ tasks.register("makePlugin") {
   {
     "name": "Multi-Source",
     "internalName": "MultiSource",
-    "version": 4,
+    "version": 5,
     "apiVersion": 1,
     "description": "Multi-source aggregator scraper with PornPics models, xmovix HD movies, Top 100, and multi-site seasons.",
     "authors": ["AnshulBadoni"],

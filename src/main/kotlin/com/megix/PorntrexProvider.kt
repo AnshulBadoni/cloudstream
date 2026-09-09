@@ -8,7 +8,6 @@ import com.lagradost.cloudstream3.plugins.Plugin
 class PorntrexProvider : Plugin() {
     override fun load(context: Context) {
         registerMainAPI(Porntrex())
-        registerMainAPI(com.custom.CustomScraper())
 
         try {
             val prefs = context.javaClass.getMethod("getSharedPreferences", String::class.java, Int::class.javaPrimitiveType)

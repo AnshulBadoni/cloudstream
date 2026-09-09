@@ -15,18 +15,25 @@ class CustomScraperLiveTest {
             "https://xmovix.net/en/movies/parodies/10970-squid-game-xxx-an-axel-braun-parody.html"
         )
         for (movieUrl in testUrls) {
-            println("=== Testing loadLinks on: " + movieUrl + " ===")
+            println("\n========================================================")
+            println("Testing loadLinks on: $movieUrl")
+            println("========================================================")
             val links = mutableListOf<ExtractorLink>()
             val success = scraper.loadLinks(
                 data = movieUrl,
                 isCasting = false,
                 subtitleCallback = {},
                 callback = { link ->
-                    println("  -> FOUND LINK: name=" + link.name + ", isM3u8=" + link.isM3u8 + ", referer=" + link.referer)
+                    println("[STREAM EXTRACTED]")
+                    println("  -> Name:     " + link.name)
+                    println("  -> URL:      " + link.url)
+                    println("  -> Referer:  " + link.referer)
+                    println("  -> isM3u8:   " + link.isM3u8)
+                    println("  -> Headers:  " + link.headers)
                     links.add(link)
                 }
             )
-            println("Result: success=" + success + ", total links=" + links.size)
+            println("Extraction Result: success=$success, total streams found=${links.size}")
         }
     }
 }
