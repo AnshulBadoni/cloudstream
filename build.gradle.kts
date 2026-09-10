@@ -215,9 +215,9 @@ tasks.register("makePlugin") {
   {
     "name": "Multi-Source",
     "internalName": "MultiSource",
-    "version": 10,
+    "version": 12,
     "apiVersion": 1,
-    "description": "Multi-source aggregator with high-res cover art, PornPics trending models, IMDb-grade full movies, multi-part CD episodes, and direct 1080p MP4 downloads.",
+    "description": "Multi-source aggregator with high-res cover art, ParadiseHill movies & actor catalogs (no PornPics dependency), PornTrex multi-resolution streams, multi-part CD episodes, and direct downloadable 1080p MP4 links.",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,
