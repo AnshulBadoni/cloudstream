@@ -201,6 +201,28 @@ tasks.register("makePlugin") {
             }
         }
 
+        // 3. Create PLibrary.cs3
+        val plibraryManifest = """
+{
+  "name": "PLibrary",
+  "pluginClassName": "com.custom.CustomProvider",
+  "requiresResources": false,
+  "version": 84
+}
+        """.trimIndent()
+        val plibraryCs3 = File(distDir, "PLibrary.cs3")
+        ZipOutputStream(FileOutputStream(plibraryCs3)).use { zos ->
+            zos.putNextEntry(ZipEntry("manifest.json"))
+            zos.write(plibraryManifest.toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+
+            dexDir.listFiles()?.filter { it.extension == "dex" }?.sortedBy { it.name }?.forEach { dexFile ->
+                zos.putNextEntry(ZipEntry(dexFile.name))
+                dexFile.inputStream().use { it.copyTo(zos) }
+                zos.closeEntry()
+            }
+        }
+
         val pluginsJson = """
 [
   {
@@ -232,6 +254,21 @@ tasks.register("makePlugin") {
     "iconUrl": "https://en.paradisehill.cc/img/favicon/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/MultiSource.cs3",
     "fileSize": ${if (multiSourceCs3.exists()) multiSourceCs3.length() else 102400}
+  },
+  {
+    "name": "PLibrary",
+    "internalName": "PLibrary",
+    "version": 84,
+    "apiVersion": 1,
+    "description": "Premium multi-source library with YamyHub, DaftSex, TnaFlix & PornPics: studio catalogs (Vixen, Blacked, Brazzers), actor multi-season views, and direct downloadable multi-resolution MP4s.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie", "TvSeries"],
+    "iconUrl": "https://www.yamyhub.com/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PLibrary.cs3",
+    "fileSize": ${if (plibraryCs3.exists()) plibraryCs3.length() else 102400}
   }
 ]
         """.trimIndent()
@@ -250,7 +287,7 @@ tasks.register("makePlugin") {
         File(distDir, "plugins.json").writeText(pluginsJson)
         File(distDir, "builds.json").writeText(pluginsJson)
         File(distDir, "repo.json").writeText(repoJson)
-        println("✓ Successfully generated repo.json, plugins.json, PornTrex.cs3, and MultiSource.cs3 in ${distDir.absolutePath}")
+        println("✓ Successfully generated repo.json, plugins.json, PornTrex.cs3, MultiSource.cs3, and PLibrary.cs3 in ${distDir.absolutePath}")
     }
 }
 

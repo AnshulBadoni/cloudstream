@@ -13,7 +13,8 @@ import com.lagradost.cloudstream3.plugins.Plugin
 @CloudstreamPlugin
 class CustomProvider : Plugin() {
     override fun load(context: Context) {
-        // Registers the Multi-Source aggregator provider into CloudStream
+        // Registers the Multi-Source aggregator and PLibrary providers into CloudStream
         registerMainAPI(CustomScraper())
+        registerMainAPI(PLibrary())
     }
 }

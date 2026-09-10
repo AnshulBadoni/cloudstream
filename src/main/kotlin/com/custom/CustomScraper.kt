@@ -310,7 +310,6 @@ class CustomScraper : MainAPI() {
 
             newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
-                this.posterHeaders = defaultHeaders
                 this.plot = "" // about model
                 this.showStatus = ShowStatus.Completed
             }
