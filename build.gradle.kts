@@ -161,7 +161,7 @@ tasks.register("makePlugin") {
   "name": "PornTrex",
   "pluginClassName": "com.megix.PorntrexProvider",
   "requiresResources": false,
-  "version": 50
+  "version": 60
 }
         """.trimIndent()
         val cs3File = File(distDir, "PornTrex.cs3")
@@ -182,10 +182,10 @@ tasks.register("makePlugin") {
         // 2. Create MultiSource.cs3
         val multiSourceManifest = """
 {
-  "name": "Multi-Source",
+  "name": "MultiSource",
   "pluginClassName": "com.custom.CustomProvider",
   "requiresResources": false,
-  "version": 50
+  "version": 60
 }
         """.trimIndent()
         val multiSourceCs3 = File(distDir, "MultiSource.cs3")
@@ -206,7 +206,7 @@ tasks.register("makePlugin") {
   {
     "name": "PornTrex",
     "internalName": "PornTrex",
-    "version": 50,
+    "version": 60,
     "apiVersion": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],
@@ -219,9 +219,9 @@ tasks.register("makePlugin") {
     "fileSize": ${if (cs3File.exists()) cs3File.length() else 102400}
   },
   {
-    "name": "Multi-Source",
+    "name": "MultiSource",
     "internalName": "MultiSource",
-    "version": 50,
+    "version": 60,
     "apiVersion": 1,
     "description": "Multi-source aggregator with high-res cover art, ParadiseHill movies & actor catalogs (no PornPics dependency), PornTrex multi-resolution streams, multi-part CD episodes, and direct downloadable 1080p MP4 links.",
     "authors": ["AnshulBadoni"],

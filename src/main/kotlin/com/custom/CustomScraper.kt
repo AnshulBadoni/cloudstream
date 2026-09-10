@@ -44,28 +44,17 @@ import org.jsoup.nodes.Element
  */
 class CustomScraper : MainAPI() {
     override var mainUrl = "https://en.paradisehill.cc"
-    override var name = "Multi-Source"
+    override var name = "MultiSource"
     override val hasMainPage = true
     override var lang = "en"
     override val hasDownloadSupport = true
     override val vpnStatus = VPNStatus.MightBeNeeded
-    override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries, TvType.NSFW)
+    override val supportedTypes = setOf(TvType.NSFW, TvType.TvSeries, TvType.Movie)
 
     val porntrexUrl = "https://www.porntrex.com"
 
-    private val userAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-
-    private val defaultHeaders = mapOf(
-        "User-Agent" to userAgent,
-        "Cookie" to "is18=fb3a79a565a9b0610bba3a8f6cfcd32f32257acc782c0ed60c46314b771cb32ba%3A2%3A%7Bi%3A0%3Bs%3A4%3A%22is18%22%3Bi%3A1%3Bb%3A1%3B%7D",
-        "Referer" to "https://en.paradisehill.cc/"
-    )
-
-    private val porntrexHeaders = mapOf(
-        "User-Agent" to userAgent,
-        "Referer" to "$porntrexUrl/"
-    )
+    private val defaultHeaders = mapOf("referer" to "$mainUrl/")
+    private val porntrexHeaders = mapOf("referer" to "$porntrexUrl/")
 
     // 1. HOME PAGE CATALOG DEFINITIONS
     override val mainPage = mainPageOf(
