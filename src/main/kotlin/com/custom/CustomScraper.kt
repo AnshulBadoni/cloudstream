@@ -311,11 +311,11 @@ class CustomScraper : MainAPI() {
                     .distinct()
                     .toList()
 
-                val episodes = mp4Sources.mapIndexed { index, streamUrl ->
+                val episodes = mp4Sources.mapIndexed { index, _ ->
                     val partNum = index + 1
                     val label = pagePartLabels.getOrNull(index) ?: partNum.toString()
                     Episode(
-                        data = streamUrl,
+                        data = "$url#part=$partNum",
                         name = "Part $label (CD $partNum)",
                         episode = partNum,
                         posterUrl = poster
@@ -332,8 +332,7 @@ class CustomScraper : MainAPI() {
                     this.showStatus = ShowStatus.Completed
                 }
             } else {
-                val directStream = mp4Sources.firstOrNull() ?: url
-                newMovieLoadResponse(title, url, TvType.Movie, directStream) {
+                newMovieLoadResponse(title, url, TvType.Movie, url) {
                     this.posterUrl = poster
                     this.posterHeaders = defaultHeaders
                     this.plot = description
@@ -352,24 +351,7 @@ class CustomScraper : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // A. Direct MP4 Stream Link (from ParadiseHill CD parts or direct video)
-        if (data.contains(".mp4", ignoreCase = true)) {
-            val streamUrl = fixUrl(data, mainUrl)
-            callback(
-                ExtractorLink(
-                    source = name,
-                    name = "$name Direct MP4 (1080p)",
-                    url = streamUrl,
-                    referer = "$mainUrl/",
-                    quality = Qualities.P1080.value,
-                    isM3u8 = false,
-                    headers = mapOf("Referer" to "$mainUrl/")
-                )
-            )
-            return true
-        }
-
-        // B. PornTrex Video URL Branch
+        // A. PornTrex Video URL Branch
         if (data.contains("porntrex.com")) {
             val response = app.get(data, headers = porntrexHeaders).text
 
@@ -398,7 +380,7 @@ class CustomScraper : MainAPI() {
                 }
                 val isHls = streamUrl.contains(".m3u8")
                 Triple(streamUrl, qualityMap[key] ?: if (isHls) "HLS" else "MP4", isHls)
-            }.distinctBy { it.first }.sortedBy { it.third }.toList() // direct files first, HLS last // direct files first, HLS last
+            }.distinctBy { it.first }.sortedBy { it.third }.toList() // direct files first, HLS last
 
             links.forEach { (streamUrl, qualityLabel, isHls) ->
                 callback(
@@ -409,18 +391,74 @@ class CustomScraper : MainAPI() {
                         referer = "$porntrexUrl/",
                         quality = getQualityFromName(qualityLabel),
                         isM3u8 = isHls,
-                        headers = mapOf("Referer" to "$porntrexUrl/")
+                        headers = mapOf("referer" to "$porntrexUrl/")
                     )
                 )
             }
             return links.isNotEmpty()
         }
 
-        // C. ParadiseHill Movie Page URL Branch (e.g. from Performer Season 2 or Movie URL)
-        val doc = app.get(data, headers = defaultHeaders).document
+        // B. Direct MP4 Stream Link Fallback (if raw CDN stream URL is passed)
+        if (data.contains(".mp4", ignoreCase = true) && !data.contains("paradisehill.cc/")) {
+            val streamUrl = fixUrl(data, mainUrl)
+            callback(
+                ExtractorLink(
+                    source = name,
+                    name = "$name Direct MP4 (1080p)",
+                    url = streamUrl,
+                    referer = "$mainUrl/",
+                    quality = Qualities.P1080.value,
+                    isM3u8 = false,
+                    headers = mapOf("referer" to "$mainUrl/")
+                )
+            )
+            return true
+        }
+
+        // C. ParadiseHill Movie Page URL or Part URL Branch
+        val pageUrl = data.substringBefore("#")
+        val doc = app.get(pageUrl, headers = defaultHeaders).document
         val rawHtml = doc.html()
         val mp4Sources = extractParadiseMp4Sources(rawHtml)
-        if (mp4Sources.isEmpty()) return false
+        if (mp4Sources.isEmpty()) {
+            if (data.contains(".mp4", ignoreCase = true)) {
+                val streamUrl = fixUrl(data, mainUrl)
+                callback(
+                    ExtractorLink(
+                        source = name,
+                        name = "$name Direct MP4 (1080p)",
+                        url = streamUrl,
+                        referer = "$mainUrl/",
+                        quality = Qualities.P1080.value,
+                        isM3u8 = false,
+                        headers = mapOf("referer" to "$mainUrl/")
+                    )
+                )
+                return true
+            }
+            return false
+        }
+
+        // Check if a specific part was requested (e.g. #part=2 or #cd=2)
+        val partMatch = Regex("""#(?:part|cd)=(\d+)""", RegexOption.IGNORE_CASE).find(data)
+        val requestedPart = partMatch?.groupValues?.get(1)?.toIntOrNull()
+
+        if (requestedPart != null) {
+            val partIndex = requestedPart - 1
+            val streamUrl = mp4Sources.getOrNull(partIndex) ?: mp4Sources.first()
+            callback(
+                ExtractorLink(
+                    source = name,
+                    name = "$name Part $requestedPart (1080p)",
+                    url = streamUrl,
+                    referer = "$mainUrl/",
+                    quality = Qualities.P1080.value,
+                    isM3u8 = false,
+                    headers = mapOf("referer" to "$mainUrl/")
+                )
+            )
+            return true
+        }
 
         val pagePartLabels = Regex("""Part\s+(\d+)""", RegexOption.IGNORE_CASE)
             .findAll(rawHtml)
@@ -443,7 +481,7 @@ class CustomScraper : MainAPI() {
                     referer = "$mainUrl/",
                     quality = Qualities.P1080.value,
                     isM3u8 = false,
-                    headers = mapOf("Referer" to "$mainUrl/")
+                    headers = mapOf("referer" to "$mainUrl/")
                 )
             )
         }
@@ -470,17 +508,19 @@ class CustomScraper : MainAPI() {
 
         Regex("""var\s+videoList\s*=\s*(\[[^;]+\]);""").find(rawHtml)?.let { match ->
             Regex("""["']src["']\s*:\s*["']([^"']+\.mp4[^"']*)["']""").findAll(match.groupValues[1]).forEach {
-                found += it.groupValues[1]
+                found += it.groupValues[1].replace("\\/", "/")
             }
         }
 
         if (found.isEmpty()) {
             Regex("""["'](?:src|file|video_url|url)["']\s*:\s*["']([^"']*\.mp4[^"']*)["']""", RegexOption.IGNORE_CASE)
-                .findAll(rawHtml).forEach { found += it.groupValues[1] }
+                .findAll(rawHtml).forEach { found += it.groupValues[1].replace("\\/", "/") }
         }
 
         if (found.isEmpty()) {
-            Regex("""(https?://[^\s"'<>]+\.mp4[^\s"'<>]*)""").findAll(rawHtml).forEach { found += it.groupValues[1] }
+            Regex("""(https?(?::\\/\\/|://)[^\s"'<>]+\.mp4[^\s"'<>]*)""").findAll(rawHtml).forEach {
+                found += it.groupValues[1].replace("\\/", "/")
+            }
         }
 
         return found.asSequence()
@@ -535,11 +575,12 @@ class CustomScraper : MainAPI() {
     }
 
     private fun fixUrl(url: String, base: String = mainUrl): String {
+        val cleanUrl = url.replace("\\/", "/")
         return when {
-            url.startsWith("http://") || url.startsWith("https://") -> url
-            url.startsWith("//") -> "https:$url"
-            url.startsWith("/") -> base.trimEnd('/') + url
-            else -> base.trimEnd('/') + "/" + url
+            cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://") -> cleanUrl
+            cleanUrl.startsWith("//") -> "https:$cleanUrl"
+            cleanUrl.startsWith("/") -> base.trimEnd('/') + cleanUrl
+            else -> base.trimEnd('/') + "/" + cleanUrl
         }
     }
 

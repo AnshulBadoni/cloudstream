@@ -2,5 +2,5 @@
   "name": "Multi-Source",
   "pluginClassName": "com.custom.CustomProvider",
   "requiresResources": false,
-  "version": 44
+  "version": 45
 }

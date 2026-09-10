@@ -179,7 +179,7 @@ tasks.register("makePlugin") {
   "name": "Multi-Source",
   "pluginClassName": "com.custom.CustomProvider",
   "requiresResources": false,
-  "version": 10
+  "version": 13
 }
         """.trimIndent()
         val multiSourceCs3 = File(distDir, "MultiSource.cs3")
@@ -215,7 +215,7 @@ tasks.register("makePlugin") {
   {
     "name": "Multi-Source",
     "internalName": "MultiSource",
-    "version": 12,
+    "version": 13,
     "apiVersion": 1,
     "description": "Multi-source aggregator with high-res cover art, ParadiseHill movies & actor catalogs (no PornPics dependency), PornTrex multi-resolution streams, multi-part CD episodes, and direct downloadable 1080p MP4 links.",
     "authors": ["AnshulBadoni"],
