@@ -12,7 +12,7 @@
     "tvTypes": ["NSFW", "Movie", "Others"],
     "iconUrl": "https://www.porntrex.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PornTrex.cs3",
-    "fileSize": 111655
+    "fileSize": 110778
   },
   {
     "name": "MultiSource",
@@ -27,6 +27,6 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://en.paradisehill.cc/img/favicon/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/MultiSource.cs3",
-    "fileSize": 111653
+    "fileSize": 110776
   }
 ]
