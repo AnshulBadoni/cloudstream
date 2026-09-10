@@ -192,7 +192,7 @@ class CustomScraper : MainAPI() {
                     val pDoc = app.get(pUrl, headers = porntrexHeaders).document
                     val pElements = pDoc.select("div.video-list div.video-item, .list-videos .item, .item")
                     pElements.mapIndexedNotNull { index, el ->
-                        val link = el.selectFirst("a[href*='/video/'], a")?.attr("href") ?: return@mapIndexedNotNull null
+                        val link = el.selectFirst("a[href*='/video/']")?.attr("href") ?: return@mapIndexedNotNull null
                         val title = el.selectFirst("strong.title, .title")?.text()?.trim() ?: "PornTrex Video ${index + 1}"
                         val pPoster = fixUrlNull(el.selectFirst("img")?.attr("data-src") ?: el.selectFirst("img")?.attr("src"), porntrexUrl)
                         val duration = el.selectFirst(".duration, .durations, .time")?.text()?.trim()
@@ -376,7 +376,7 @@ class CustomScraper : MainAPI() {
                     name = "$name 1080p",
                     url = streamUrl,
                     referer = "$mainUrl/",
-                    quality = Qualities.P1080.value,
+                    quality = getQualityFromName("1080p"),
                     isM3u8 = false,
                     headers = mapOf("referer" to "$mainUrl/")
                 )
@@ -445,7 +445,7 @@ class CustomScraper : MainAPI() {
                     name = "$name Part $requestedPart (1080p)",
                     url = streamUrl,
                     referer = "$mainUrl/",
-                    quality = Qualities.P1080.value,
+                    quality = getQualityFromName("1080p"),
                     isM3u8 = false,
                     headers = mapOf("referer" to "$mainUrl/")
                 )
@@ -473,7 +473,7 @@ class CustomScraper : MainAPI() {
                     name = "$name $label",
                     url = mp4Url,
                     referer = "$mainUrl/",
-                    quality = Qualities.P1080.value,
+                    quality = getQualityFromName("1080p"),
                     isM3u8 = false,
                     headers = mapOf("referer" to "$mainUrl/")
                 )
