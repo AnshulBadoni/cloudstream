@@ -97,9 +97,7 @@ class CustomScraper : MainAPI() {
         return newHomePageResponse(homePageList, hasNextPage)
     }
 
-    // ==========================================
     // 2. MODEL-FIRST SEARCH
-    // ==========================================
     override suspend fun search(query: String): List<SearchResponse> = coroutineScope {
         val cleanQuery = query.trim().replace(" ", "+")
         val slugQuery = query.trim().lowercase().replace(" ", "-")
@@ -161,9 +159,7 @@ class CustomScraper : MainAPI() {
         models + movies
     }
 
-    // ==========================================
     // 3. LOAD (MODELS OR MOVIES)
-    // ==========================================
     override suspend fun load(url: String): LoadResponse = coroutineScope {
         val isModelProfile = url.contains("/pornstars/") || url.contains("/models/") || url.contains("/model/") || url.contains("/actor/")
 
@@ -335,9 +331,7 @@ class CustomScraper : MainAPI() {
         }
     }
 
-    // ==========================================
     // 4. DIRECT 1080P MP4 STREAM EXTRACTION
-    // ==========================================
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -436,9 +430,7 @@ class CustomScraper : MainAPI() {
         return count > 0
     }
 
-    // ==========================================
     // 5. HELPER PARSERS & POSTER UPGRADERS
-    // ==========================================
     private fun toHighResParadisePoster(url: String?): String? {
         if (url.isNullOrBlank()) return null
         return url.replace("preview-", "")
