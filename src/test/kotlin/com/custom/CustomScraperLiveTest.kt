@@ -57,9 +57,11 @@ class CustomScraperLiveTest {
 
     @Test
     fun testMultiPartMovieAndStreamExtraction() = runBlocking {
-        println("=== 3. TESTING MULTI-PART MOVIE & DIRECT MP4 EXTRACTION ===")
+        val targetUrl = System.getProperty("url")?.takeIf { it.isNotBlank() }
+        val movieUrl = targetUrl ?: "https://en.paradisehill.cc/cant_be_roots_xxx_parody_the_untold_story/"
+        println("=== 3. TESTING MOVIE & DIRECT MP4 EXTRACTION ===")
+        println("Testing URL: $movieUrl")
         try {
-            val movieUrl = "https://en.paradisehill.cc/cant_be_roots_xxx_parody_the_untold_story/"
             val res = scraper.load(movieUrl)
 
             println("Title:   " + res.name)
@@ -68,27 +70,46 @@ class CustomScraperLiveTest {
             println("Actors:  " + res.actors?.map { it.actor.name })
             println("Tags:    " + res.tags)
 
+            var firstEpisodeData = movieUrl
             if (res is TvSeriesLoadResponse) {
                 println("Detected Multi-Part Movie with " + res.episodes.size + " Parts:")
                 res.episodes.forEach {
                     println("  - " + it.name + " -> Data: " + it.data)
                 }
+                firstEpisodeData = res.episodes.firstOrNull()?.data ?: movieUrl
+            } else if (res is MovieLoadResponse) {
+                println("Single Movie dataUrl: " + res.dataUrl)
+                firstEpisodeData = res.dataUrl
             }
 
-            println("=== 4. TESTING STREAM & DOWNLOAD EXTRACTION ===")
-            val streamLinks = mutableListOf<ExtractorLink>()
-            val success = scraper.loadLinks(
+            println("\n=== 4. TESTING STREAM & DOWNLOAD EXTRACTION (Page URL) ===")
+            val pageStreamLinks = mutableListOf<ExtractorLink>()
+            scraper.loadLinks(
                 data = movieUrl,
                 isCasting = false,
                 subtitleCallback = {},
                 callback = { link ->
-                    println("  -> EXTRACTED STREAM: name=" + link.name + ", isM3u8=" + link.isM3u8 + ", url=" + link.url)
-                    streamLinks.add(link)
+                    println("  -> [Page Link] name=${link.name}, quality=${link.quality}, url=${link.url}")
+                    pageStreamLinks.add(link)
                 }
             )
-            println("Extracted stream links count: " + streamLinks.size)
+            println("Extracted stream links from page: " + pageStreamLinks.size)
+
+            println("\n=== 5. TESTING STREAM & DOWNLOAD EXTRACTION (Episode/Download Button Click) ===")
+            println("Testing Episode Data: $firstEpisodeData")
+            val epStreamLinks = mutableListOf<ExtractorLink>()
+            scraper.loadLinks(
+                data = firstEpisodeData,
+                isCasting = false,
+                subtitleCallback = {},
+                callback = { link ->
+                    println("  -> [Download Link] name=${link.name}, quality=${link.quality}, url=${link.url}")
+                    epStreamLinks.add(link)
+                }
+            )
+            println("Extracted stream links for download button: " + epStreamLinks.size)
         } catch (e: Exception) {
-            println("Multi-part movie test warning: " + e.message)
+            println("Movie test warning: " + e.message)
         }
     }
 
