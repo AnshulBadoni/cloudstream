@@ -366,60 +366,13 @@ class CustomScraper : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // A. PornTrex Video URL Branch
-        if (data.contains("porntrex.com")) {
-            val response = app.get(data, headers = porntrexHeaders).text
-
-            // KVS flashvars: video_url / video_alt_url<n> carry the streams and
-            // their *_text siblings carry the quality labels. Parse the whole
-            // page (the flashvars object can contain nested braces) and prefer
-            // direct MP4 files over HLS, since only files are downloadable.
-            val urlRegex = Regex("""(video_url|video_alt_url\d*|hls_url)\s*:\s*['"]([^'"]+)['"]""")
-            val textRegex = Regex("""(video_url_text|video_alt_url\d*_text)\s*:\s*['"]([^'"]+)['"]""")
-
-            val qualityMap = mutableMapOf<String, String>()
-            textRegex.findAll(response).forEach { match ->
-                val key = match.groupValues[1].replace("_text", "")
-                val quality = match.groupValues[2]
-                qualityMap[key] = quality
-            }
-
-            val links = urlRegex.findAll(response).mapNotNull { match ->
-                val key = match.groupValues[1]
-                val rawUrl = match.groupValues[2]
-                val streamUrl = when {
-                    rawUrl.startsWith("http", ignoreCase = true) -> rawUrl
-                    rawUrl.startsWith("//") -> "https:$rawUrl"
-                    rawUrl.startsWith("/") -> porntrexUrl + rawUrl
-                    else -> return@mapNotNull null
-                }
-                val isHls = streamUrl.contains(".m3u8")
-                Triple(streamUrl, qualityMap[key] ?: if (isHls) "HLS" else "MP4", isHls)
-            }.distinctBy { it.first }.sortedBy { it.third }.toList() // direct files first, HLS last
-
-            links.forEach { (streamUrl, qualityLabel, isHls) ->
-                callback(
-                    ExtractorLink(
-                        source = name,
-                        name = "$name PornTrex ($qualityLabel)",
-                        url = streamUrl,
-                        referer = "$porntrexUrl/",
-                        quality = getQualityFromName(qualityLabel),
-                        isM3u8 = isHls,
-                        headers = mapOf("referer" to "$porntrexUrl/")
-                    )
-                )
-            }
-            return links.isNotEmpty()
-        }
-
-        // B. Direct MP4 Stream Link Fallback (if raw CDN stream URL is passed)
-        if (data.contains(".mp4", ignoreCase = true) && !data.contains("paradisehill.cc/")) {
+        // A. Direct MP4 Stream Link (Instant handler - no HTTP request needed)
+        if (data.contains(".mp4", ignoreCase = true)) {
             val streamUrl = fixUrl(data, mainUrl)
             callback(
                 ExtractorLink(
                     source = name,
-                    name = "$name Direct MP4 (1080p)",
+                    name = "$name 1080p",
                     url = streamUrl,
                     referer = "$mainUrl/",
                     quality = Qualities.P1080.value,
@@ -430,29 +383,56 @@ class CustomScraper : MainAPI() {
             return true
         }
 
+        // B. PornTrex Video URL Branch
+        if (data.contains("porntrex.com")) {
+            val response = app.get(data, headers = porntrexHeaders).text
+
+            val urlRegex = Regex("""(video_url|video_alt_url\d*|hls_url)\s*:\s*['"]([^'"]+)['"]""")
+            val textRegex = Regex("""(video_url_text|video_alt_url\d*_text)\s*:\s*['"]([^'"]+)['"]""")
+
+            val qualityMap = mutableMapOf<String, String>()
+            textRegex.findAll(response).forEach { match ->
+                val key = match.groupValues[1].replace("_text", "")
+                val quality = match.groupValues[2]
+                qualityMap[key] = quality
+            }
+
+            var count = 0
+            urlRegex.findAll(response).forEach { match ->
+                val key = match.groupValues[1]
+                val rawUrl = match.groupValues[2]
+                val streamUrl = when {
+                    rawUrl.startsWith("http", ignoreCase = true) -> rawUrl
+                    rawUrl.startsWith("//") -> "https:$rawUrl"
+                    rawUrl.startsWith("/") -> porntrexUrl + rawUrl
+                    else -> return@forEach
+                }
+                val qualityLabel = qualityMap[key] ?: "720p"
+                val qualityValue = getQualityFromName(qualityLabel)
+                val isHls = streamUrl.contains(".m3u8")
+
+                callback(
+                    ExtractorLink(
+                        source = name,
+                        name = "$name $qualityLabel",
+                        url = streamUrl,
+                        referer = "$porntrexUrl/",
+                        quality = qualityValue,
+                        isM3u8 = isHls,
+                        headers = mapOf("referer" to "$porntrexUrl/")
+                    )
+                )
+                count++
+            }
+            return count > 0
+        }
+
         // C. ParadiseHill Movie Page URL or Part URL Branch
         val pageUrl = data.substringBefore("#")
         val doc = app.get(pageUrl, headers = defaultHeaders).document
         val rawHtml = doc.html()
         val mp4Sources = extractParadiseMp4Sources(rawHtml)
-        if (mp4Sources.isEmpty()) {
-            if (data.contains(".mp4", ignoreCase = true)) {
-                val streamUrl = fixUrl(data, mainUrl)
-                callback(
-                    ExtractorLink(
-                        source = name,
-                        name = "$name Direct MP4 (1080p)",
-                        url = streamUrl,
-                        referer = "$mainUrl/",
-                        quality = Qualities.P1080.value,
-                        isM3u8 = false,
-                        headers = mapOf("referer" to "$mainUrl/")
-                    )
-                )
-                return true
-            }
-            return false
-        }
+        if (mp4Sources.isEmpty()) return false
 
         // Check if a specific part was requested (e.g. #part=2 or #cd=2)
         val partMatch = Regex("""#(?:part|cd)=(\d+)""", RegexOption.IGNORE_CASE).find(data)
@@ -481,6 +461,7 @@ class CustomScraper : MainAPI() {
             .distinct()
             .toList()
 
+        var count = 0
         mp4Sources.forEachIndexed { index, mp4Url ->
             val label = if (mp4Sources.size > 1) {
                 val partLabel = pagePartLabels.getOrNull(index) ?: (index + 1).toString()
@@ -499,9 +480,10 @@ class CustomScraper : MainAPI() {
                     headers = mapOf("referer" to "$mainUrl/")
                 )
             )
+            count++
         }
 
-        return true
+        return count > 0
     }
 
     // 5. HELPER PARSERS & POSTER UPGRADERS
