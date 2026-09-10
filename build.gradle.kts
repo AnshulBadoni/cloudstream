@@ -156,16 +156,22 @@ tasks.register("makePlugin") {
             }
         }
 
-        val manifestFile = file("manifest.json")
+        val porntrexManifest = """
+{
+  "name": "PornTrex",
+  "pluginClassName": "com.megix.PorntrexProvider",
+  "requiresResources": false,
+  "version": 50
+}
+        """.trimIndent()
         val cs3File = File(distDir, "PornTrex.cs3")
 
         // 1. Create PornTrex.cs3
         ZipOutputStream(FileOutputStream(cs3File)).use { zos ->
-            if (manifestFile.exists()) {
-                zos.putNextEntry(ZipEntry("manifest.json"))
-                manifestFile.inputStream().use { it.copyTo(zos) }
-                zos.closeEntry()
-            }
+            zos.putNextEntry(ZipEntry("manifest.json"))
+            zos.write(porntrexManifest.toByteArray(Charsets.UTF_8))
+            zos.closeEntry()
+
             dexDir.listFiles()?.filter { it.extension == "dex" }?.sortedBy { it.name }?.forEach { dexFile ->
                 zos.putNextEntry(ZipEntry(dexFile.name))
                 dexFile.inputStream().use { it.copyTo(zos) }
@@ -179,7 +185,7 @@ tasks.register("makePlugin") {
   "name": "Multi-Source",
   "pluginClassName": "com.custom.CustomProvider",
   "requiresResources": false,
-  "version": 13
+  "version": 50
 }
         """.trimIndent()
         val multiSourceCs3 = File(distDir, "MultiSource.cs3")
@@ -200,7 +206,7 @@ tasks.register("makePlugin") {
   {
     "name": "PornTrex",
     "internalName": "PornTrex",
-    "version": 43,
+    "version": 50,
     "apiVersion": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],
@@ -215,7 +221,7 @@ tasks.register("makePlugin") {
   {
     "name": "Multi-Source",
     "internalName": "MultiSource",
-    "version": 13,
+    "version": 50,
     "apiVersion": 1,
     "description": "Multi-source aggregator with high-res cover art, ParadiseHill movies & actor catalogs (no PornPics dependency), PornTrex multi-resolution streams, multi-part CD episodes, and direct downloadable 1080p MP4 links.",
     "authors": ["AnshulBadoni"],

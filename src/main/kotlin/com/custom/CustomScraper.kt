@@ -263,6 +263,32 @@ class CustomScraper : MainAPI() {
                 this.plot = "Multi-Source Collection for $name: Season 1 = PornTrex, Season 2 = ParadiseHill Feature Films"
                 this.showStatus = ShowStatus.Completed
             }
+        } else if (url.contains("porntrex.com")) {
+            // === PORNTREX VIDEO DETAILS BRANCH ===
+            val doc = app.get(url, headers = porntrexHeaders).document
+            val scriptText = doc.selectFirst("script:containsData(var flashvars)")?.data()
+                ?: doc.selectFirst("script:containsData(flashvars)")?.data()
+
+            val title = Regex("""['"]?video_title['"]?\s*:\s*['"]([^'"]+)['"]""").find(scriptText.orEmpty())?.groupValues?.get(1)
+                ?: doc.selectFirst("h1.title, h1, .headline h1, .video-details h1, p.title-video")?.text()?.trim()
+                ?: doc.selectFirst("meta[property='og:title']")?.attr("content")?.substringBefore("|")?.trim()
+                ?: "Video"
+
+            val rawPoster = Regex("""['"]?preview_url['"]?\s*:\s*['"]([^'"]+)['"]""").find(scriptText.orEmpty())?.groupValues?.get(1)
+                ?: doc.selectFirst("meta[property='og:image']")?.attr("content")
+                ?: doc.selectFirst("a.thumb img.cover, #player-holder video[poster], video[poster]")?.attr("poster")
+                ?: doc.selectFirst("a.thumb img.cover")?.attr("src")
+            val poster = fixUrlNull(rawPoster, porntrexUrl)
+
+            val description = doc.selectFirst(".videodesc .items-holder em.des-link, .videodesc .des-link, .videodesc .items-holder, .videodesc, .description-block, .video-details")?.text()
+                ?.replace(Regex("^Description:\\s*", RegexOption.IGNORE_CASE), "")?.trim()
+                ?: doc.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
+
+            newMovieLoadResponse(title, url, TvType.Movie, url) {
+                this.posterUrl = poster
+                this.posterHeaders = porntrexHeaders
+                this.plot = description
+            }
         } else {
             // === PARADISEHILL FULL MOVIE DETAILS BRANCH ===
             val doc = app.get(url, headers = defaultHeaders).document

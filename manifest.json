@@ -1,6 +1,6 @@
 {
-  "name": "Multi-Source",
-  "pluginClassName": "com.custom.CustomProvider",
+  "name": "PornTrex",
+  "pluginClassName": "com.megix.PorntrexProvider",
   "requiresResources": false,
-  "version": 45
+  "version": 50
 }
