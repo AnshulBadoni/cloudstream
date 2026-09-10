@@ -429,9 +429,8 @@ class CustomScraper : MainAPI() {
 
         // C. ParadiseHill Movie Page URL or Part URL Branch
         val pageUrl = data.substringBefore("#")
-        val doc = app.get(pageUrl, headers = defaultHeaders).document
-        val rawHtml = doc.html()
-        val mp4Sources = extractParadiseMp4Sources(rawHtml)
+        val response = app.get(pageUrl, headers = mapOf("referer" to "$mainUrl/")).text
+        val mp4Sources = extractParadiseMp4Sources(response)
         if (mp4Sources.isEmpty()) return false
 
         // Check if a specific part was requested (e.g. #part=2 or #cd=2)
@@ -456,7 +455,7 @@ class CustomScraper : MainAPI() {
         }
 
         val pagePartLabels = Regex("""Part\s+(\d+)""", RegexOption.IGNORE_CASE)
-            .findAll(rawHtml)
+            .findAll(response)
             .map { it.groupValues[1] }
             .distinct()
             .toList()
