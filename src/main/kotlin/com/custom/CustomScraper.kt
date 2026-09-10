@@ -177,11 +177,9 @@ class CustomScraper : MainAPI() {
             val name = doc?.selectFirst("h1.model-h1, .profile-model-info h1, title")?.text()
                 ?.replace(Regex("(?i)Porn Actor\\s*"), "")?.trim() ?: rawName
 
-            val poster = fixUrlNull(
-                doc?.selectFirst("meta[property='og:image']")?.attr("content")
-                    ?: doc?.selectFirst(".profile-model-info img, img")?.attr("src"),
-                url
-            )
+            val rawModelPoster = doc?.selectFirst("meta[property='og:image']")?.attr("content")
+                ?: doc?.selectFirst(".profile-model-info img, img")?.attr("src")
+            val poster = fixUrlNull(toHighResParadisePoster(rawModelPoster), url)
 
             val episodes = mutableListOf<Episode>()
 
@@ -228,7 +226,9 @@ class CustomScraper : MainAPI() {
                             ?: el.selectFirst("img")?.attr("alt")?.ifBlank { null }
                             ?: "ParadiseHill Movie ${index + 1}"
 
-                        val xPoster = fixUrlNull(el.selectFirst("img")?.attr("data-src") ?: el.selectFirst("img")?.attr("src"), mainUrl)
+                        val rawPoster = el.selectFirst("img")?.attr("data-src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
+                            ?: el.selectFirst("img")?.attr("src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
+                        val xPoster = fixUrlNull(toHighResParadisePoster(rawPoster), mainUrl)
 
                         Episode(
                             data = fixUrl(href, mainUrl),
@@ -246,7 +246,7 @@ class CustomScraper : MainAPI() {
 
             newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
-                this.posterHeaders = defaultHeaders
+                this.posterHeaders = mapOf("referer" to "$mainUrl/")
                 this.plot = "Multi-Source Collection for $name: Season 1 = PornTrex, Season 2 = ParadiseHill Feature Films"
                 this.showStatus = ShowStatus.Completed
             }
@@ -258,11 +258,9 @@ class CustomScraper : MainAPI() {
                 ?: doc.selectFirst("h1, .title h1")?.text()?.trim()
                 ?: "Movie"
 
-            val poster = fixUrlNull(
-                doc.selectFirst("meta[property='og:image']")?.attr("content")
-                    ?: doc.selectFirst(".poster img, img.poster")?.attr("src"),
-                mainUrl
-            )
+            val rawPoster = doc.selectFirst("meta[property='og:image']")?.attr("content")
+                ?: doc.selectFirst(".poster img, img.poster, div.poster img")?.attr("src")
+            val poster = fixUrlNull(toHighResParadisePoster(rawPoster), mainUrl)
 
             val description = doc.selectFirst("meta[property='og:description']")?.attr("content")
                 ?: doc.selectFirst(".story, div[itemprop='description'], .description")?.text()?.trim()
@@ -276,10 +274,10 @@ class CustomScraper : MainAPI() {
 
             val actors = doc.select("a[href*='/actor/']")
                 .mapNotNull { el ->
-                    val name = el.text().trim()
-                    if (name.isNotBlank() && !name.contains("Actors", ignoreCase = true)) {
+                    val actorName = el.text().trim()
+                    if (actorName.isNotBlank() && !actorName.contains("Actors", ignoreCase = true)) {
                         ActorData(
-                            actor = Actor(name, null),
+                            actor = Actor(actorName, null),
                             role = null,
                             roleString = "Performer",
                             voiceActor = null
@@ -293,7 +291,15 @@ class CustomScraper : MainAPI() {
             val videoListJson = videoListMatch?.groupValues?.get(1)?.replace("\\/", "/") ?: rawHtml
 
             val srcRegex = Regex("""["']src["']\s*:\s*["']([^"']+\.mp4[^"']*)["']""")
-            val mp4Sources = srcRegex.findAll(videoListJson).map { it.groupValues[1] }.distinct().toList()
+            val foundSources = srcRegex.findAll(videoListJson).map { it.groupValues[1] }.distinct().toList()
+            val mp4Sources = if (foundSources.isNotEmpty()) {
+                foundSources.map { fixUrl(it, mainUrl) }
+            } else {
+                val fallbackRegex = Regex("""["'](https?://[^"']+\.mp4[^"']*)["']""")
+                fallbackRegex.findAll(rawHtml).map { it.groupValues[1] }
+                    .filter { it.contains("paradise") || it.contains("video") }
+                    .distinct().toList()
+            }
 
             // If movie is split into multi-CD parts (e.g. CD1, CD2 ... CD7)
             if (mp4Sources.size > 1) {
@@ -309,7 +315,7 @@ class CustomScraper : MainAPI() {
 
                 newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                     this.posterUrl = poster
-                    this.posterHeaders = defaultHeaders
+                    this.posterHeaders = mapOf("referer" to "$mainUrl/")
                     this.plot = description
                     this.year = releaseYear
                     this.tags = categories
@@ -320,7 +326,7 @@ class CustomScraper : MainAPI() {
                 val directStream = mp4Sources.firstOrNull() ?: url
                 newMovieLoadResponse(title, url, TvType.Movie, directStream) {
                     this.posterUrl = poster
-                    this.posterHeaders = defaultHeaders
+                    this.posterHeaders = mapOf("referer" to "$mainUrl/")
                     this.plot = description
                     this.year = releaseYear
                     this.tags = categories
@@ -339,17 +345,21 @@ class CustomScraper : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // A. Direct MP4 Stream Link (from ParadiseHill CD parts or PornTrex)
-        if (data.startsWith("http") && data.contains(".mp4")) {
+        // A. Direct MP4 Stream Link (from ParadiseHill CD parts or direct video)
+        if (data.contains(".mp4", ignoreCase = true)) {
+            val streamUrl = fixUrl(data, mainUrl)
             callback(
                 ExtractorLink(
                     source = name,
                     name = "$name Direct MP4 (1080p)",
-                    url = data,
+                    url = streamUrl,
                     referer = "$mainUrl/",
                     quality = Qualities.P1080.value,
                     isM3u8 = false,
-                    headers = defaultHeaders
+                    headers = mapOf(
+                        "referer" to "$mainUrl/",
+                        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    )
                 )
             )
             return true
@@ -358,19 +368,35 @@ class CustomScraper : MainAPI() {
         // B. PornTrex Video URL Branch
         if (data.contains("porntrex.com")) {
             val response = app.get(data, headers = mapOf("referer" to "$porntrexUrl/")).text
+            val flashvarsMatch = Regex("""var\s+flashvars\s*=\s*\{([^}]+)\}""", RegexOption.DOT_MATCHES_ALL).find(response)
+            val scriptContent = flashvarsMatch?.groupValues?.get(1) ?: response
+
             val urlRegex = Regex("""(video_url|video_alt_url\d*)\s*:\s*['"]([^'"]+)['"]""")
+            val textRegex = Regex("""(video_url_text|video_alt_url\d*_text)\s*:\s*['"]([^'"]+)['"]""")
+
+            val qualityMap = mutableMapOf<String, String>()
+            textRegex.findAll(scriptContent).forEach { match ->
+                val key = match.groupValues[1].replace("_text", "")
+                val quality = match.groupValues[2]
+                qualityMap[key] = quality
+            }
+
             var found = false
-            urlRegex.findAll(response).forEach { match ->
+            urlRegex.findAll(scriptContent).forEach { match ->
+                val key = match.groupValues[1]
                 val streamUrl = match.groupValues[2]
                 if (streamUrl.startsWith("http")) {
+                    val qualityLabel = qualityMap[key] ?: "720p"
+                    val qualityValue = getQualityFromName(qualityLabel)
                     callback(
                         ExtractorLink(
                             source = name,
-                            name = "$name PornTrex (720p)",
+                            name = "$name PornTrex ($qualityLabel)",
                             url = streamUrl,
                             referer = "$porntrexUrl/",
-                            quality = Qualities.P720.value,
-                            isM3u8 = streamUrl.contains(".m3u8")
+                            quality = qualityValue,
+                            isM3u8 = streamUrl.contains(".m3u8"),
+                            headers = mapOf("referer" to "$porntrexUrl/")
                         )
                     )
                     found = true
@@ -379,17 +405,26 @@ class CustomScraper : MainAPI() {
             return found
         }
 
-        // C. ParadiseHill Movie Page URL Branch
+        // C. ParadiseHill Movie Page URL Branch (e.g. from Performer Season 2 or Movie URL)
         val doc = app.get(data, headers = defaultHeaders).document
         val rawHtml = doc.html()
         val videoListMatch = Regex("""var\s+videoList\s*=\s*(\[[^;]+\]);""").find(rawHtml)
         val videoListJson = videoListMatch?.groupValues?.get(1)?.replace("\\/", "/") ?: rawHtml
 
         val srcRegex = Regex("""["']src["']\s*:\s*["']([^"']+\.mp4[^"']*)["']""")
-        val mp4Sources = srcRegex.findAll(videoListJson).map { it.groupValues[1] }.distinct().toList()
+        val foundSources = srcRegex.findAll(videoListJson).map { it.groupValues[1] }.distinct().toList()
+        val mp4Sources = if (foundSources.isNotEmpty()) {
+            foundSources.map { fixUrl(it, mainUrl) }
+        } else {
+            val fallbackRegex = Regex("""["'](https?://[^"']+\.mp4[^"']*)["']""")
+            fallbackRegex.findAll(rawHtml).map { it.groupValues[1] }
+                .filter { it.contains("paradise") || it.contains("video") }
+                .distinct().toList()
+        }
 
         var count = 0
-        mp4Sources.forEachIndexed { index, mp4Url ->
+        mp4Sources.forEachIndexed { index, rawMp4Url ->
+            val mp4Url = fixUrl(rawMp4Url, mainUrl)
             val label = if (mp4Sources.size > 1) "Part ${index + 1} (1080p)" else "Full Movie (1080p)"
             callback(
                 ExtractorLink(
@@ -399,7 +434,10 @@ class CustomScraper : MainAPI() {
                     referer = "$mainUrl/",
                     quality = Qualities.P1080.value,
                     isM3u8 = false,
-                    headers = defaultHeaders
+                    headers = mapOf(
+                        "referer" to "$mainUrl/",
+                        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    )
                 )
             )
             count++
@@ -409,12 +447,18 @@ class CustomScraper : MainAPI() {
     }
 
     // ==========================================
-    // 5. HELPER PARSERS
+    // 5. HELPER PARSERS & POSTER UPGRADERS
     // ==========================================
+    private fun toHighResParadisePoster(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+        return url.replace("preview-", "")
+            .replace(Regex("""\.webp$""", RegexOption.IGNORE_CASE), ".jpg")
+    }
+
     private fun parseParadiseMovieCard(element: Element): SearchResponse? {
         val linkEl = element.selectFirst("a[href]") ?: return null
         val href = linkEl.attr("href")
-        if (href.isBlank() || href == "#" || href.contains("/actor/") || href.contains("/category/")) return null
+        if (href.isBlank() || href == "#" || href.contains("/actor/") || href.contains("/category/") || href.contains("/studios/") || href.contains("/signup/") || href.contains("/login/")) return null
 
         val title = element.selectFirst(".name a, .name, a.title")?.text()?.trim()
             ?: linkEl.attr("title").ifBlank { null }
@@ -422,12 +466,14 @@ class CustomScraper : MainAPI() {
             ?: return null
 
         val posterEl = element.selectFirst("img")
-        val rawPoster = posterEl?.attr("data-src")?.ifBlank { null }
-            ?: posterEl?.attr("src")?.ifBlank { null }
+        val rawPoster = posterEl?.attr("data-src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
+            ?: posterEl?.attr("src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
+
+        val highResPoster = toHighResParadisePoster(rawPoster)
 
         return newMovieSearchResponse(title, fixUrl(href, mainUrl), TvType.Movie) {
-            this.posterUrl = fixUrlNull(rawPoster, mainUrl)
-            this.posterHeaders = defaultHeaders
+            this.posterUrl = fixUrlNull(highResPoster ?: rawPoster, mainUrl)
+            this.posterHeaders = mapOf("referer" to "$mainUrl/")
         }
     }
 
@@ -442,12 +488,14 @@ class CustomScraper : MainAPI() {
         if (name.isBlank()) return null
 
         val posterEl = element.selectFirst("img")
-        val rawPoster = posterEl?.attr("data-src")?.ifBlank { null }
-            ?: posterEl?.attr("src")?.ifBlank { null }
+        val rawPoster = posterEl?.attr("data-src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
+            ?: posterEl?.attr("src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
+
+        val highResPoster = toHighResParadisePoster(rawPoster)
 
         return newTvSeriesSearchResponse(name, fixUrl(href, mainUrl), TvType.TvSeries) {
-            this.posterUrl = fixUrlNull(rawPoster, mainUrl)
-            this.posterHeaders = defaultHeaders
+            this.posterUrl = fixUrlNull(highResPoster ?: rawPoster, mainUrl)
+            this.posterHeaders = mapOf("referer" to "$mainUrl/")
         }
     }
 
