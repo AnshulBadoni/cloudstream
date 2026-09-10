@@ -24,12 +24,7 @@ class CustomScraperLiveTest {
                 isCasting = false,
                 subtitleCallback = {},
                 callback = { link ->
-                    println("[STREAM EXTRACTED]")
-                    println("  -> Name:     " + link.name)
-                    println("  -> URL:      " + link.url)
-                    println("  -> Referer:  " + link.referer)
-                    println("  -> isM3u8:   " + link.isM3u8)
-                    println("  -> Headers:  " + link.headers)
+                    println("  -> EXTRACTED STREAM: name=" + link.name + ", quality=" + link.quality + ", isM3u8=" + link.isM3u8 + ", url=" + link.url)
                     links.add(link)
                 }
             )

@@ -419,18 +419,66 @@ class CustomScraper : MainAPI() {
 
                     for (streamUrl in m3u8Matches) {
                         val playerLabel = "Player ${allEmbeds.size - index}"
+                        val headersMap = mapOf(
+                            "referer" to "$embedHost/",
+                            "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                        )
+
+                        // 1. Fetch and parse master M3U8 playlist to extract direct sub-streams (1080p, 720p, 480p)
+                        val m3u8Text = runCatching {
+                            app.get(streamUrl, headers = headersMap).text
+                        }.getOrNull()
+
+                        val baseM3u8Url = streamUrl.substringBeforeLast("/")
+                        var parsedSubStreams = 0
+
+                        if (!m3u8Text.isNullOrBlank() && m3u8Text.contains("#EXT-X-STREAM-INF")) {
+                            val lines = m3u8Text.lines()
+                            for (i in lines.indices) {
+                                val line = lines[i].trim()
+                                if (line.startsWith("#EXT-X-STREAM-INF")) {
+                                    val resMatch = Regex("""RESOLUTION=(\d+x\d+)""").find(line)?.groupValues?.get(1)
+                                    val height = resMatch?.substringAfter("x")?.toIntOrNull() ?: 720
+                                    val qualityValue = when {
+                                        height >= 1080 -> Qualities.P1080.value
+                                        height >= 720 -> Qualities.P720.value
+                                        height >= 480 -> Qualities.P480.value
+                                        else -> Qualities.P360.value
+                                    }
+                                    val qualityLabel = "${height}p"
+
+                                    // Next line contains the relative index.m3u8 URI
+                                    val subPath = lines.getOrNull(i + 1)?.trim()
+                                    if (!subPath.isNullOrBlank() && !subPath.startsWith("#")) {
+                                        val subStreamUrl = if (subPath.startsWith("http")) subPath else "$baseM3u8Url/$subPath"
+                                        callback(
+                                            ExtractorLink(
+                                                source = name,
+                                                name = "$name $playerLabel $qualityLabel",
+                                                url = subStreamUrl,
+                                                referer = "$embedHost/",
+                                                quality = qualityValue,
+                                                isM3u8 = true,
+                                                headers = headersMap
+                                            )
+                                        )
+                                        count++
+                                        parsedSubStreams++
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Also emit Master Playlist (for adaptive auto bitrate streaming)
                         callback(
                             ExtractorLink(
                                 source = name,
-                                name = "$name $playerLabel (1080p)",
+                                name = "$name $playerLabel Master (Auto)",
                                 url = streamUrl,
                                 referer = "$embedHost/",
                                 quality = Qualities.P1080.value,
                                 isM3u8 = true,
-                                headers = mapOf(
-                                    "referer" to "$embedHost/",
-                                    "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                                )
+                                headers = headersMap
                             )
                         )
                         count++
