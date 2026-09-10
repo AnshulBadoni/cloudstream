@@ -326,11 +326,11 @@ class CustomScraper : MainAPI() {
                     .distinct()
                     .toList()
 
-                val episodes = mp4Sources.mapIndexed { index, _ ->
+                val episodes = mp4Sources.mapIndexed { index, mp4Url ->
                     val partNum = index + 1
                     val label = pagePartLabels.getOrNull(index) ?: partNum.toString()
                     Episode(
-                        data = "$url#part=$partNum",
+                        data = mp4Url,
                         name = "Part $label (CD $partNum)",
                         episode = partNum,
                         posterUrl = poster
@@ -347,7 +347,8 @@ class CustomScraper : MainAPI() {
                     this.showStatus = ShowStatus.Completed
                 }
             } else {
-                newMovieLoadResponse(title, url, TvType.Movie, url) {
+                val directUrl = mp4Sources.firstOrNull() ?: url
+                newMovieLoadResponse(title, url, TvType.Movie, directUrl) {
                     this.posterUrl = poster
                     this.posterHeaders = defaultHeaders
                     this.plot = description
