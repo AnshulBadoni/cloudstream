@@ -398,7 +398,7 @@ class CustomScraper : MainAPI() {
                 }
                 val isHls = streamUrl.contains(".m3u8")
                 Triple(streamUrl, qualityMap[key] ?: if (isHls) "HLS" else "MP4", isHls)
-            }.distinctBy { it.first }.sortedBy { it.third } // direct files first, HLS last
+            }.distinctBy { it.first }.sortedBy { it.third }.toList() // direct files first, HLS last // direct files first, HLS last
 
             links.forEach { (streamUrl, qualityLabel, isHls) ->
                 callback(
