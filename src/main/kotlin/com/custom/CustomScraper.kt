@@ -386,44 +386,42 @@ class CustomScraper : MainAPI() {
 
         // B. PornTrex Video URL Branch
         if (data.contains("porntrex.com")) {
-            val response = app.get(data, headers = porntrexHeaders).text
+            val response = app.get(data, headers = mapOf("referer" to "$porntrexUrl/")).text
 
-            val urlRegex = Regex("""(video_url|video_alt_url\d*|hls_url)\s*:\s*['"]([^'"]+)['"]""")
+            val flashvarsMatch = Regex("""var\s+flashvars\s*=\s*\{([^}]+)\}""", RegexOption.DOT_MATCHES_ALL).find(response)
+            val scriptContent = flashvarsMatch?.groupValues?.get(1) ?: response
+
+            val urlRegex = Regex("""(video_url|video_alt_url\d*)\s*:\s*['"]([^'"]+)['"]""")
             val textRegex = Regex("""(video_url_text|video_alt_url\d*_text)\s*:\s*['"]([^'"]+)['"]""")
 
             val qualityMap = mutableMapOf<String, String>()
-            textRegex.findAll(response).forEach { match ->
+            textRegex.findAll(scriptContent).forEach { match ->
                 val key = match.groupValues[1].replace("_text", "")
                 val quality = match.groupValues[2]
                 qualityMap[key] = quality
             }
 
             var count = 0
-            urlRegex.findAll(response).forEach { match ->
+            urlRegex.findAll(scriptContent).forEach { match ->
                 val key = match.groupValues[1]
-                val rawUrl = match.groupValues[2]
-                val streamUrl = when {
-                    rawUrl.startsWith("http", ignoreCase = true) -> rawUrl
-                    rawUrl.startsWith("//") -> "https:$rawUrl"
-                    rawUrl.startsWith("/") -> porntrexUrl + rawUrl
-                    else -> return@forEach
-                }
-                val qualityLabel = qualityMap[key] ?: "720p"
-                val qualityValue = getQualityFromName(qualityLabel)
-                val isHls = streamUrl.contains(".m3u8")
+                val streamUrl = match.groupValues[2]
+                if (streamUrl.startsWith("http")) {
+                    val qualityLabel = qualityMap[key] ?: "720p"
+                    val qualityValue = getQualityFromName(qualityLabel)
 
-                callback(
-                    ExtractorLink(
-                        source = name,
-                        name = "$name $qualityLabel",
-                        url = streamUrl,
-                        referer = "$porntrexUrl/",
-                        quality = qualityValue,
-                        isM3u8 = isHls,
-                        headers = mapOf("referer" to "$porntrexUrl/")
+                    callback(
+                        ExtractorLink(
+                            source = name,
+                            name = "$name $qualityLabel",
+                            url = streamUrl,
+                            referer = "$porntrexUrl/",
+                            quality = qualityValue,
+                            isM3u8 = streamUrl.contains(".m3u8"),
+                            headers = mapOf("referer" to "$porntrexUrl/")
+                        )
                     )
-                )
-                count++
+                    count++
+                }
             }
             return count > 0
         }
