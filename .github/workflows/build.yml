@@ -42,15 +42,17 @@ jobs:
       - name: Build Plugins & Manifest
         run: ./gradlew test makePlugin
 
-      - name: Verify classes.dex in cs3
+      - name: Verify classes.dex in cs3 plugins
         run: |
-          if unzip -l build/dist/PornTrex.cs3 | grep -q "classes.dex"; then
-            echo "✓ classes.dex found in PornTrex.cs3"
-          else
-            echo "✗ ERROR: classes.dex NOT in PornTrex.cs3!"
-            unzip -l build/dist/PornTrex.cs3
-            exit 1
-          fi
+          for plugin in PornTrex MultiSource; do
+            if unzip -l build/dist/$plugin.cs3 | grep -q "classes.dex"; then
+              echo "✓ classes.dex found in $plugin.cs3"
+            else
+              echo "✗ ERROR: classes.dex NOT in $plugin.cs3!"
+              unzip -l build/dist/$plugin.cs3
+              exit 1
+            fi
+          done
 
       - name: Deploy to Builds Branch
         uses: peaceiris/actions-gh-pages@v3

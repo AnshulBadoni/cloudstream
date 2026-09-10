@@ -215,15 +215,15 @@ tasks.register("makePlugin") {
   {
     "name": "Multi-Source",
     "internalName": "MultiSource",
-    "version": 5,
+    "version": 6,
     "apiVersion": 1,
-    "description": "Multi-source aggregator scraper with PornPics models, xmovix HD movies, Top 100, and multi-site seasons.",
+    "description": "Multi-source aggregator with PornPics trending models, IMDb-grade full movies, multi-part CD episodes, and direct 1080p MP4 downloads.",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,
     "language": "en",
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
-    "iconUrl": "https://xmovix.net/favicon.ico",
+    "iconUrl": "https://en.paradisehill.cc/img/favicon/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/MultiSource.cs3",
     "fileSize": ${if (multiSourceCs3.exists()) multiSourceCs3.length() else 102400}
   }
@@ -247,3 +247,4 @@ tasks.register("makePlugin") {
         println("✓ Successfully generated repo.json, plugins.json, PornTrex.cs3, and MultiSource.cs3 in ${distDir.absolutePath}")
     }
 }
+

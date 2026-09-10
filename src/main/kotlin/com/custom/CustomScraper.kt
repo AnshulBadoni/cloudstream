@@ -8,58 +8,64 @@ import org.jsoup.nodes.Element
 /**
  * MultiSource Scraper for CloudStream / Zangetsu
  *
- * Architecture & Features:
- * 1. Multi-Source Aggregated Home Page:
- *    - Row 1: "Trending" (xmovix.net, randomized across 1..315 pages on launch)
- *    - Row 2: "Models" (pornpics.de trending performer directory)
- *    - Row 3: "Parodies" (xmovix.net, randomized across 1..6 pages)
- *    - Row 4: "Full HD" (xmovix.net, randomized across 1..114 pages)
- *    - Row 5: "Top 100" (xmovix.net top-rated ranking list)
+ * Unified Multi-Source Aggregator:
+ * 1. Multi-Source Catalogs:
+ *    - Row 1: "Popular Movies" (ParadiseHill IMDb-grade popular full movies)
+ *    - Row 2: "Trending Models" (pornpics.de trending performer catalog)
+ *    - Row 3: "New Releases" (ParadiseHill new movie releases)
+ *    - Row 4: "Classics" (ParadiseHill classics)
+ *    - Row 5: "Feature Films" (ParadiseHill full-length films)
+ *    - Row 6: "Popular Studios" (ParadiseHill studio productions)
  *
  * 2. Model-First Search:
- *    - Prioritizes performer profile matches from PornPics and PornTrex at the top of results.
- *    - Followed by matching full-length movie titles from xmovix.net.
+ *    - Prioritizes performer profile matches from PornPics, ParadiseHill, and PornTrex at the top.
+ *    - Followed by full-length movie matches.
  *
  * 3. Multi-Site Performer "Seasons" View:
  *    - Opening a Model profile loads matching video catalogs as distinct seasons:
  *      * Season 1: PornTrex performer collection
- *      * Season 2: xmovix.net performer collection
+ *      * Season 2: ParadiseHill full-length movie appearances
  *
- * 4. Multi-Player Stream Extractor:
- *    - Inspects page scripts for all embedded video players (Player 1, Player 2, Player 3).
- *    - Unpacks packed JavaScript (p.a.c.k.e.r / VidHide / StreamHide CDN players).
- *    - Resolves 1080p master .m3u8 playlists and MP4 streams with full native download support.
+ * 4. Multi-Part Movie Support:
+ *    - Multi-CD releases (CD1..CD7) are cleanly split into selectable parts/episodes.
+ *    - Single-part movies load as standard full movies.
+ *
+ * 5. Direct 1080p MP4 Streaming & Fast Downloads:
+ *    - Direct high-speed .mp4 streams from v1.paradisehill.cc with HTTP Byte-Range support.
+ *    - Flawless CloudStream native playback and background downloading.
  */
 class CustomScraper : MainAPI() {
-    override var mainUrl = "https://xmovix.net"
+    override var mainUrl = "https://en.paradisehill.cc"
     override var name = "Multi-Source"
     override val hasMainPage = true
     override var lang = "en"
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries, TvType.NSFW)
 
-    // Base URLs for aggregated sub-sources
     val pornpicsUrl = "https://www.pornpics.de"
     val porntrexUrl = "https://www.porntrex.com"
 
-    // ==========================================
-    // 1. HOME PAGE CATALOG DEFINITION
-    // ==========================================
-    override val mainPage = mainPageOf(
-        "en/movies" to "Trending",
-        "pornpics_models" to "Models",
-        "en/movies/porno-parodies" to "Parodies",
-        "en/movies/hd-1080p" to "Full HD",
-        "en/top.html" to "Top 100"
+    private val defaultHeaders = mapOf(
+        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Cookie" to "is18=fb3a79a565a9b0610bba3a8f6cfcd32f32257acc782c0ed60c46314b771cb32ba%3A2%3A%7Bi%3A0%3Bs%3A4%3A%22is18%22%3Bi%3A1%3Bb%3A1%3B%7D",
+        "Referer" to "https://en.paradisehill.cc/"
     )
 
-    /**
-     * Handles home catalog row fetching with automatic page randomization
-     * on initial load (page <= 1) for fresh content every time the app opens.
-     */
+    // ==========================================
+    // 1. HOME PAGE CATALOG DEFINITIONS
+    // ==========================================
+    override val mainPage = mainPageOf(
+        "popular/?filter=all&sort=by_likes" to "Popular Movies",
+        "pornpics_models" to "Trending Models",
+        "all/?sort=created_at" to "New Releases",
+        "category/classics/?sort=created_at" to "Classics",
+        "category/feature-films/?sort=created_at" to "Feature Films",
+        "studios/?sort=by_likes" to "Popular Studios"
+    )
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items: List<SearchResponse> = when (request.data) {
-            // [Row 2] Models: Scraped from PornPics trending performers
+            // Row 2: Models scraped from PornPics trending performers
             "pornpics_models" -> {
                 val url = if (page <= 1) {
                     "$pornpicsUrl/pornstars/?gender=female&s=trending"
@@ -72,135 +78,105 @@ class CustomScraper : MainAPI() {
                 }
             }
 
-            // [Row 5] Top 100: Scraped from xmovix Top 100 trophy list
-            "en/top.html" -> {
-                val url = "$mainUrl/en/top.html"
-                val doc = app.get(url, headers = mapOf("referer" to "$mainUrl/")).document
-                doc.select(".top100-items li.top100-item, .top100-box li, li.top100-item").mapNotNull {
-                    parseXmovixTop100Item(it)
-                }
-            }
-
-            // [Rows 1, 3, 4] Trending (1..315), Parodies (1..6), Full HD (1..114) from xmovix
+            // ParadiseHill movie and studio catalogs
             else -> {
-                val path = request.data.trim('/')
-                val maxPages = when {
-                    path.contains("hd-1080p") -> 114
-                    path.contains("porno-parodies") -> 6
-                    else -> 315
-                }
-                // Pick a random page on first load so users get fresh content on every launch
-                val targetPage = if (page <= 1) (1..maxPages).random() else page
-                val url = if (targetPage <= 1) {
-                    "$mainUrl/$path/"
+                val url = if (page <= 1) {
+                    "$mainUrl/${request.data}"
                 } else {
-                    "$mainUrl/$path/page/$targetPage/"
+                    val sep = if (request.data.contains("?")) "&" else "?"
+                    "$mainUrl/${request.data}${sep}page=$page"
                 }
-                val doc = app.get(url, headers = mapOf("referer" to "$mainUrl/")).document
-                doc.select(".floats .short, .sect .short, div.short").mapNotNull {
-                    parseXmovixShortItem(it)
+                val doc = app.get(url, headers = defaultHeaders).document
+                doc.select(".all-block .item, .item, .all-films .item, div.item").mapNotNull {
+                    parseParadiseMovieCard(it)
                 }
             }
         }
 
-        val homePageList = HomePageList(request.name, items, isHorizontalImages = true)
-        return newHomePageResponse(homePageList, hasNext = items.isNotEmpty())
+        val hasNextPage = items.size >= 12
+        val homePageList = HomePageList(request.name, items.distinctBy { it.url }, isHorizontalImages = request.data == "pornpics_models")
+        return newHomePageResponse(homePageList, hasNextPage)
     }
 
     // ==========================================
-    // 2. SEARCH (MODELS FIRST -> VIDEOS)
+    // 2. MODEL-FIRST SEARCH
     // ==========================================
-    /**
-     * Executes parallel queries across model databases and video search endpoints.
-     * Matches are organized with performer profile cards at the top of the search results.
-     */
     override suspend fun search(query: String): List<SearchResponse> = coroutineScope {
-        val cleanQuery = query.trim()
-        val querySlug = cleanQuery.replace(" ", "-").lowercase()
-        val querySearch = cleanQuery.replace(" ", "+")
+        val cleanQuery = query.trim().replace(" ", "+")
+        val slugQuery = query.trim().lowercase().replace(" ", "-")
 
-        // 2a. Search Models in parallel (PornPics + PornTrex)
-        val modelSearchJob = async {
-            val results = mutableListOf<SearchResponse>()
-
-            // Direct model lookup on PornPics
+        // 1. Search performer models on PornPics
+        val pornpicsJob = async {
             runCatching {
-                val directUrl = "$pornpicsUrl/pornstars/$querySlug/"
-                val doc = app.get(directUrl, headers = mapOf("referer" to "$pornpicsUrl/")).document
-                val name = doc.selectFirst("h1.model-h1, h1")?.text()?.trim()
-                if (!name.isNullOrBlank()) {
-                    val poster = fixUrlNull(doc.selectFirst("meta[property='og:image']")?.attr("content"), pornpicsUrl)
-                    results.add(
-                        newTvSeriesSearchResponse(name, directUrl, TvType.TvSeries) {
-                            this.posterUrl = poster
-                            this.posterHeaders = mapOf("referer" to "$pornpicsUrl/")
-                        }
-                    )
+                val pUrl = "$pornpicsUrl/search/sr-models/?q=$cleanQuery"
+                val pDoc = app.get(pUrl, headers = mapOf("referer" to "$pornpicsUrl/")).document
+                pDoc.select("ul#tiles li.thumbwook, #tiles li, li.thumbwook").mapNotNull {
+                    parsePornpicsModel(it)
                 }
-            }
-
-            // Direct model lookup on PornTrex
-            runCatching {
-                val pDirectUrl = "$porntrexUrl/models/$querySlug/"
-                val pDoc = app.get(pDirectUrl, headers = mapOf("referer" to "$porntrexUrl/")).document
-                val pName = pDoc.selectFirst("h1")?.text()?.trim()
-                if (!pName.isNullOrBlank() && pName.contains(cleanQuery, ignoreCase = true)) {
-                    val pPoster = fixUrlNull(
-                        pDoc.selectFirst("meta[property='og:image'], .profile-model-info img")?.attr("content")
-                            ?: pDoc.selectFirst(".profile-model-info img")?.attr("src"),
-                        porntrexUrl
-                    )
-                    results.add(
-                        newTvSeriesSearchResponse(pName, pDirectUrl, TvType.TvSeries) {
-                            this.posterUrl = pPoster
-                            this.posterHeaders = mapOf("referer" to "$porntrexUrl/")
-                        }
-                    )
-                }
-            }
-
-            results.distinctBy { it.name.lowercase().trim() }
+            }.getOrDefault(emptyList())
         }
 
-        // 2b. Search full movies on xmovix
-        val videoSearchJob = async {
-            val results = mutableListOf<SearchResponse>()
+        // 2. Search actors on ParadiseHill
+        val paradiseActorsJob = async {
             runCatching {
-                val searchUrl = "$mainUrl/en/index.php?do=search&subaction=search&story=$querySearch"
-                val doc = app.get(searchUrl, headers = mapOf("referer" to "$mainUrl/")).document
-                val xmovixVideos = doc.select(".floats .short, .sect .short, div.short").mapNotNull {
-                    parseXmovixShortItem(it)
+                val aUrl = "$mainUrl/search/?pattern=$cleanQuery&what=2"
+                val aDoc = app.get(aUrl, headers = defaultHeaders).document
+                aDoc.select("a[href*='/actor/']").mapNotNull {
+                    parseParadiseActorCard(it)
                 }
-                results.addAll(xmovixVideos)
-            }
-            results
+            }.getOrDefault(emptyList())
         }
 
-        val models = modelSearchJob.await()
-        val videos = videoSearchJob.await()
+        // 3. Search movies on ParadiseHill
+        val paradiseMoviesJob = async {
+            runCatching {
+                val mUrl = "$mainUrl/search/?pattern=$cleanQuery&what=1"
+                val mDoc = app.get(mUrl, headers = defaultHeaders).document
+                mDoc.select(".all-block .item, .item, .all-films .item").mapNotNull {
+                    parseParadiseMovieCard(it)
+                }
+            }.getOrDefault(emptyList())
+        }
 
-        // Combine: Performer models first, followed by full movies
-        models + videos
+        // 4. Search videos on PornTrex
+        val porntrexJob = async {
+            runCatching {
+                val ptUrl = "$porntrexUrl/search/$slugQuery/"
+                val ptDoc = app.get(ptUrl, headers = mapOf("referer" to "$porntrexUrl/")).document
+                ptDoc.select("div.video-list div.video-item, .list-videos .item, .item").take(15).mapNotNull { el ->
+                    val link = el.selectFirst("a[href*='/video/'], a")?.attr("href") ?: return@mapNotNull null
+                    val title = el.selectFirst("strong.title, .title")?.text()?.trim() ?: return@mapNotNull null
+                    val poster = fixUrlNull(el.selectFirst("img")?.attr("data-src") ?: el.selectFirst("img")?.attr("src"), porntrexUrl)
+                    newMovieSearchResponse(title, fixUrl(link, porntrexUrl), TvType.Movie) {
+                        this.posterUrl = poster
+                        this.posterHeaders = mapOf("referer" to "$porntrexUrl/")
+                    }
+                }
+            }.getOrDefault(emptyList())
+        }
+
+        val models = (pornpicsJob.await() + paradiseActorsJob.await()).distinctBy { it.url }
+        val movies = (paradiseMoviesJob.await() + porntrexJob.await()).distinctBy { it.url }
+
+        // Models first, followed by movies
+        models + movies
     }
 
     // ==========================================
-    // 3. LOAD DETAILS (MODELS OR MOVIES)
+    // 3. LOAD (MODELS OR MOVIES)
     // ==========================================
-    /**
-     * Loads either:
-     * - A Model Profile: aggregated into seasons (Season 1 = PornTrex, Season 2 = xmovix).
-     * - A Movie: full movie details including metadata, cast, duration, plot, tags, and recommendations.
-     */
     override suspend fun load(url: String): LoadResponse = coroutineScope {
-        val isModelProfile = url.contains("/pornstars/") || url.contains("/models/") || url.contains("/model/")
+        val isModelProfile = url.contains("/pornstars/") || url.contains("/models/") || url.contains("/model/") || url.contains("/actor/")
 
         if (isModelProfile) {
             // === MODEL PROFILE BRANCH (MULTI-SITE SEASONS) ===
             val slug = url.trimEnd('/').substringAfterLast('/').lowercase().trim()
             val rawName = slug.replace("-", " ").split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
-            val doc = runCatching { app.get(url).document }.getOrNull()
-            val name = doc?.selectFirst("h1.model-h1, .profile-model-info h1, h1")?.text()?.trim() ?: rawName
+            val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+            val name = doc?.selectFirst("h1.model-h1, .profile-model-info h1, title")?.text()
+                ?.replace(Regex("(?i)Porn Actor\\s*"), "")?.trim() ?: rawName
+
             val poster = fixUrlNull(
                 doc?.selectFirst("meta[property='og:image']")?.attr("content")
                     ?: doc?.selectFirst(".profile-model-info img, img")?.attr("src"),
@@ -209,7 +185,7 @@ class CustomScraper : MainAPI() {
 
             val episodes = mutableListOf<Episode>()
 
-            // --- Season 1: PornTrex Videos ---
+            // Season 1: PornTrex Videos
             val porntrexJob = async {
                 runCatching {
                     val pUrl = "$porntrexUrl/models/$slug/"
@@ -233,135 +209,153 @@ class CustomScraper : MainAPI() {
                 }.getOrDefault(emptyList())
             }
 
-            // --- Season 2: xmovix.net Videos ---
-            val xmovixJob = async {
+            // Season 2: ParadiseHill Movies
+            val paradiseJob = async {
                 runCatching {
-                    val xSearchUrl = "$mainUrl/index.php?do=search&subaction=search&story=${slug.replace("-", "+")}"
-                    val xDoc = app.get(xSearchUrl, headers = mapOf("referer" to "$mainUrl/")).document
-                    val xElements = xDoc.select(".floats .short, .sect .short, div.short")
-                    xElements.mapIndexedNotNull { index, el ->
-                        val link = el.selectFirst("a.th-title, a.short-poster, a[href]")?.attr("href") ?: return@mapIndexedNotNull null
-                        val title = el.selectFirst("a.th-title, .title-box a")?.text()?.trim() ?: "xmovix Video ${index + 1}"
+                    val aDoc = if (url.contains("paradisehill.cc/actor/")) doc else {
+                        val sUrl = "$mainUrl/search/?pattern=${slug.replace("-", "+")}&what=2"
+                        val sDoc = app.get(sUrl, headers = defaultHeaders).document
+                        val actorHref = sDoc.selectFirst("a[href*='/actor/']")?.attr("href")
+                        if (!actorHref.isNullOrBlank()) app.get(fixUrl(actorHref, mainUrl), headers = defaultHeaders).document else null
+                    }
+
+                    aDoc?.select(".all-block .item, .item, .all-films .item")?.mapIndexedNotNull { index, el ->
+                        val linkEl = el.selectFirst("a[href]") ?: return@mapIndexedNotNull null
+                        val href = linkEl.attr("href")
+                        if (href.isBlank() || href.contains("/actor/")) return@mapIndexedNotNull null
+
+                        val title = el.selectFirst(".name a, .name, a.title")?.text()?.trim()
+                            ?: el.selectFirst("img")?.attr("alt")?.ifBlank { null }
+                            ?: "ParadiseHill Movie ${index + 1}"
+
                         val xPoster = fixUrlNull(el.selectFirst("img")?.attr("data-src") ?: el.selectFirst("img")?.attr("src"), mainUrl)
 
                         Episode(
-                            data = fixUrl(link, mainUrl),
+                            data = fixUrl(href, mainUrl),
                             name = title,
-                            season = 2, // Season 2 = xmovix
+                            season = 2, // Season 2 = ParadiseHill Movies
                             episode = index + 1,
                             posterUrl = xPoster
                         )
-                    }
+                    }.orEmpty()
                 }.getOrDefault(emptyList())
             }
 
             episodes.addAll(porntrexJob.await())
-            episodes.addAll(xmovixJob.await())
+            episodes.addAll(paradiseJob.await())
 
             newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
-                this.posterHeaders = mapOf("referer" to "$mainUrl/")
-                this.plot = "Multi-Source Collection for $name: Season 1 = PornTrex, Season 2 = xmovix"
+                this.posterHeaders = defaultHeaders
+                this.plot = "Multi-Source Collection for $name: Season 1 = PornTrex, Season 2 = ParadiseHill Feature Films"
                 this.showStatus = ShowStatus.Completed
             }
         } else {
-            // === XMOVIX MOVIE DETAILS BRANCH ===
-            val doc = app.get(url, headers = mapOf("referer" to "$mainUrl/")).document
+            // === PARADISEHILL FULL MOVIE DETAILS BRANCH ===
+            val doc = app.get(url, headers = defaultHeaders).document
 
-            // 1. Movie Title
-            val title = doc.selectFirst("meta[itemprop='name']")?.attr("content")
-                ?: doc.selectFirst("#s-title span, h1.title, .entry-title, h1")?.text()?.trim()
+            val title = doc.selectFirst("meta[property='og:title']")?.attr("content")
+                ?: doc.selectFirst("h1, .title h1")?.text()?.trim()
                 ?: "Movie"
 
-            // 2. Poster Image
             val poster = fixUrlNull(
-                doc.selectFirst("link[itemprop='thumbnailUrl']")?.attr("href")
-                    ?: doc.selectFirst("meta[itemprop='image']")?.attr("content")
-                    ?: doc.selectFirst(".fposter img, .full-poster img, .poster img")?.attr("src")
-                    ?: doc.selectFirst(".fposter img, .full-poster img")?.attr("data-src"),
+                doc.selectFirst("meta[property='og:image']")?.attr("content")
+                    ?: doc.selectFirst(".poster img, img.poster")?.attr("src"),
                 mainUrl
             )
 
-            // 3. Synopsis / Plot
-            val description = doc.selectFirst("#s-desc, .fdesc")?.text()
-                ?.replace(Regex("(?i)Watch porn movie.*"), "")?.trim()
-                ?: doc.selectFirst("meta[itemprop='description']")?.attr("content")?.trim()
+            val description = doc.selectFirst("meta[property='og:description']")?.attr("content")
+                ?: doc.selectFirst(".story, div[itemprop='description'], .description")?.text()?.trim()
 
-            // 4. Release Year
-            val year = doc.selectFirst("span[itemprop='dateCreated'] a, .parameters-info .str675 a")?.text()?.filter { it.isDigit() }?.toIntOrNull()
+            val releaseYear = doc.selectFirst("span[itemprop='releasedEvent']")?.text()
+                ?.let { Regex("""\b(19\d\d|20\d\d)\b""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
 
-            // 5. Duration (Parsed from schema PT8375S or text 02:19:35)
-            val durationMeta = doc.selectFirst("meta[itemprop='duration']")?.attr("content")
-            val durationSecs = Regex("""PT(\d+)S""").find(durationMeta.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
-            val durationMinutes = if (durationSecs != null) {
-                durationSecs / 60
-            } else {
-                val durText = doc.selectFirst(".flist-col li:contains(Duration), .duration")?.text()
-                durText?.filter { it.isDigit() || it == ':' }?.split(':')?.let { parts ->
-                    if (parts.size == 3) parts[0].toIntOrNull()?.times(60)?.plus(parts[1].toIntOrNull() ?: 0)
-                    else if (parts.size == 2) parts[0].toIntOrNull()
-                    else null
-                }
-            }
-
-            // 6. User Rating Percentage
-            val ratingText = doc.selectFirst(".short-rate-perc, .flikes, .rate-data")?.text()
-            val rating = Regex("""(\d{1,3})%""").find(ratingText.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
-
-            // 7. Cast Members (Performers)
-            val actors = doc.select("span[itemprop='actors'] a, .flist-col3 a[href*='/watch/name/']")
+            val categories = doc.select("span[itemprop='genre'] a, a[href*='/category/']")
                 .mapNotNull { it.text().trim().ifBlank { null } }
                 .distinct()
-                .map {
-                    ActorData(
-                        actor = Actor(it, null),
-                        role = null,
-                        roleString = "Performer",
-                        voiceActor = null
+
+            val actors = doc.select("a[href*='/actor/']")
+                .mapNotNull { el ->
+                    val name = el.text().trim()
+                    if (name.isNotBlank() && !name.contains("Actors", ignoreCase = true)) {
+                        ActorData(
+                            actor = Actor(name, null),
+                            role = null,
+                            roleString = "Performer",
+                            voiceActor = null
+                        )
+                    } else null
+                }.distinctBy { it.actor.name.lowercase() }
+
+            // Extract direct multi-part MP4 video sources
+            val rawHtml = doc.html()
+            val videoListMatch = Regex("""var\s+videoList\s*=\s*(\[[^;]+\]);""").find(rawHtml)
+            val videoListJson = videoListMatch?.groupValues?.get(1)?.replace("\\/", "/") ?: rawHtml
+
+            val srcRegex = Regex("""["']src["']\s*:\s*["']([^"']+\.mp4[^"']*)["']""")
+            val mp4Sources = srcRegex.findAll(videoListJson).map { it.groupValues[1] }.distinct().toList()
+
+            // If movie is split into multi-CD parts (e.g. CD1, CD2 ... CD7)
+            if (mp4Sources.size > 1) {
+                val episodes = mp4Sources.mapIndexed { index, streamUrl ->
+                    val partNum = index + 1
+                    Episode(
+                        data = streamUrl,
+                        name = "Part $partNum (CD $partNum)",
+                        episode = partNum,
+                        posterUrl = poster
                     )
                 }
 
-            // 8. Categories / Genres / Tags
-            val tags = doc.select("ul.flist-col3 a[href*='/tags/'], .flist-col3 a[href*='/tags/'], a[href*='/tags/']")
-                .mapNotNull { it.text().trim().ifBlank { null } }
-                .distinct()
-
-            // 9. Related Recommendations
-            val recommendations = doc.select("div.block___bttm .short, .sect-c .short, div.short")
-                .mapNotNull { parseXmovixShortItem(it) }
-                .distinctBy { it.url }
-
-            newMovieLoadResponse(title, url, TvType.Movie, url) {
-                this.posterUrl = poster
-                this.posterHeaders = mapOf("referer" to "$mainUrl/")
-                this.plot = description
-                this.year = year
-                this.duration = durationMinutes
-                this.rating = rating
-                this.actors = actors
-                this.tags = tags
-                this.recommendations = recommendations
+                newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+                    this.posterUrl = poster
+                    this.posterHeaders = defaultHeaders
+                    this.plot = description
+                    this.year = releaseYear
+                    this.tags = categories
+                    this.actors = actors
+                    this.showStatus = ShowStatus.Completed
+                }
+            } else {
+                val directStream = mp4Sources.firstOrNull() ?: url
+                newMovieLoadResponse(title, url, TvType.Movie, directStream) {
+                    this.posterUrl = poster
+                    this.posterHeaders = defaultHeaders
+                    this.plot = description
+                    this.year = releaseYear
+                    this.tags = categories
+                    this.actors = actors
+                }
             }
         }
     }
 
     // ==========================================
-    // 4. MULTI-PLAYER STREAM EXTRACTION
+    // 4. DIRECT 1080P MP4 STREAM EXTRACTION
     // ==========================================
-    /**
-     * Extracts direct playable streams and HLS master .m3u8 playlists:
-     * - Handles PornTrex direct mp4 video links.
-     * - Extracts all xmovix player embed URLs from script click handlers and iframes.
-     * - Evaluates packed JavaScript (VidHide / StreamHide CDN players) in parallel.
-     * - Emits master .m3u8 streams with correct Referer headers for streaming & downloads.
-     */
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
-    ): Boolean = coroutineScope {
-        // A. PornTrex Stream Links Branch
+    ): Boolean {
+        // A. Direct MP4 Stream Link (from ParadiseHill CD parts or PornTrex)
+        if (data.startsWith("http") && data.contains(".mp4")) {
+            callback(
+                ExtractorLink(
+                    source = name,
+                    name = "$name Direct MP4 (1080p)",
+                    url = data,
+                    referer = "$mainUrl/",
+                    quality = Qualities.P1080.value,
+                    isM3u8 = false,
+                    headers = defaultHeaders
+                )
+            )
+            return true
+        }
+
+        // B. PornTrex Video URL Branch
         if (data.contains("porntrex.com")) {
             val response = app.get(data, headers = mapOf("referer" to "$porntrexUrl/")).text
             val urlRegex = Regex("""(video_url|video_alt_url\d*)\s*:\s*['"]([^'"]+)['"]""")
@@ -372,7 +366,7 @@ class CustomScraper : MainAPI() {
                     callback(
                         ExtractorLink(
                             source = name,
-                            name = "$name PornTrex",
+                            name = "$name PornTrex (720p)",
                             url = streamUrl,
                             referer = "$porntrexUrl/",
                             quality = Qualities.P720.value,
@@ -382,233 +376,81 @@ class CustomScraper : MainAPI() {
                     found = true
                 }
             }
-            return@coroutineScope found
+            return found
         }
 
-        // B. Xmovix Multi-Player Embeds Branch
-        val doc = app.get(data, headers = mapOf("referer" to "$mainUrl/")).document
+        // C. ParadiseHill Movie Page URL Branch
+        val doc = app.get(data, headers = defaultHeaders).document
         val rawHtml = doc.html()
+        val videoListMatch = Regex("""var\s+videoList\s*=\s*(\[[^;]+\]);""").find(rawHtml)
+        val videoListJson = videoListMatch?.groupValues?.get(1)?.replace("\\/", "/") ?: rawHtml
 
-        // Extract all player embed URLs from script click handlers and iframes
-        val scriptEmbeds = Regex("""s2\.src\s*=\s*['"]([^'"]+)['"]""").findAll(rawHtml).map { it.groupValues[1] }.toList()
-        val iframeEmbeds = doc.select("iframe[src]").map { it.attr("src") }
-        val allEmbeds = (scriptEmbeds + iframeEmbeds).distinct().reversed() // Prioritize Player 3 & 2 first
+        val srcRegex = Regex("""["']src["']\s*:\s*["']([^"']+\.mp4[^"']*)["']""")
+        val mp4Sources = srcRegex.findAll(videoListJson).map { it.groupValues[1] }.distinct().toList()
 
         var count = 0
+        mp4Sources.forEachIndexed { index, mp4Url ->
+            val label = if (mp4Sources.size > 1) "Part ${index + 1} (1080p)" else "Full Movie (1080p)"
+            callback(
+                ExtractorLink(
+                    source = name,
+                    name = "$name $label",
+                    url = mp4Url,
+                    referer = "$mainUrl/",
+                    quality = Qualities.P1080.value,
+                    isM3u8 = false,
+                    headers = defaultHeaders
+                )
+            )
+            count++
+        }
 
-        allEmbeds.mapIndexed { index, embedUrl ->
-            async {
-                val fixedEmbed = fixUrl(embedUrl)
-                runCatching {
-                    val embedHost = getBaseUrl(fixedEmbed)
-                    val embedDoc = app.get(fixedEmbed, headers = mapOf(
-                        "referer" to "$mainUrl/",
-                        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    )).text
-
-                    // Unpack VidHide / StreamHide JavaScript if packed via p.a.c.k.e.r
-                    val unpacked = if (embedDoc.contains("eval(function(p,a,c,k,e,")) {
-                        unpackJs(embedDoc).replace("\\/", "/")
-                    } else {
-                        embedDoc.replace("\\/", "/")
-                    }
-
-                    // Extract master m3u8 playlist URLs from unpacked JavaScript
-                    val m3u8Regex = Regex("""https?://[^\s"'\\<>]+\.m3u8[^\s"'\\<>]*""")
-                    val m3u8Matches = m3u8Regex.findAll(unpacked).map { it.value }.distinct().toList()
-
-                    for (streamUrl in m3u8Matches) {
-                        val playerLabel = "Player ${allEmbeds.size - index}"
-                        val headersMap = mapOf(
-                            "referer" to "$embedHost/",
-                            "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                        )
-
-                        // 1. Fetch and parse master M3U8 playlist to extract direct sub-streams (1080p, 720p, 480p)
-                        val m3u8Text = runCatching {
-                            app.get(streamUrl, headers = headersMap).text
-                        }.getOrNull()
-
-                        val baseM3u8Url = streamUrl.substringBeforeLast("/")
-                        var parsedSubStreams = 0
-
-                        if (!m3u8Text.isNullOrBlank() && m3u8Text.contains("#EXT-X-STREAM-INF")) {
-                            val lines = m3u8Text.lines()
-                            for (i in lines.indices) {
-                                val line = lines[i].trim()
-                                if (line.startsWith("#EXT-X-STREAM-INF")) {
-                                    val resMatch = Regex("""RESOLUTION=(\d+x\d+)""").find(line)?.groupValues?.get(1)
-                                    val height = resMatch?.substringAfter("x")?.toIntOrNull() ?: 720
-                                    val qualityValue = when {
-                                        height >= 1080 -> Qualities.P1080.value
-                                        height >= 720 -> Qualities.P720.value
-                                        height >= 480 -> Qualities.P480.value
-                                        else -> Qualities.P360.value
-                                    }
-                                    val qualityLabel = "${height}p"
-
-                                    // Next line contains the relative index.m3u8 URI
-                                    val subPath = lines.getOrNull(i + 1)?.trim()
-                                    if (!subPath.isNullOrBlank() && !subPath.startsWith("#")) {
-                                        val subStreamUrl = if (subPath.startsWith("http")) subPath else "$baseM3u8Url/$subPath"
-                                        callback(
-                                            ExtractorLink(
-                                                source = name,
-                                                name = "$name $playerLabel $qualityLabel",
-                                                url = subStreamUrl,
-                                                referer = "$embedHost/",
-                                                quality = qualityValue,
-                                                isM3u8 = true,
-                                                headers = headersMap
-                                            )
-                                        )
-                                        count++
-                                        parsedSubStreams++
-                                    }
-                                }
-                            }
-                        }
-
-                        // 2. Also emit Master Playlist (for adaptive auto bitrate streaming)
-                        callback(
-                            ExtractorLink(
-                                source = name,
-                                name = "$name $playerLabel Master (Auto)",
-                                url = streamUrl,
-                                referer = "$embedHost/",
-                                quality = Qualities.P1080.value,
-                                isM3u8 = true,
-                                headers = headersMap
-                            )
-                        )
-                        count++
-                    }
-
-                    // Fallback to direct MP4 streams if no m3u8 was found
-                    if (m3u8Matches.isEmpty()) {
-                        val mp4Regex = Regex("""https?://[^\s"'\\<>]+\.mp4[^\s"'\\<>]*""")
-                        mp4Regex.findAll(unpacked).map { it.value }.distinct().forEach { matchUrl ->
-                            callback(
-                                ExtractorLink(
-                                    source = name,
-                                    name = "$name MP4",
-                                    url = matchUrl,
-                                    referer = "$embedHost/",
-                                    quality = Qualities.P1080.value,
-                                    isM3u8 = false,
-                                    headers = mapOf(
-                                        "referer" to "$embedHost/",
-                                        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                                    )
-                                )
-                            )
-                            count++
-                        }
-                    }
-                }
-            }
-        }.awaitAll()
-
-        count > 0
+        return count > 0
     }
 
     // ==========================================
-    // 5. JAVASCRIPT P.A.C.K.E.R UNPACKER
+    // 5. HELPER PARSERS
     // ==========================================
-    /**
-     * Pure Kotlin implementation of Dean Edwards' p.a.c.k.e.r unpacker.
-     * Evaluates obfuscated player scripts and extracts hidden stream sources.
-     */
-    private fun unpackJs(packedText: String): String {
-        val regex = Regex("""eval\(function\(p,a,c,k,e,[rd]\)\s*\{.*?return p\}\s*\('(.*?)',(\d+),(\d+),'([^']*)'\.split\('\|'\)""", RegexOption.DOT_MATCHES_ALL)
-        val match = regex.find(packedText) ?: return packedText
-        val (payload, radixStr, _, symtabStr) = match.destructured
-        val radix = radixStr.toIntOrNull() ?: 36
-        val symtab = symtabStr.split('|')
-
-        val digits = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        fun unbasen(s: String, b: Int): Int {
-            var res = 0
-            for (ch in s) {
-                val idx = digits.indexOf(ch)
-                if (idx == -1 || idx >= b) return -1
-                res = res * b + idx
-            }
-            return res
-        }
-
-        val wordRegex = Regex("""\b[0-9a-zA-Z]+\b""")
-        return wordRegex.replace(payload) { m ->
-            val word = m.value
-            val idx = unbasen(word, radix)
-            if (idx in 0 until symtab.size && symtab[idx].isNotBlank()) {
-                symtab[idx]
-            } else {
-                word
-            }
-        }
-    }
-
-    // ==========================================
-    // 6. HELPER PARSERS
-    // ==========================================
-    /**
-     * Parses standard xmovix movie cards (e.g. from Trending, Parodies, Full HD, and Search).
-     */
-    private fun parseXmovixShortItem(element: Element): SearchResponse? {
-        val linkEl = element.selectFirst("a.th-title, a.short-poster, a[href]") ?: return null
-        val href = linkEl.attr("href")
-        if (href.isBlank()) return null
-
-        val title = element.selectFirst("a.th-title, .title-box a")?.text()?.trim()
-            ?: element.selectFirst("img")?.attr("alt")?.ifBlank { null }
-            ?: return null
-
-        val posterEl = element.selectFirst("img")
-        val rawPoster = posterEl?.attr("data-src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
-            ?: posterEl?.attr("src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
-        val poster = fixUrlNull(rawPoster, mainUrl)
-
-        val qualityTag = element.selectFirst(".short-meta, .short-label")?.text()?.trim()
-        val quality = if (qualityTag?.contains("Full HD", ignoreCase = true) == true || qualityTag?.contains("1080", ignoreCase = true) == true) {
-            SearchQuality.FourK
-        } else {
-            SearchQuality.WebRip
-        }
-
-        return newMovieSearchResponse(title, fixUrl(href, mainUrl), TvType.Movie) {
-            this.posterUrl = poster
-            this.quality = quality
-            this.posterHeaders = mapOf("referer" to "$mainUrl/")
-        }
-    }
-
-    /**
-     * Parses Top 100 trophy list items from xmovix.net/en/top.html.
-     */
-    private fun parseXmovixTop100Item(element: Element): SearchResponse? {
+    private fun parseParadiseMovieCard(element: Element): SearchResponse? {
         val linkEl = element.selectFirst("a[href]") ?: return null
         val href = linkEl.attr("href")
-        if (href.isBlank()) return null
+        if (href.isBlank() || href == "#" || href.contains("/actor/") || href.contains("/category/")) return null
 
-        val title = element.selectFirst(".top100-name")?.text()?.trim()
+        val title = element.selectFirst(".name a, .name, a.title")?.text()?.trim()
+            ?: linkEl.attr("title").ifBlank { null }
             ?: element.selectFirst("img")?.attr("alt")?.ifBlank { null }
             ?: return null
 
         val posterEl = element.selectFirst("img")
-        val rawPoster = posterEl?.attr("data-src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
-            ?: posterEl?.attr("src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
-        val poster = fixUrlNull(rawPoster, mainUrl)
+        val rawPoster = posterEl?.attr("data-src")?.ifBlank { null }
+            ?: posterEl?.attr("src")?.ifBlank { null }
 
         return newMovieSearchResponse(title, fixUrl(href, mainUrl), TvType.Movie) {
-            this.posterUrl = poster
-            this.posterHeaders = mapOf("referer" to "$mainUrl/")
+            this.posterUrl = fixUrlNull(rawPoster, mainUrl)
+            this.posterHeaders = defaultHeaders
         }
     }
 
-    /**
-     * Parses performer model cards from PornPics (pornpics.de).
-     */
+    private fun parseParadiseActorCard(element: Element): SearchResponse? {
+        val href = element.attr("href").ifBlank { element.selectFirst("a[href]")?.attr("href") } ?: return null
+        if (!href.contains("/actor/")) return null
+
+        val name = element.selectFirst(".name")?.text()?.trim()
+            ?: element.attr("title").ifBlank { null }
+            ?: element.selectFirst("img")?.attr("alt")?.ifBlank { null }
+            ?: element.text().trim()
+        if (name.isBlank()) return null
+
+        val posterEl = element.selectFirst("img")
+        val rawPoster = posterEl?.attr("data-src")?.ifBlank { null }
+            ?: posterEl?.attr("src")?.ifBlank { null }
+
+        return newTvSeriesSearchResponse(name, fixUrl(href, mainUrl), TvType.TvSeries) {
+            this.posterUrl = fixUrlNull(rawPoster, mainUrl)
+            this.posterHeaders = defaultHeaders
+        }
+    }
+
     private fun parsePornpicsModel(element: Element): SearchResponse? {
         val linkEl = element.selectFirst("a.rel-link, a[href*='/pornstars/'], a") ?: return null
         val href = linkEl.attr("href")
@@ -633,19 +475,6 @@ class CustomScraper : MainAPI() {
         }
     }
 
-    /**
-     * Extracts the base scheme + host URL (e.g. "https://morencius.com") for referer headers.
-     */
-    private fun getBaseUrl(url: String): String {
-        val clean = url.substringAfter("://")
-        val host = clean.substringBefore("/")
-        val scheme = if (url.startsWith("http://")) "http" else "https"
-        return "$scheme://$host"
-    }
-
-    /**
-     * Resolves relative paths, protocol-relative URLs, and absolute URLs.
-     */
     private fun fixUrl(url: String, base: String = mainUrl): String {
         return when {
             url.startsWith("http://") || url.startsWith("https://") -> url
@@ -655,9 +484,6 @@ class CustomScraper : MainAPI() {
         }
     }
 
-    /**
-     * Null-safe URL resolver.
-     */
     private fun fixUrlNull(url: String?, base: String = mainUrl): String? {
         if (url.isNullOrBlank()) return null
         return fixUrl(url, base)
