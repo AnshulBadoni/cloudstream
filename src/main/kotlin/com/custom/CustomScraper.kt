@@ -488,7 +488,6 @@ class CustomScraper : MainAPI() {
     private fun toHighResParadisePoster(url: String?): String? {
         if (url.isNullOrBlank()) return null
         return url.replace("preview-", "")
-            .replace(Regex("""\.webp$""", RegexOption.IGNORE_CASE), ".jpg")
     }
 
     /**
