@@ -161,7 +161,7 @@ tasks.register("makePlugin") {
   "name": "PornTrex",
   "pluginClassName": "com.megix.PorntrexProvider",
   "requiresResources": false,
-  "version": 83
+  "version": 84
 }
         """.trimIndent()
         val cs3File = File(distDir, "PornTrex.cs3")
@@ -185,7 +185,7 @@ tasks.register("makePlugin") {
   "name": "MultiSource",
   "pluginClassName": "com.custom.CustomProvider",
   "requiresResources": false,
-  "version": 83
+  "version": 84
 }
         """.trimIndent()
         val multiSourceCs3 = File(distDir, "MultiSource.cs3")
@@ -206,7 +206,7 @@ tasks.register("makePlugin") {
   {
     "name": "PornTrex",
     "internalName": "PornTrex",
-    "version": 83,
+    "version": 84,
     "apiVersion": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],
@@ -221,9 +221,9 @@ tasks.register("makePlugin") {
   {
     "name": "MultiSource",
     "internalName": "MultiSource",
-    "version": 83,
+    "version": 84,
     "apiVersion": 1,
-    "description": "Multi-source aggregator with high-res cover art, ParadiseHill movies & actor catalogs (no PornPics dependency), PornTrex multi-resolution streams, multi-part CD episodes, and direct downloadable 1080p MP4 links.",
+    "description": "Multi-source aggregator with SpeedPorn, ParadiseHill, and PornTrex: multi-page deep search, VOE/Dood/MixDrop/MP4 stream resolvers, uncompressed 300x430 covers, multi-part CD episodes, and actor catalog seasons.",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,

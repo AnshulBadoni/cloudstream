@@ -52,25 +52,29 @@ class CustomScraper : MainAPI() {
     override val supportedTypes = setOf(TvType.NSFW, TvType.TvSeries, TvType.Movie)
 
     val porntrexUrl = "https://www.porntrex.com"
+    val speedpornUrl = "https://speedporn.net"
 
     private val defaultHeaders = mapOf("referer" to "$mainUrl/")
     private val porntrexHeaders = mapOf("referer" to "$porntrexUrl/")
+    private val speedpornHeaders = mapOf(
+        "referer" to "$speedpornUrl/",
+        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
 
     // 1. HOME PAGE CATALOG DEFINITIONS
     override val mainPage = mainPageOf(
-        "popular/?filter=all&sort=by_likes" to "Popular Movies",
+        "popular/?filter=all&sort=by_likes" to "Popular Movies (ParadiseHill)",
         "ph_actors" to "Popular Actors",
-        "all/?sort=created_at" to "New Releases",
-        "category/classics/?sort=created_at" to "Classics",
+        "sp_latest" to "SpeedPorn: Recently Added",
+        "sp_movies" to "SpeedPorn: Full Movies",
+        "all/?sort=created_at" to "New Releases (ParadiseHill)",
         "category/feature-films/?sort=created_at" to "Feature Films",
         "studios/?sort=by_likes" to "Popular Studios"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items: List<SearchResponse> = when (request.data) {
-            // Row 2: Performers scraped from the ParadiseHill actor catalog
-            // (replaces the old PornPics trending models row — the video sites
-            // provide actor photos themselves)
+            // Performers scraped from the ParadiseHill actor catalog
             "ph_actors" -> {
                 val url = if (page <= 1) {
                     "$mainUrl/actors/?sort=by_likes"
@@ -80,6 +84,24 @@ class CustomScraper : MainAPI() {
                 val doc = app.get(url, headers = defaultHeaders).document
                 doc.select("a[href*='/actor/']").mapNotNull {
                     parseParadiseActorCard(it)
+                }
+            }
+
+            // SpeedPorn: Recently Added Videos
+            "sp_latest" -> {
+                val url = if (page <= 1) "$speedpornUrl/?filter=latest" else "$speedpornUrl/page/$page/?filter=latest"
+                val doc = app.get(url, headers = speedpornHeaders).document
+                doc.select(".video-block, a.thumb").mapNotNull {
+                    parseSpeedPornCard(it)
+                }
+            }
+
+            // SpeedPorn: Full Movies
+            "sp_movies" -> {
+                val url = if (page <= 1) "$speedpornUrl/category/1-porn-movies/" else "$speedpornUrl/category/1-porn-movies/page/$page/"
+                val doc = app.get(url, headers = speedpornHeaders).document
+                doc.select(".video-block, a.thumb").mapNotNull {
+                    parseSpeedPornCard(it)
                 }
             }
 
@@ -103,7 +125,12 @@ class CustomScraper : MainAPI() {
         return newHomePageResponse(homePageList, hasNextPage)
     }
 
-    // 2. ACTOR-FIRST SEARCH
+    companion object {
+        var searchPages: Int = 2
+        var actorPages: Int = 2
+    }
+
+    // 2. UNIFIED MULTI-SOURCE SEARCH
     override suspend fun search(query: String): List<SearchResponse> = coroutineScope {
         val cleanQuery = query.trim().replace(" ", "+")
         val slugQuery = query.trim().lowercase().replace(" ", "-")
@@ -111,44 +138,79 @@ class CustomScraper : MainAPI() {
         // 1. Search performers on ParadiseHill (their own actor index)
         val paradiseActorsJob = async {
             runCatching {
-                val aUrl = "$mainUrl/search/?pattern=$cleanQuery&what=2"
-                val aDoc = app.get(aUrl, headers = defaultHeaders).document
-                aDoc.select("a[href*='/actor/']").mapNotNull {
-                    parseParadiseActorCard(it)
+                val actorsList = mutableListOf<SearchResponse>()
+                for (p in 1..actorPages.coerceIn(1, 4)) {
+                    val aUrl = if (p <= 1) "$mainUrl/search/?pattern=$cleanQuery&what=2" else "$mainUrl/search/?pattern=$cleanQuery&what=2&page=$p"
+                    val aDoc = app.get(aUrl, headers = defaultHeaders).document
+                    val pageItems = aDoc.select("a[href*='/actor/']").mapNotNull {
+                        parseParadiseActorCard(it)
+                    }
+                    if (pageItems.isEmpty()) break
+                    actorsList.addAll(pageItems)
                 }
+                actorsList.distinctBy { it.url }
             }.getOrDefault(emptyList())
         }
 
-        // 2. Search movies on ParadiseHill
+        // 2. Search movies on ParadiseHill (across configured searchPages)
         val paradiseMoviesJob = async {
             runCatching {
-                val mUrl = "$mainUrl/search/?pattern=$cleanQuery&what=1"
-                val mDoc = app.get(mUrl, headers = defaultHeaders).document
-                mDoc.select(".all-block .item, .item, .all-films .item").mapNotNull {
-                    parseParadiseMovieCard(it)
+                val moviesList = mutableListOf<SearchResponse>()
+                for (p in 1..searchPages.coerceIn(1, 5)) {
+                    val mUrl = if (p <= 1) "$mainUrl/search/?pattern=$cleanQuery&what=1" else "$mainUrl/search/?pattern=$cleanQuery&what=1&page=$p"
+                    val mDoc = app.get(mUrl, headers = defaultHeaders).document
+                    val pageItems = mDoc.select(".all-block .item, .item, .all-films .item").mapNotNull {
+                        parseParadiseMovieCard(it)
+                    }
+                    if (pageItems.isEmpty()) break
+                    moviesList.addAll(pageItems)
                 }
+                moviesList.distinctBy { it.url }
             }.getOrDefault(emptyList())
         }
 
-        // 3. Search videos on PornTrex
+        // 3. Search videos & movies on SpeedPorn (across configured searchPages)
+        val speedpornJob = async {
+            runCatching {
+                val spList = mutableListOf<SearchResponse>()
+                for (p in 1..searchPages.coerceIn(1, 5)) {
+                    val spUrl = if (p <= 1) "$speedpornUrl/?s=$cleanQuery" else "$speedpornUrl/page/$p/?s=$cleanQuery"
+                    val spDoc = runCatching { app.get(spUrl, headers = speedpornHeaders).document }.getOrNull() ?: break
+                    val pageItems = spDoc.select(".video-block, a.thumb").mapNotNull {
+                        parseSpeedPornCard(it)
+                    }
+                    if (pageItems.isEmpty()) break
+                    spList.addAll(pageItems)
+                }
+                spList.distinctBy { it.url }
+            }.getOrDefault(emptyList())
+        }
+
+        // 4. Search videos on PornTrex (across configured searchPages)
         val porntrexJob = async {
             runCatching {
-                val ptUrl = "$porntrexUrl/search/$slugQuery/"
-                val ptDoc = app.get(ptUrl, headers = porntrexHeaders).document
-                ptDoc.select("div.video-list div.video-item, .list-videos .item, .item").take(15).mapNotNull { el ->
-                    val link = el.selectFirst("a[href*='/video/'], a")?.attr("href") ?: return@mapNotNull null
-                    val title = el.selectFirst("strong.title, .title")?.text()?.trim() ?: return@mapNotNull null
-                    val poster = fixUrlNull(el.selectFirst("img")?.attr("data-src") ?: el.selectFirst("img")?.attr("src"), porntrexUrl)
-                    newMovieSearchResponse(title, fixUrl(link, porntrexUrl), TvType.Movie) {
-                        this.posterUrl = poster
-                        this.posterHeaders = porntrexHeaders
+                val ptList = mutableListOf<SearchResponse>()
+                for (p in 1..searchPages.coerceIn(1, 4)) {
+                    val ptUrl = if (p <= 1) "$porntrexUrl/search/$slugQuery/" else "$porntrexUrl/search/$slugQuery/$p/"
+                    val ptDoc = runCatching { app.get(ptUrl, headers = porntrexHeaders).document }.getOrNull() ?: break
+                    val pageItems = ptDoc.select("div.video-list div.video-item, .list-videos .item, .item").take(15).mapNotNull { el ->
+                        val link = el.selectFirst("a[href*='/video/'], a")?.attr("href") ?: return@mapNotNull null
+                        val title = el.selectFirst("strong.title, .title")?.text()?.trim() ?: return@mapNotNull null
+                        val poster = fixUrlNull(el.selectFirst("img")?.attr("data-src") ?: el.selectFirst("img")?.attr("src"), porntrexUrl)
+                        newMovieSearchResponse(title, fixUrl(link, porntrexUrl), TvType.Movie) {
+                            this.posterUrl = poster
+                            this.posterHeaders = porntrexHeaders
+                        }
                     }
+                    if (pageItems.isEmpty()) break
+                    ptList.addAll(pageItems)
                 }
+                ptList.distinctBy { it.url }
             }.getOrDefault(emptyList())
         }
 
         val models = paradiseActorsJob.await().distinctBy { it.url }
-        val movies = (paradiseMoviesJob.await() + porntrexJob.await()).distinctBy { it.url }
+        val movies = (paradiseMoviesJob.await() + speedpornJob.await() + porntrexJob.await()).distinctBy { it.url }
 
         // Actors first, followed by movies
         models + movies
@@ -249,8 +311,48 @@ class CustomScraper : MainAPI() {
             newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
                 this.posterHeaders = defaultHeaders
-                this.plot = "Multi-Source Collection for $name: Season 1 = PornTrex, Season 2 = ParadiseHill Feature Films"
+                this.plot = "" // about model
                 this.showStatus = ShowStatus.Completed
+            }
+        } else if (url.contains("speedporn.net")) {
+            // === SPEEDPORN MOVIE / VIDEO DETAILS BRANCH ===
+            val doc = app.get(url, headers = speedpornHeaders).document
+
+            val title = doc.selectFirst("h1")?.text()?.trim()
+                ?.replace(Regex("""^Watch\s+""", RegexOption.IGNORE_CASE), "")
+                ?.replace(Regex("""\s+Porn Online Free$""", RegexOption.IGNORE_CASE), "")
+                ?.trim()
+                ?: doc.selectFirst("meta[property='og:title']")?.attr("content")
+                ?: "SpeedPorn Video"
+
+            val ldJson = doc.selectFirst("script[type='application/ld+json']")?.data()
+            val ldThumbnail = Regex("""["']thumbnailUrl["']\s*:\s*["']([^"']+)["']""").find(ldJson.orEmpty())?.groupValues?.get(1)
+            val ldDescription = Regex("""["']description["']\s*:\s*["']([^"']+)["']""").find(ldJson.orEmpty())?.groupValues?.get(1)
+            val ldDuration = Regex("""["']duration["']\s*:\s*["']PT(?:(\d+)H)?(?:(\d+)M)?["']""").find(ldJson.orEmpty())?.let {
+                val h = it.groupValues.getOrNull(1)?.toIntOrNull() ?: 0
+                val m = it.groupValues.getOrNull(2)?.toIntOrNull() ?: 0
+                if (h > 0 || m > 0) h * 60 + m else null
+            }
+
+            val poster = ldThumbnail
+                ?: doc.selectFirst(".video-thumbnail img, .entry-thumb img, img.attachment-post-thumbnail")?.attr("data-src")?.ifBlank { null }
+                ?: doc.selectFirst(".video-thumbnail img, .entry-thumb img, img.attachment-post-thumbnail")?.attr("src")?.ifBlank { null }
+                ?: doc.selectFirst("meta[property='og:image']")?.attr("content")
+
+            val description = ldDescription?.trim()
+                ?: doc.selectFirst(".video-details, .entry-content, .description, .post-entry")?.text()?.trim()
+                ?: doc.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
+
+            val tags = doc.select("a[href*='/tag/'], a[href*='/category/']")
+                .mapNotNull { it.text().trim().ifBlank { null } }
+                .distinct()
+
+            newMovieLoadResponse(title, url, TvType.Movie, url) {
+                this.posterUrl = fixUrlNull(poster, speedpornUrl)
+                this.posterHeaders = speedpornHeaders
+                this.plot = description
+                this.duration = ldDuration
+                this.tags = tags
             }
         } else if (url.contains("porntrex.com")) {
             // === PORNTREX VIDEO DETAILS BRANCH ===
@@ -426,7 +528,92 @@ class CustomScraper : MainAPI() {
             return count > 0
         }
 
-        // C. ParadiseHill Movie Page URL or Part URL Branch
+        // C. SpeedPorn Post URL & Host Embed Branch
+        if (data.contains("speedporn.net")) {
+            val response = app.get(data, headers = speedpornHeaders).text
+            var count = 0
+
+            // 1. Direct VOE stream resolver (fast instant extraction)
+            val voeLinks = Regex("""https?://[^\s"'<>\(\)]*(?:voe\.sx)[^\s"'<>\(\)]*""", RegexOption.IGNORE_CASE)
+                .findAll(response)
+                .map { it.value.replace("&amp;", "&") }
+                .distinct()
+                .toList()
+
+            for (voeUrl in voeLinks) {
+                if (voeUrl.contains("deleted") || voeUrl.contains("/api/")) continue
+                try {
+                    val voeRes = app.get(voeUrl, headers = mapOf("referer" to "$speedpornUrl/")).text
+                    val redir = Regex("""window\.location\.href\s*=\s*['"]([^'"]+)['"]""").find(voeRes)?.groupValues?.get(1)
+                    val targetHtml = if (redir != null) {
+                        app.get(redir, headers = mapOf("referer" to "$speedpornUrl/")).text
+                    } else voeRes
+
+                    val directStream = Regex("""var\s+source\s*=\s*['"]([^'"]+)['"]""").find(targetHtml)?.groupValues?.get(1)
+                        ?: Regex("""['"](?:hls|file|src)['"]\s*:\s*['"]([^'"]+\.(?:m3u8|mp4)[^'"]*)['"]""").find(targetHtml)?.groupValues?.get(1)
+
+                    if (!directStream.isNullOrBlank()) {
+                        callback(
+                            ExtractorLink(
+                                source = "VOE",
+                                name = "VOE 1080p",
+                                url = directStream,
+                                referer = voeUrl,
+                                quality = getQualityFromName("1080p"),
+                                isM3u8 = directStream.contains(".m3u8"),
+                                headers = mapOf("referer" to voeUrl)
+                            )
+                        )
+                        count++
+                    } else {
+                        loadExtractor(voeUrl, "$speedpornUrl/", subtitleCallback, callback)
+                    }
+                } catch (_: Exception) {
+                    loadExtractor(voeUrl, "$speedpornUrl/", subtitleCallback, callback)
+                }
+            }
+
+            // 2. Direct MP4 links embedded in post
+            val directMp4s = Regex("""(https?://[^\s"'<>]+\.mp4[^\s"'<>]*)""").findAll(response)
+                .map { it.groupValues[1] }
+                .filter { !it.contains("deleted") && !it.contains("/api/") && !it.contains("test-videos.co.uk") }
+                .distinct()
+                .toList()
+
+            for (mp4 in directMp4s) {
+                callback(
+                    ExtractorLink(
+                        source = name,
+                        name = "$name Direct MP4",
+                        url = mp4,
+                        referer = "$speedpornUrl/",
+                        quality = getQualityFromName("1080p"),
+                        isM3u8 = false,
+                        headers = speedpornHeaders
+                    )
+                )
+                count++
+            }
+
+            // 3. Other third-party video hosts (DoodStream, MixDrop, StreamTape, Filemoon, StreamWish, VidGuard)
+            val hostLinks = Regex("""https?://[^\s"'<>\(\)]*(?:doodstream\.com|dood\.[a-z0-9]+|mixdrop\.[a-z0-9]+|streamtape\.com|filemoon\.[a-z0-9]+|streamwish\.[a-z0-9]+|vidguard\.[a-z0-9]+)[^\s"'<>\(\)]*""", RegexOption.IGNORE_CASE)
+                .findAll(response)
+                .map { it.value.replace("&amp;", "&") }
+                .distinct()
+                .toList()
+
+            for (hUrl in hostLinks) {
+                if (hUrl.contains("deleted") || hUrl.contains("/api/")) continue
+                runCatching {
+                    loadExtractor(hUrl, "$speedpornUrl/", subtitleCallback, callback)
+                    count++
+                }
+            }
+
+            return count > 0
+        }
+
+        // D. ParadiseHill Movie Page URL or Part URL Branch
         val pageUrl = data.substringBefore("#")
         val response = app.get(pageUrl, headers = mapOf("referer" to "$mainUrl/")).text
         val mp4Sources = extractParadiseMp4Sources(response)
@@ -488,6 +675,35 @@ class CustomScraper : MainAPI() {
     private fun toHighResParadisePoster(url: String?): String? {
         if (url.isNullOrBlank()) return null
         return url.replace("preview-", "")
+    }
+
+    private fun parseSpeedPornCard(element: Element): SearchResponse? {
+        val linkEl = if (element.tagName() == "a" && element.hasAttr("href")) element else {
+            element.selectFirst("a.thumb, a.infos, a[href]") ?: return null
+        }
+        val href = linkEl.attr("href")
+        if (href.isBlank() || href == "#" || href.contains("/category/") || href.contains("/pornstars/") || href.contains("/tag/") || href.contains("/filter/") || href.contains("/page/") || href.contains("/studios/") || href.contains("/xxxfree/")) return null
+
+        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
+        val rawTitle = element.selectFirst(".infos, .title, h2, h3")?.text()?.trim()
+            ?: imgEl?.attr("alt")?.ifBlank { null }
+            ?: linkEl.attr("title").ifBlank { null }
+            ?: return null
+
+        val title = rawTitle
+            .replace(Regex("""^Watch\s+""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""\s+Porn Online Free$""", RegexOption.IGNORE_CASE), "")
+            .trim()
+        if (title.isBlank()) return null
+
+        val rawPoster = imgEl?.attr("data-src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
+            ?: imgEl?.attr("data-lazy-src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
+            ?: imgEl?.attr("src")?.takeIf { it.isNotBlank() && !it.startsWith("data:") }
+
+        return newMovieSearchResponse(title, fixUrl(href, speedpornUrl), TvType.Movie) {
+            this.posterUrl = fixUrlNull(rawPoster, speedpornUrl)
+            this.posterHeaders = speedpornHeaders
+        }
     }
 
     /**

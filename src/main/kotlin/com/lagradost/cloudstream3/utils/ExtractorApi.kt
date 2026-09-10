@@ -34,3 +34,21 @@ suspend fun newExtractorLink(
     link.builder()
     return link
 }
+
+suspend fun loadExtractor(
+    url: String,
+    referer: String? = null,
+    subtitleCallback: (com.lagradost.cloudstream3.SubtitleFile) -> Unit = {},
+    callback: (ExtractorLink) -> Unit = {}
+): Boolean {
+    return false
+}
+
+suspend fun loadExtractor(
+    url: String,
+    subtitleCallback: (com.lagradost.cloudstream3.SubtitleFile) -> Unit = {},
+    callback: (ExtractorLink) -> Unit = {}
+): Boolean {
+    return loadExtractor(url, null, subtitleCallback, callback)
+}
+
