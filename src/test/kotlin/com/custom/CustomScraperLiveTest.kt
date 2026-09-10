@@ -117,7 +117,8 @@ class CustomScraperLiveTest {
     fun testModelSeasonsMultiSite() = runBlocking {
         println("=== 5. TESTING MODEL SEASONS MULTI-SITE ===")
         try {
-            val modelUrl = "https://www.pornpics.de/pornstars/blake-blossom/"
+            // ParadiseHill actor profile (multi-site seasons)
+            val modelUrl = "https://en.paradisehill.cc/actor/23476/" // Riley Reid
             val res = scraper.load(modelUrl)
 
             println("Model Name: " + res.name)
