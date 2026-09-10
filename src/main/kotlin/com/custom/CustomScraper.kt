@@ -40,6 +40,7 @@ class CustomScraper : MainAPI() {
     override val hasMainPage = true
     override var lang = "en"
     override val hasDownloadSupport = true
+    override val vpnStatus = VPNStatus.MightBeNeeded
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries, TvType.NSFW)
 
     val pornpicsUrl = "https://www.pornpics.de"
@@ -355,11 +356,7 @@ class CustomScraper : MainAPI() {
                     url = streamUrl,
                     referer = "$mainUrl/",
                     quality = Qualities.P1080.value,
-                    isM3u8 = false,
-                    headers = mapOf(
-                        "referer" to "$mainUrl/",
-                        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    )
+                    isM3u8 = false
                 )
             )
             return true
@@ -395,8 +392,7 @@ class CustomScraper : MainAPI() {
                             url = streamUrl,
                             referer = "$porntrexUrl/",
                             quality = qualityValue,
-                            isM3u8 = streamUrl.contains(".m3u8"),
-                            headers = mapOf("referer" to "$porntrexUrl/")
+                            isM3u8 = streamUrl.contains(".m3u8")
                         )
                     )
                     found = true
@@ -433,11 +429,7 @@ class CustomScraper : MainAPI() {
                     url = mp4Url,
                     referer = "$mainUrl/",
                     quality = Qualities.P1080.value,
-                    isM3u8 = false,
-                    headers = mapOf(
-                        "referer" to "$mainUrl/",
-                        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    )
+                    isM3u8 = false
                 )
             )
             count++

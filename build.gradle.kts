@@ -179,7 +179,7 @@ tasks.register("makePlugin") {
   "name": "Multi-Source",
   "pluginClassName": "com.custom.CustomProvider",
   "requiresResources": false,
-  "version": 1
+  "version": 10
 }
         """.trimIndent()
         val multiSourceCs3 = File(distDir, "MultiSource.cs3")
@@ -215,7 +215,7 @@ tasks.register("makePlugin") {
   {
     "name": "Multi-Source",
     "internalName": "MultiSource",
-    "version": 7,
+    "version": 10,
     "apiVersion": 1,
     "description": "Multi-source aggregator with high-res cover art, PornPics trending models, IMDb-grade full movies, multi-part CD episodes, and direct 1080p MP4 downloads.",
     "authors": ["AnshulBadoni"],
