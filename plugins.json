@@ -2,7 +2,7 @@
   {
     "name": "PornTrex",
     "internalName": "PornTrex",
-    "version": 81,
+    "version": 82,
     "apiVersion": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],
@@ -12,12 +12,12 @@
     "tvTypes": ["NSFW", "Movie", "Others"],
     "iconUrl": "https://www.porntrex.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PornTrex.cs3",
-    "fileSize": 110717
+    "fileSize": 110690
   },
   {
     "name": "MultiSource",
     "internalName": "MultiSource",
-    "version": 81,
+    "version": 82,
     "apiVersion": 1,
     "description": "Multi-source aggregator with high-res cover art, ParadiseHill movies & actor catalogs (no PornPics dependency), PornTrex multi-resolution streams, multi-part CD episodes, and direct downloadable 1080p MP4 links.",
     "authors": ["AnshulBadoni"],
@@ -27,6 +27,6 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://en.paradisehill.cc/img/favicon/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/MultiSource.cs3",
-    "fileSize": 110716
+    "fileSize": 110688
   }
 ]
