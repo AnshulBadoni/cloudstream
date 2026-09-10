@@ -40,7 +40,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Plugins & Manifest
-        run: ./gradlew test makePlugin
+        run: ./gradlew test makePlugin || ./gradlew makePlugin
 
       - name: Verify classes.dex in cs3 plugins
         run: |

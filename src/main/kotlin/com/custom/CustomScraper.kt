@@ -52,9 +52,7 @@ class CustomScraper : MainAPI() {
         "Referer" to "https://en.paradisehill.cc/"
     )
 
-    // ==========================================
     // 1. HOME PAGE CATALOG DEFINITIONS
-    // ==========================================
     override val mainPage = mainPageOf(
         "popular/?filter=all&sort=by_likes" to "Popular Movies",
         "pornpics_models" to "Trending Models",
