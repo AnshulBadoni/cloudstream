@@ -80,6 +80,18 @@ class StandaloneProvidersTest {
         assertNotNull(movieRes, "Should load movie details")
         println("  Movie Title: ${movieRes?.name}, Recommendations: ${movieRes?.recommendations?.size}")
         assertTrue((movieRes?.recommendations?.size ?: 0) > 0, "Movie should have recommendations")
+
+        // 6. Stream Link Extraction (Multiple Qualities)
+        val extractedLinks = mutableListOf<ExtractorLink>()
+        val success = provider.loadLinks(movieUrl, isCasting = false, subtitleCallback = {}) {
+            extractedLinks.add(it)
+        }
+        println("  Extracted stream links count: ${extractedLinks.size}")
+        for (l in extractedLinks) {
+            println("    -> ${l.name} (${l.quality}p): ${l.url.take(60)}...")
+        }
+        assertTrue(success, "loadLinks should succeed")
+        assertTrue(extractedLinks.isNotEmpty(), "Should extract at least 1 stream link")
     }
 
     @Test

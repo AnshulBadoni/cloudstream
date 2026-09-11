@@ -102,7 +102,7 @@ class TnaFlix : MainAPI() {
         }
 
         val hasNextPage = items.size >= 12
-        val homePageList = HomePageList(request.name, items.distinctBy { it.url }, isHorizontalImages = request.data == "actors")
+        val homePageList = HomePageList(request.name, items.distinctBy { it.url }, isHorizontalImages = request.data != "actors")
         return newHomePageResponse(homePageList, hasNextPage)
     }
 

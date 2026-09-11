@@ -123,7 +123,7 @@ class DaftSex : MainAPI() {
         }
 
         val hasNextPage = items.size >= 12
-        val homePageList = HomePageList(request.name, items.distinctBy { it.url }, isHorizontalImages = request.data == "actors")
+        val homePageList = HomePageList(request.name, items.distinctBy { it.url }, isHorizontalImages = request.data != "actors")
         return newHomePageResponse(homePageList, hasNextPage)
     }
 
@@ -197,7 +197,7 @@ class DaftSex : MainAPI() {
                     val linkEl = if (el.tagName() == "a") el else el.selectFirst("a[href*='/movie/']") ?: return@forEach
                     val link = linkEl.attr("href").ifBlank { null } ?: return@forEach
 
-                    val title = linkEl.selectFirst(".video-title, .title, h2, h3, span")?.text()?.trim()
+                    val title = linkEl.selectFirst("div.video-title, .video-title, .title, h1, h2, h3")?.text()?.trim()
                         ?.ifBlank { null }
                         ?: linkEl.attr("title").ifBlank { null }
                         ?: "DaftSex Video ${episodes.size + 1}"
@@ -264,16 +264,16 @@ class DaftSex : MainAPI() {
                 app.post(
                     "$mainUrl/hash-daftsex",
                     data = mapOf("mix" to mixMatch, "num" to numMatch),
-                    headers = defaultHeaders
+                    headers = defaultHeaders + mapOf("X-Requested-With" to "XMLHttpRequest")
                 ).text
             }.getOrNull()
 
             if (!ajaxRes.isNullOrBlank()) {
-                val iframePath = Regex("""(?:src=)?['"](/iframe/(?:v2/|convert/v2/)?([^'"]+))['"]""").find(ajaxRes)?.groupValues?.get(1)
-                    ?: Regex("""(/iframe/v2/[^'"]+)""").find(ajaxRes)?.groupValues?.get(1)
+                val iframeMatch = Regex("""(?:src=)?['"](https?://[^'"\s]+/iframe/(?:v2/|convert/v2/)[^'"\s]+|/iframe/(?:v2/|convert/v2/)[^'"\s]+)['"]""")
+                    .find(ajaxRes)?.groupValues?.get(1)
 
-                if (!iframePath.isNullOrBlank()) {
-                    val convertPath = iframePath.replace("/iframe/v2/", "/iframe/convert/v2/")
+                if (!iframeMatch.isNullOrBlank()) {
+                    val convertPath = iframeMatch.replace("/iframe/v2/", "/iframe/convert/v2/")
                     val playerDomain = if (convertPath.startsWith("http")) convertPath else "https://daftsex-biz.ibhan2.top$convertPath"
                     val playerHtml = runCatching {
                         app.get(playerDomain, headers = mapOf("referer" to "$mainUrl/")).text
@@ -281,11 +281,18 @@ class DaftSex : MainAPI() {
 
                     if (!playerHtml.isNullOrBlank()) {
                         // Match Artplayer quality array: { html: '360p', url: '...' }
-                        val qualityMatches = Regex("""html:\s*['"]([^'"]+)['"],\s*url:\s*['"]([^'"]+)['"]""").findAll(playerHtml)
+                        val qualityMatches = Regex("""html:\s*['"]([^'"]+)['"],\s*url:\s*['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE).findAll(playerHtml)
                         for (qEntry in qualityMatches) {
-                            val qLabel = qEntry.groupValues[1]
-                            val qUrl = qEntry.groupValues[2]
-                            val normalizedQuality = if (qLabel.equals("4k", ignoreCase = true)) "2160p" else qLabel
+                            val qLabel = qEntry.groupValues[1].trim()
+                            val qUrl = qEntry.groupValues[2].trim()
+                            val normalizedQuality = when {
+                                qLabel.contains("4k", ignoreCase = true) || qLabel.contains("2160") -> "2160p"
+                                qLabel.contains("1080") -> "1080p"
+                                qLabel.contains("720") -> "720p"
+                                qLabel.contains("480") -> "480p"
+                                qLabel.contains("360") -> "360p"
+                                else -> qLabel
+                            }
 
                             callback(
                                 ExtractorLink(
@@ -306,24 +313,26 @@ class DaftSex : MainAPI() {
         }
 
         // 2. Direct master .mp4 links in DaftSex page (fallback & direct links)
-        val mp4Matches = Regex("""(https?://daftsex\.biz/movie/[a-zA-Z0-9_\-]+\.mp4)""").findAll(rawHtml)
-            .map { it.groupValues[1] }
-            .distinct()
-            .toList()
+        if (count == 0) {
+            val mp4Matches = Regex("""(https?://daftsex\.biz/movie/[a-zA-Z0-9_\-]+\.mp4)""").findAll(rawHtml)
+                .map { it.groupValues[1] }
+                .distinct()
+                .toList()
 
-        for (mp4 in mp4Matches) {
-            callback(
-                ExtractorLink(
-                    source = name,
-                    name = "$name 1080p MP4",
-                    url = mp4,
-                    referer = "$mainUrl/",
-                    quality = getQualityFromName("1080p"),
-                    isM3u8 = false,
-                    headers = defaultHeaders
+            for (mp4 in mp4Matches) {
+                callback(
+                    ExtractorLink(
+                        source = name,
+                        name = "$name 1080p MP4",
+                        url = mp4,
+                        referer = "$mainUrl/",
+                        quality = getQualityFromName("1080p"),
+                        isM3u8 = false,
+                        headers = defaultHeaders
+                    )
                 )
-            )
-            count++
+                count++
+            }
         }
 
         return count > 0
@@ -335,12 +344,11 @@ class DaftSex : MainAPI() {
         val href = linkEl.attr("href")
         if (href.isBlank() || href == "#") return null
 
-        val title = linkEl.selectFirst(".video-title, .title, h2, h3, span")?.text()?.trim()
+        val title = linkEl.selectFirst("div.video-title, .video-title, .title, h1, h2, h3")?.text()?.trim()
             ?.ifBlank { null }
             ?: linkEl.attr("title").ifBlank { null }
-            ?: element.selectFirst(".video-title, .title")?.text()?.trim()
-            ?: element.text().trim()
-        if (title.isBlank()) return null
+            ?: element.selectFirst("div.video-title, .video-title")?.text()?.trim()
+            ?: return null
 
         val poster = extractImg(element) ?: extractImg(linkEl)
 
@@ -355,12 +363,11 @@ class DaftSex : MainAPI() {
         val href = linkEl.attr("href")
         if (href.isBlank() || href == "#") return null
 
-        val name = linkEl.selectFirst(".video-title, .title, h2, h3, span")?.text()?.trim()
+        val name = linkEl.selectFirst("div.video-title, .video-title, .title, h1, h2, h3")?.text()?.trim()
             ?.ifBlank { null }
             ?: linkEl.attr("title").ifBlank { null }
-            ?: element.selectFirst(".video-title, .title")?.text()?.trim()
-            ?: element.text().trim()
-        if (name.isBlank()) return null
+            ?: element.selectFirst("div.video-title, .video-title")?.text()?.trim()
+            ?: return null
 
         val poster = extractImg(element) ?: extractImg(linkEl)
 
