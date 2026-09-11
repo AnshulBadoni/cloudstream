@@ -33,6 +33,25 @@ class DaftSex : MainAPI() {
         var modelPages: Int = 2
     }
 
+    private val popularStudios = listOf(
+        "Vixen" to "vixen",
+        "Blacked" to "blacked",
+        "Brazzers" to "brazzers",
+        "Tushy" to "tushy",
+        "Deeper" to "deeper",
+        "Reality Kings" to "reality-kings",
+        "Naughty America" to "naughty-america",
+        "Pure Taboo" to "pure-taboo",
+        "Slayed" to "slayed",
+        "Mofos" to "mofos",
+        "Evil Angel" to "evil-angel",
+        "Wicked" to "wicked",
+        "Twistys" to "twistys",
+        "Babes" to "babes",
+        "FakeHub" to "fakehub",
+        "PropertySex" to "propertysex"
+    )
+
     // 1. HOME PAGE CATALOG DEFINITIONS (Standard 6 Rows, Clean, No Emojis)
     override val mainPage = mainPageOf(
         "trending" to "Trending",
@@ -48,8 +67,8 @@ class DaftSex : MainAPI() {
             // Trending Videos
             "trending" -> {
                 val url = if (page <= 1) "$mainUrl/" else "$mainUrl/page/$page"
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/movie/'], div.movie-item a").mapNotNull { parseMovieCard(it) }
+                val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+                doc?.select("a[href*='/movie/'], div.movie-item a")?.mapNotNull { parseMovieCard(it) }.orEmpty()
             }
 
             // Actors / Models (PornPics Trending Models with DaftSex video profile link)
@@ -69,35 +88,37 @@ class DaftSex : MainAPI() {
                 if (ppItems.isNotEmpty()) {
                     ppItems
                 } else {
-                    val doc = app.get("$mainUrl/models", headers = defaultHeaders).document
-                    doc.select("a[href*='/video/']").mapNotNull { parseActorCard(it) }
+                    val doc = runCatching { app.get("$mainUrl/models", headers = defaultHeaders).document }.getOrNull()
+                    doc?.select("a[href*='/video/']")?.mapNotNull { parseActorCard(it) }.orEmpty()
                 }
             }
 
             // Studios / Channels Directory
             "studios" -> {
-                val url = if (page <= 1) "$mainUrl/channels" else "$mainUrl/channels/$page"
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/channel/'], a[href*='/movie/'], div.channel-item a").mapNotNull { parseMovieCard(it) }
+                popularStudios.map { (sName, sSlug) ->
+                    newTvSeriesSearchResponse(sName, "$mainUrl/video/$sSlug", TvType.TvSeries) {
+                        this.posterHeaders = defaultHeaders
+                    }
+                }
             }
 
             // Studio Specific Channels: Vixen, Blacked, Brazzers
             "vixen" -> {
                 val url = if (page <= 1) "$mainUrl/video/vixen" else "$mainUrl/video/vixen/$page"
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/movie/'], div.movie-item a").mapNotNull { parseMovieCard(it) }
+                val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+                doc?.select("a[href*='/movie/'], div.movie-item a")?.mapNotNull { parseMovieCard(it) }.orEmpty()
             }
 
             "blacked" -> {
                 val url = if (page <= 1) "$mainUrl/video/blacked" else "$mainUrl/video/blacked/$page"
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/movie/'], div.movie-item a").mapNotNull { parseMovieCard(it) }
+                val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+                doc?.select("a[href*='/movie/'], div.movie-item a")?.mapNotNull { parseMovieCard(it) }.orEmpty()
             }
 
             else -> {
                 val url = if (page <= 1) "$mainUrl/video/brazzers" else "$mainUrl/video/brazzers/$page"
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/movie/'], div.movie-item a").mapNotNull { parseMovieCard(it) }
+                val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+                doc?.select("a[href*='/movie/'], div.movie-item a")?.mapNotNull { parseMovieCard(it) }.orEmpty()
             }
         }
 
@@ -152,11 +173,11 @@ class DaftSex : MainAPI() {
         (actors + videos).distinctBy { it.url }
     }
 
-    // 3. LOAD RESPONSE (PERFORMER OR VIDEO)
+    // 3. LOAD RESPONSE (PERFORMER/CHANNEL OR VIDEO)
     override suspend fun load(url: String): LoadResponse {
-        val isPerformer = url.contains("/video/") && !url.contains("/movie/")
+        val isChannelOrPerformer = url.contains("/video/") && !url.contains("/movie/")
 
-        if (isPerformer) {
+        if (isChannelOrPerformer) {
             val rawSlug = url.trimEnd('/').substringAfterLast('/').lowercase().trim()
             val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
             val name = doc?.selectFirst("h1")?.text()?.trim()
@@ -164,8 +185,7 @@ class DaftSex : MainAPI() {
                     .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
             val slug = rawSlug.ifBlank { name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') }
-            val poster = doc?.selectFirst("meta[property='og:image']")?.attr("content")
-                ?: extractImg(doc?.selectFirst(".profile img, .img-holder img, img"))
+            val poster = extractImg(doc?.selectFirst("meta[property='og:image'], .profile, .img-holder, div.video-thumb, img"))
 
             val episodes = mutableListOf<Episode>()
             for (p in 1..modelPages.coerceIn(1, 10)) {
@@ -174,12 +194,14 @@ class DaftSex : MainAPI() {
                 val cards = pageDoc.select("a[href*='/movie/'], div.movie-item a")
                 if (cards.isEmpty()) break
                 cards.forEach { el ->
-                    val link = el.attr("href").ifBlank { null } ?: return@forEach
-                    val imgEl = el.selectFirst("img")
-                    val title = imgEl?.attr("alt")?.ifBlank { null }
-                        ?: el.attr("title").ifBlank { null }
+                    val linkEl = if (el.tagName() == "a") el else el.selectFirst("a[href*='/movie/']") ?: return@forEach
+                    val link = linkEl.attr("href").ifBlank { null } ?: return@forEach
+
+                    val title = linkEl.selectFirst(".video-title, .title, h2, h3, span")?.text()?.trim()
+                        ?.ifBlank { null }
+                        ?: linkEl.attr("title").ifBlank { null }
                         ?: "DaftSex Video ${episodes.size + 1}"
-                    val img = extractImg(imgEl)
+                    val img = extractImg(el) ?: extractImg(linkEl)
 
                     episodes.add(
                         Episode(
@@ -196,18 +218,28 @@ class DaftSex : MainAPI() {
             return newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes.distinctBy { it.data }) {
                 this.posterUrl = fixUrlNull(poster, url)
                 this.posterHeaders = defaultHeaders
-                this.plot = "Videos featuring $name on DaftSex"
+                this.plot = "Videos for $name on DaftSex"
                 this.showStatus = ShowStatus.Completed
             }
         } else {
             val doc = app.get(url, headers = defaultHeaders).document
             val title = doc.selectFirst("h1, .video-title")?.text()?.trim() ?: "DaftSex Video"
             val poster = doc.selectFirst("meta[property='og:image']")?.attr("content")
-                ?: extractImg(doc.selectFirst("video[poster], .player img, img"))
+                ?: extractImg(doc.selectFirst("video[poster], .player, div.video-thumb, img"))
+
+            val currentId = url.substringAfterLast("/").trim()
+            val recommendations = doc.select("a[href*='/movie/']")
+                .filter { a ->
+                    val h = a.attr("href")
+                    h.isNotBlank() && !h.contains(currentId)
+                }
+                .mapNotNull { parseMovieCard(it) }
+                .distinctBy { it.url }
 
             return newMovieLoadResponse(title, url, TvType.Movie, url) {
                 this.posterUrl = fixUrlNull(poster, mainUrl)
                 this.posterHeaders = defaultHeaders
+                this.recommendations = recommendations
             }
         }
     }
@@ -303,13 +335,14 @@ class DaftSex : MainAPI() {
         val href = linkEl.attr("href")
         if (href.isBlank() || href == "#") return null
 
-        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
-        val title = imgEl?.attr("alt")?.ifBlank { null }
+        val title = linkEl.selectFirst(".video-title, .title, h2, h3, span")?.text()?.trim()
+            ?.ifBlank { null }
             ?: linkEl.attr("title").ifBlank { null }
+            ?: element.selectFirst(".video-title, .title")?.text()?.trim()
             ?: element.text().trim()
         if (title.isBlank()) return null
 
-        val poster = extractImg(imgEl)
+        val poster = extractImg(element) ?: extractImg(linkEl)
 
         return newMovieSearchResponse(title, fixUrl(href, mainUrl), TvType.Movie) {
             this.posterUrl = fixUrlNull(poster, mainUrl)
@@ -322,13 +355,14 @@ class DaftSex : MainAPI() {
         val href = linkEl.attr("href")
         if (href.isBlank() || href == "#") return null
 
-        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
-        val name = imgEl?.attr("alt")?.ifBlank { null }
+        val name = linkEl.selectFirst(".video-title, .title, h2, h3, span")?.text()?.trim()
+            ?.ifBlank { null }
             ?: linkEl.attr("title").ifBlank { null }
+            ?: element.selectFirst(".video-title, .title")?.text()?.trim()
             ?: element.text().trim()
         if (name.isBlank()) return null
 
-        val poster = extractImg(imgEl)
+        val poster = extractImg(element) ?: extractImg(linkEl)
 
         return newTvSeriesSearchResponse(name, fixUrl(href, mainUrl), TvType.TvSeries) {
             this.posterUrl = fixUrlNull(poster, mainUrl)
@@ -346,7 +380,7 @@ class DaftSex : MainAPI() {
             ?: element.selectFirst("img")?.attr("alt")?.ifBlank { null }
             ?: return null
 
-        val poster = extractImg(element.selectFirst("img"))
+        val poster = extractImg(element.selectFirst("img")) ?: extractImg(element)
 
         return newTvSeriesSearchResponse(name, "$mainUrl/video/$slug", TvType.TvSeries) {
             this.posterUrl = fixUrlNull(poster, pornpicsUrl)
@@ -356,12 +390,27 @@ class DaftSex : MainAPI() {
 
     private fun extractImg(element: Element?): String? {
         if (element == null) return null
-        val raw = element.attr("data-src").ifBlank { null }
-            ?: element.attr("data-original").ifBlank { null }
-            ?: element.attr("data-thumb").ifBlank { null }
-            ?: element.attr("data-lazy-src").ifBlank { null }
-            ?: element.attr("data-image").ifBlank { null }
-            ?: element.attr("src").ifBlank { null }
+
+        val target = if (element.hasAttr("data-src") || element.hasAttr("data-original") || element.hasAttr("data-thumb") || element.hasAttr("src")) {
+            element
+        } else {
+            element.selectFirst("div.video-thumb, div[data-src], div[data-original], div[data-thumb], div.thumb, img, [style*='background']") ?: element
+        }
+
+        var raw = target.attr("data-src").ifBlank { null }
+            ?: target.attr("data-original").ifBlank { null }
+            ?: target.attr("data-thumb").ifBlank { null }
+            ?: target.attr("data-lazy-src").ifBlank { null }
+            ?: target.attr("data-image").ifBlank { null }
+            ?: target.attr("content").ifBlank { null }
+            ?: target.attr("src").ifBlank { null }
+
+        if (raw.isNullOrBlank()) {
+            val style = target.attr("style")
+            val styleMatch = Regex("""url\(['"]?([^'"\)]+)['"]?\)""").find(style)
+            raw = styleMatch?.groupValues?.get(1)
+        }
+
         return if (raw != null && !raw.startsWith("data:image")) raw else null
     }
 

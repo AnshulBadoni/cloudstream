@@ -45,8 +45,18 @@ class StandaloneProvidersTest {
         val list = trending.items.firstOrNull()?.list.orEmpty()
         println("DaftSex Trending count: ${list.size}")
         assertTrue(list.isNotEmpty(), "DaftSex trending should not be empty")
+        val samplePoster = list.first().posterUrl
+        println("  Sample Trending Poster: $samplePoster")
+        assertNotNull(samplePoster, "DaftSex video poster should not be null")
+        assertTrue(samplePoster!!.startsWith("http"), "Poster should be a valid HTTP URL")
 
-        // 2. Search
+        // 2. Studios Catalog
+        val studios = provider.getMainPage(1, MainPageRequest("Studios", "studios"))
+        val studioList = studios.items.firstOrNull()?.list.orEmpty()
+        println("DaftSex Studios count: ${studioList.size}")
+        assertTrue(studioList.isNotEmpty(), "DaftSex studios should not be empty")
+
+        // 3. Search
         val query = "angela white"
         val searchRes = provider.search(query)
         println("DaftSex Search results for '$query': ${searchRes.size}")
@@ -55,11 +65,21 @@ class StandaloneProvidersTest {
         println("  First Search Result: ${firstItem.name} (Type: ${firstItem.type}) -> ${firstItem.url}")
         assertEquals(TvType.TvSeries, firstItem.type, "First item should be a TvSeries model card")
 
-        // 3. Model Load
+        // 4. Model / Channel Load
         val modelRes = provider.load(firstItem.url) as? TvSeriesLoadResponse
         assertNotNull(modelRes, "Should load model profile as TvSeriesLoadResponse")
         println("  Model Name: ${modelRes?.name}, Total Videos: ${modelRes?.episodes?.size}")
         assertTrue((modelRes?.episodes?.size ?: 0) > 0, "Model should have video episodes")
+        val firstEp = modelRes?.episodes?.first()
+        println("  First Episode Poster: ${firstEp?.posterUrl}")
+        assertNotNull(firstEp?.posterUrl, "Episode poster should not be null")
+
+        // 5. Movie Detail Load & Recommendations
+        val movieUrl = firstEp?.data ?: list.first().url
+        val movieRes = provider.load(movieUrl) as? MovieLoadResponse
+        assertNotNull(movieRes, "Should load movie details")
+        println("  Movie Title: ${movieRes?.name}, Recommendations: ${movieRes?.recommendations?.size}")
+        assertTrue((movieRes?.recommendations?.size ?: 0) > 0, "Movie should have recommendations")
     }
 
     @Test
