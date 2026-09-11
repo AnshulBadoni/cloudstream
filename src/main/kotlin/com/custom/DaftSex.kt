@@ -275,33 +275,36 @@ class DaftSex : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         var count = 0
-        val doc = app.get(data, headers = defaultHeaders).document
-        val rawHtml = doc.html()
+        val movieUrl = fixUrl(data, mainUrl)
+        val doc = runCatching { app.get(movieUrl, headers = defaultHeaders).document }.getOrNull()
+        val rawHtml = doc?.html().orEmpty()
 
         // 1. Extract num parameter from page JS or URL fallback
         val numMatch = Regex("""['"]?num['"]?\s*[:=]\s*['"]?([a-zA-Z0-9_\-]+)['"]?""").find(rawHtml)?.groupValues?.get(1)
             ?: Regex("""num:\s*['"]([^'"]+)['"]""").find(rawHtml)?.groupValues?.get(1)
-        val num = if (!numMatch.isNullOrBlank()) numMatch else data.trimEnd('/').substringAfterLast('/').substringBefore('.')
+        val num = if (!numMatch.isNullOrBlank()) numMatch else movieUrl.trimEnd('/').substringAfterLast('/').substringBefore('.')
 
         val iframeReferer = "https://daftsex-biz.ibhan2.top/"
         val streamHeaders = mapOf(
             "Referer" to iframeReferer,
-            "referer" to iframeReferer,
-            "User-Agent" to (defaultHeaders["user-agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"),
-            "user-agent" to (defaultHeaders["user-agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            "User-Agent" to (defaultHeaders["user-agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
         )
 
         if (num.isNotBlank()) {
             // Step 1: Query moviesiframe2 endpoint for multi-resolution Artplayer streams
+            val ajaxHeaders = mapOf(
+                "User-Agent" to (defaultHeaders["user-agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"),
+                "Referer" to movieUrl,
+                "Origin" to mainUrl,
+                "X-Requested-With" to "XMLHttpRequest",
+                "Accept" to "*/*"
+            )
+
             val ajaxRes = runCatching {
                 app.post(
                     "$mainUrl/hash-daftsex",
                     data = mapOf("mix" to "moviesiframe2", "num" to num),
-                    headers = defaultHeaders + mapOf(
-                        "X-Requested-With" to "XMLHttpRequest",
-                        "Referer" to data,
-                        "Origin" to mainUrl
-                    )
+                    headers = ajaxHeaders
                 ).text
             }.getOrNull()
 
@@ -315,7 +318,7 @@ class DaftSex : MainAPI() {
                     val convertPath = iframeMatch.replace("/iframe/v2/", "/iframe/convert/v2/")
                     val playerDomain = if (convertPath.startsWith("http")) convertPath else "https://daftsex-biz.ibhan2.top$convertPath"
                     val playerHtml = runCatching {
-                        app.get(playerDomain, headers = mapOf("Referer" to "$mainUrl/", "referer" to "$mainUrl/")).text
+                        app.get(playerDomain, headers = mapOf("User-Agent" to (defaultHeaders["user-agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"), "Referer" to "$mainUrl/")).text
                     }.getOrNull()
 
                     if (!playerHtml.isNullOrBlank()) {
@@ -347,6 +350,33 @@ class DaftSex : MainAPI() {
                                 )
                             )
                             count++
+                        }
+
+                        // Also match any direct video CDN links if quality array didn't match
+                        if (count == 0) {
+                            val directMatches = Regex("""['"](https?://[^'"\s<>]+\.mp4[^'"\s<>]*)['"]""").findAll(playerHtml)
+                            for (m in directMatches) {
+                                val qUrl = m.groupValues[1].trim()
+                                val normalizedQuality = when {
+                                    qUrl.contains("2160") || qUrl.contains("4k") -> "2160p"
+                                    qUrl.contains("1080") -> "1080p"
+                                    qUrl.contains("720") -> "720p"
+                                    qUrl.contains("480") -> "480p"
+                                    else -> "720p"
+                                }
+                                callback(
+                                    ExtractorLink(
+                                        source = name,
+                                        name = "$name $normalizedQuality MP4",
+                                        url = qUrl,
+                                        referer = iframeReferer,
+                                        quality = getQualityFromName(normalizedQuality),
+                                        isM3u8 = false,
+                                        headers = streamHeaders
+                                    )
+                                )
+                                count++
+                            }
                         }
                     }
                 }
@@ -411,7 +441,7 @@ class DaftSex : MainAPI() {
 
         // Step 3: Direct iframe in page HTML fallback
         if (count == 0) {
-            val directIframe = doc.selectFirst("iframe[src*='daftsex'], iframe[src*='ibhan2.top'], iframe[src*='/iframe/']")?.attr("src")
+            val directIframe = doc?.selectFirst("iframe[src*='daftsex'], iframe[src*='ibhan2.top'], iframe[src*='/iframe/']")?.attr("src")
             if (!directIframe.isNullOrBlank()) {
                 val convertPath = directIframe.replace("/iframe/v2/", "/iframe/convert/v2/")
                 val playerDomain = if (convertPath.startsWith("http")) convertPath else "https://daftsex-biz.ibhan2.top$convertPath"
