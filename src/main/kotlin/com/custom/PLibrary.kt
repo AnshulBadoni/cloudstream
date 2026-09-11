@@ -2,6 +2,7 @@ package com.custom
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
+import com.lagradost.nicehttp.*
 import kotlinx.coroutines.*
 import org.jsoup.nodes.Element
 
@@ -21,11 +22,16 @@ import org.jsoup.nodes.Element
  *    - Season 1: YamyHub videos (/pornstar/{slug}/)
  *    - Season 2: DaftSex videos (/video/{slug})
  *    - Season 3: TnaFlix videos (/profile/{slug})
+ *    - Season 4: FPO videos (https://www.fpo.xxx/models/{slug}/)
  *
- * 3. Direct Multi-Resolution MP4 Streaming & Fast Downloads:
- *    - YamyHub direct MP4 multi-bitrate streams from Playerjs ([1080]...mp4, [720]...mp4, [360]...mp4)
- *    - DaftSex direct master .mp4 streams (https://daftsex.biz/movie/{id}.mp4)
+ * 3. Search Model Prioritization:
+ *    - Searching performer names places matching model profile cards (TvType.TvSeries) at the top.
+ *
+ * 4. Direct Multi-Resolution MP4 Streaming & Fast Downloads:
+ *    - YamyHub Playerjs multi-bitrate streams ([1080]...mp4, [720]...mp4, [360]...mp4)
+ *    - DaftSex ArtPlayer multi-quality direct MP4s (360p, 480p, 720p, 1080p, 4K)
  *    - TnaFlix direct MP4 and adaptive HLS streams
+ *    - FPO direct MP4 streams
  */
 class PLibrary : MainAPI() {
     override var mainUrl = "https://www.yamyhub.com"
@@ -40,6 +46,7 @@ class PLibrary : MainAPI() {
     val daftSexUrl = "https://daftsex.biz"
     val tnaFlixUrl = "https://www.tnaflix.com"
     val pornpicsUrl = "https://www.pornpics.de"
+    val fpoUrl = "https://www.fpo.xxx"
 
     private val defaultHeaders = mapOf(
         "referer" to "$mainUrl/",
@@ -57,12 +64,17 @@ class PLibrary : MainAPI() {
         "referer" to "$pornpicsUrl/",
         "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
+    private val fpoHeaders = mapOf(
+        "referer" to "$fpoUrl/",
+        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
 
     companion object {
         var searchPages: Int = 2
         var yamyModelPages: Int = 2
         var daftModelPages: Int = 2
         var tnaModelPages: Int = 2
+        var fpoModelPages: Int = 2
     }
 
     // 1. HOME PAGE CATALOG DEFINITIONS
@@ -137,19 +149,36 @@ class PLibrary : MainAPI() {
         return newHomePageResponse(homePageList, hasNextPage)
     }
 
-    // 2. UNIFIED MULTI-SOURCE SEARCH
+    // 2. UNIFIED MULTI-SOURCE SEARCH WITH PERFORMER MATCH PRIORITIZATION
     override suspend fun search(query: String): List<SearchResponse> = coroutineScope {
         val cleanQuery = query.trim().replace(" ", "+")
-        val slugQuery = query.trim().lowercase().replace(" ", "-")
+        val slugQuery = query.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        val queryWords = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        val titleCaseQuery = queryWords.joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
-        // 1. Search actors (PornPics + YamyHub)
+        // 1. Search actors (PornPics + YamyHub + Synthetic Performer Card)
         val actorsJob = async {
             runCatching {
                 val list = mutableListOf<SearchResponse>()
+
+                // Direct model card synthesis for quick performer matches
+                if (queryWords.size in 1..4 && slugQuery.isNotBlank()) {
+                    list.add(
+                        newTvSeriesSearchResponse(
+                            name = titleCaseQuery,
+                            url = "$yamyUrl/pornstar/$slugQuery/",
+                            type = TvType.TvSeries
+                        ) {
+                            this.posterHeaders = defaultHeaders
+                        }
+                    )
+                }
+
                 // Search YamyHub pornstars
                 val yUrl = "$yamyUrl/pornstars/?s=$cleanQuery"
                 val yDoc = runCatching { app.get(yUrl, headers = defaultHeaders).document }.getOrNull()
                 yDoc?.select("a[href*='/pornstar/']")?.mapNotNull { parseYamyActorCard(it) }?.let { list.addAll(it) }
+
                 list.distinctBy { it.url }
             }.getOrDefault(emptyList())
         }
@@ -195,13 +224,25 @@ class PLibrary : MainAPI() {
             }.getOrDefault(emptyList())
         }
 
-        val actors = actorsJob.await()
-        val videos = (yamyJob.await() + daftJob.await() + tnaJob.await()).distinctBy { it.url }
+        // 5. Search FPO videos
+        val fpoJob = async {
+            runCatching {
+                val list = mutableListOf<SearchResponse>()
+                val url = "$fpoUrl/search/$slugQuery/"
+                val doc = runCatching { app.get(url, headers = fpoHeaders).document }.getOrNull()
+                doc?.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/']")?.mapNotNull { parseFpoVideoCard(it) }?.let { list.addAll(it) }
+                list.distinctBy { it.url }
+            }.getOrDefault(emptyList())
+        }
 
-        actors + videos
+        val actors = actorsJob.await()
+        val videos = (yamyJob.await() + daftJob.await() + tnaJob.await() + fpoJob.await()).distinctBy { it.url }
+
+        // Place Performer / Model profiles at index 0 (TvType.TvSeries)
+        (actors + videos).distinctBy { it.url }
     }
 
-    // 3. LOAD RESPONSE (PERFORMERS WITH 3 SEASONS OR VIDEOS)
+    // 3. LOAD RESPONSE (PERFORMERS WITH 4 SEASONS OR VIDEOS)
     override suspend fun load(url: String): LoadResponse = coroutineScope {
         val isPerformer = url.contains("/pornstar/") || url.contains("/pornstars/") || url.contains("/models/") || url.contains("/profile/")
 
@@ -312,14 +353,51 @@ class PLibrary : MainAPI() {
                 }.getOrDefault(emptyList())
             }
 
+            // Season 4: FPO videos (/models/{slug}/)
+            val fpoModelJob = async {
+                runCatching {
+                    val fList = mutableListOf<Episode>()
+                    for (p in 1..fpoModelPages.coerceIn(1, 3)) {
+                        val fUrl = if (p <= 1) "$fpoUrl/models/$slug/" else "$fpoUrl/models/$slug/page/$p/"
+                        val fDoc = runCatching { app.get(fUrl, headers = fpoHeaders).document }.getOrNull() ?: break
+                        val cards = fDoc.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/'], div:has(img) a")
+                        if (cards.isEmpty()) break
+                        cards.forEachIndexed { idx, el ->
+                            val linkEl = if (el.tagName() == "a") el else el.selectFirst("a") ?: return@forEachIndexed
+                            val link = linkEl.attr("href").ifBlank { null } ?: return@forEachIndexed
+                            if (link.contains("/models/") || link.contains("/tags/") || link == "#") return@forEachIndexed
+
+                            val imgEl = el.selectFirst("img") ?: linkEl.selectFirst("img")
+                            val title = imgEl?.attr("alt")?.ifBlank { null }
+                                ?: linkEl.attr("title").ifBlank { null }
+                                ?: el.selectFirst(".title, h2, h3")?.text()?.trim()
+                                ?: "FPO Scene ${fList.size + 1}"
+                            val img = imgEl?.attr("data-src") ?: imgEl?.attr("src")
+
+                            fList.add(
+                                Episode(
+                                    data = fixUrl(link, fpoUrl),
+                                    name = title,
+                                    season = 4, // Season 4 = FPO
+                                    episode = fList.size + 1,
+                                    posterUrl = fixUrlNull(img, fpoUrl)
+                                )
+                            )
+                        }
+                    }
+                    fList.distinctBy { it.data }
+                }.getOrDefault(emptyList())
+            }
+
             episodes.addAll(yamyJob.await())
             episodes.addAll(daftJob.await())
             episodes.addAll(tnaJob.await())
+            episodes.addAll(fpoModelJob.await())
 
             newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes) {
                 this.posterUrl = fixUrlNull(poster, url)
                 this.posterHeaders = defaultHeaders
-                this.plot = "PLibrary collection for $name: Season 1 = YamyHub, Season 2 = DaftSex, Season 3 = TnaFlix"
+                this.plot = "PLibrary collection for $name: Season 1 = YamyHub, Season 2 = DaftSex, Season 3 = TnaFlix, Season 4 = FPO"
                 this.showStatus = ShowStatus.Completed
             }
         } else if (url.contains("daftsex.biz")) {
@@ -332,6 +410,17 @@ class PLibrary : MainAPI() {
             newMovieLoadResponse(title, url, TvType.Movie, url) {
                 this.posterUrl = fixUrlNull(poster, daftSexUrl)
                 this.posterHeaders = daftHeaders
+            }
+        } else if (url.contains("fpo.xxx")) {
+            // === FPO VIDEO DETAILS ===
+            val doc = app.get(url, headers = fpoHeaders).document
+            val title = doc.selectFirst("h1, .video-title, .title")?.text()?.trim() ?: "FPO Video"
+            val poster = doc.selectFirst("meta[property='og:image']")?.attr("content")
+                ?: doc.selectFirst("video[poster]")?.attr("poster")
+
+            newMovieLoadResponse(title, url, TvType.Movie, url) {
+                this.posterUrl = fixUrlNull(poster, fpoUrl)
+                this.posterHeaders = fpoHeaders
             }
         } else {
             // === YAMYHUB VIDEO DETAILS ===
@@ -354,7 +443,7 @@ class PLibrary : MainAPI() {
         }
     }
 
-    // 4. STREAM EXTRACTION (DIRECT MP4 & HLS)
+    // 4. STREAM EXTRACTION (DIRECT MP4 & MULTI-RESOLUTION HLS)
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -363,11 +452,62 @@ class PLibrary : MainAPI() {
     ): Boolean {
         var count = 0
 
-        // 1. DaftSex Direct MP4 Resolver
+        // 1. DaftSex Multi-Quality Stream Resolver (360p to 4K)
         if (data.contains("daftsex.biz")) {
             val doc = app.get(data, headers = daftHeaders).document
             val rawHtml = doc.html()
 
+            // A. Check for hash-daftsex AJAX player
+            val numMatch = Regex("""num:\s*['"]([^'"]+)['"]""").find(rawHtml)?.groupValues?.get(1)
+            val mixMatch = Regex("""mix:\s*['"]([^'"]+)['"]""").find(rawHtml)?.groupValues?.get(1) ?: "moviesiframe2"
+
+            if (!numMatch.isNullOrBlank()) {
+                val ajaxRes = runCatching {
+                    app.post(
+                        "$daftSexUrl/hash-daftsex",
+                        data = mapOf("mix" to mixMatch, "num" to numMatch),
+                        headers = daftHeaders
+                    ).text
+                }.getOrNull()
+
+                if (!ajaxRes.isNullOrBlank()) {
+                    val iframePath = Regex("""(?:src=)?['"](/iframe/(?:v2/|convert/v2/)?([^'"]+))['"]""").find(ajaxRes)?.groupValues?.get(1)
+                        ?: Regex("""(/iframe/v2/[^'"]+)""").find(ajaxRes)?.groupValues?.get(1)
+
+                    if (!iframePath.isNullOrBlank()) {
+                        val convertPath = iframePath.replace("/iframe/v2/", "/iframe/convert/v2/")
+                        val playerDomain = if (convertPath.startsWith("http")) convertPath else "https://daftsex-biz.ibhan2.top$convertPath"
+                        val playerHtml = runCatching {
+                            app.get(playerDomain, headers = mapOf("referer" to "$daftSexUrl/")).text
+                        }.getOrNull()
+
+                        if (!playerHtml.isNullOrBlank()) {
+                            // Match Artplayer quality array: { html: '360p', url: '...' }
+                            val qualityMatches = Regex("""html:\s*['"]([^'"]+)['"],\s*url:\s*['"]([^'"]+)['"]""").findAll(playerHtml)
+                            for (qEntry in qualityMatches) {
+                                val qLabel = qEntry.groupValues[1] // e.g. 360p, 480p, 720p, 1080p, 4K
+                                val qUrl = qEntry.groupValues[2]
+                                val normalizedQuality = if (qLabel.equals("4k", ignoreCase = true)) "2160p" else qLabel
+
+                                callback(
+                                    ExtractorLink(
+                                        source = name,
+                                        name = "$name DaftSex $qLabel MP4",
+                                        url = qUrl,
+                                        referer = "$daftSexUrl/",
+                                        quality = getQualityFromName(normalizedQuality),
+                                        isM3u8 = qUrl.contains(".m3u8"),
+                                        headers = daftHeaders
+                                    )
+                                )
+                                count++
+                            }
+                        }
+                    }
+                }
+            }
+
+            // B. Direct master .mp4 links in DaftSex page (fallback & direct links)
             val mp4Matches = Regex("""(https?://daftsex\.biz/movie/[a-zA-Z0-9_\-]+\.mp4)""").findAll(rawHtml)
                 .map { it.groupValues[1] }
                 .distinct()
@@ -390,7 +530,7 @@ class PLibrary : MainAPI() {
             return count > 0
         }
 
-        // 2. YamyHub Playerjs Multi-Resolution MP4 Resolver
+        // 2. YamyHub Playerjs Multi-Resolution MP4 Resolver (360p to 1080p)
         if (data.contains("yamyhub.com")) {
             val doc = app.get(data, headers = defaultHeaders).document
             val iframeSrc = doc.selectFirst("iframe[src*='/player/']")?.attr("src")
@@ -428,7 +568,7 @@ class PLibrary : MainAPI() {
             return count > 0
         }
 
-        // 3. TnaFlix Video / HLS Stream Resolver
+        // 3. TnaFlix Video / Multi-Quality Stream Resolver
         if (data.contains("tnaflix.com")) {
             val doc = runCatching { app.get(data, headers = tnaHeaders).document }.getOrNull()
             val rawHtml = doc?.html().orEmpty()
@@ -439,15 +579,58 @@ class PLibrary : MainAPI() {
                 .toList()
 
             for (sUrl in mp4s) {
+                val qLabel = when {
+                    sUrl.contains("1080") -> "1080p"
+                    sUrl.contains("720") -> "720p"
+                    sUrl.contains("480") -> "480p"
+                    sUrl.contains("360") -> "360p"
+                    else -> "720p"
+                }
+
                 callback(
                     ExtractorLink(
                         source = name,
-                        name = "$name TnaFlix Stream",
+                        name = "$name TnaFlix $qLabel Stream",
                         url = sUrl,
                         referer = "$tnaFlixUrl/",
-                        quality = getQualityFromName("720p"),
+                        quality = getQualityFromName(qLabel),
                         isM3u8 = sUrl.contains(".m3u8"),
                         headers = tnaHeaders
+                    )
+                )
+                count++
+            }
+            return count > 0
+        }
+
+        // 4. FPO Video Stream Resolver
+        if (data.contains("fpo.xxx")) {
+            val doc = runCatching { app.get(data, headers = fpoHeaders).document }.getOrNull()
+            val rawHtml = doc?.html().orEmpty()
+
+            val streams = Regex("""(https?://[^\s"'<>]+\.(?:mp4|m3u8)[^\s"'<>]*)""").findAll(rawHtml)
+                .map { it.groupValues[1] }
+                .distinct()
+                .toList()
+
+            for (sUrl in streams) {
+                val qLabel = when {
+                    sUrl.contains("1080") -> "1080p"
+                    sUrl.contains("720") -> "720p"
+                    sUrl.contains("480") -> "480p"
+                    sUrl.contains("360") -> "360p"
+                    else -> "720p"
+                }
+
+                callback(
+                    ExtractorLink(
+                        source = name,
+                        name = "$name FPO $qLabel Stream",
+                        url = sUrl,
+                        referer = "$fpoUrl/",
+                        quality = getQualityFromName(qLabel),
+                        isM3u8 = sUrl.contains(".m3u8"),
+                        headers = fpoHeaders
                     )
                 )
                 count++
@@ -569,6 +752,25 @@ class PLibrary : MainAPI() {
         return newMovieSearchResponse(title, fixUrl(href, tnaFlixUrl), TvType.Movie) {
             this.posterUrl = fixUrlNull(poster, tnaFlixUrl)
             this.posterHeaders = tnaHeaders
+        }
+    }
+
+    private fun parseFpoVideoCard(element: Element): SearchResponse? {
+        val linkEl = if (element.tagName() == "a") element else element.selectFirst("a") ?: return null
+        val href = linkEl.attr("href")
+        if (href.isBlank() || href == "#" || href.contains("/models/") || href.contains("/categories/") || href.contains("/tags/")) return null
+
+        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
+        val title = imgEl?.attr("alt")?.ifBlank { null }
+            ?: linkEl.attr("title").ifBlank { null }
+            ?: element.selectFirst(".title, h2, h3")?.text()?.trim()
+            ?: return null
+
+        val poster = imgEl?.attr("data-src") ?: imgEl?.attr("src")
+
+        return newMovieSearchResponse(title, fixUrl(href, fpoUrl), TvType.Movie) {
+            this.posterUrl = fixUrlNull(poster, fpoUrl)
+            this.posterHeaders = fpoHeaders
         }
     }
 

@@ -49,6 +49,10 @@ class PLibraryLiveTest {
         println("Total search results for '$query': ${results.size}")
         assertTrue(results.isNotEmpty(), "Search results should not be empty")
 
+        val firstItem = results.first()
+        println("First search result: ${firstItem.name} (Type: ${firstItem.type}) -> ${firstItem.url}")
+        assertEquals(TvType.TvSeries, firstItem.type, "First item for performer search should be a TvSeries model profile")
+
         val actors = results.filter { it.type == TvType.TvSeries }
         val videos = results.filter { it.type == TvType.Movie }
 
@@ -61,7 +65,7 @@ class PLibraryLiveTest {
 
     @Test
     fun testPerformerMultiSeasonLoad() = runBlocking {
-        println("=== 3. TESTING PERFORMER MULTI-SEASON LOAD ===")
+        println("=== 3. TESTING PERFORMER 4-SEASON LOAD ===")
         val modelUrl = "https://www.yamyhub.com/pornstar/angela-white/"
         val loadResponse = plibrary.load(modelUrl) as? TvSeriesLoadResponse
         assertNotNull(loadResponse, "Load response should be TvSeriesLoadResponse")
@@ -71,17 +75,19 @@ class PLibraryLiveTest {
         val s1 = loadResponse?.episodes?.filter { it.season == 1 }.orEmpty()
         val s2 = loadResponse?.episodes?.filter { it.season == 2 }.orEmpty()
         val s3 = loadResponse?.episodes?.filter { it.season == 3 }.orEmpty()
+        val s4 = loadResponse?.episodes?.filter { it.season == 4 }.orEmpty()
 
         println("  -> Season 1 (YamyHub): ${s1.size} videos")
         println("  -> Season 2 (DaftSex): ${s2.size} videos")
         println("  -> Season 3 (TnaFlix): ${s3.size} videos")
+        println("  -> Season 4 (FPO): ${s4.size} videos")
 
-        assertTrue(s1.isNotEmpty() || s2.isNotEmpty(), "Should load videos for performer")
+        assertTrue(s1.isNotEmpty() || s2.isNotEmpty(), "Should load videos for performer across seasons")
     }
 
     @Test
     fun testStreamLinkExtraction() = runBlocking {
-        println("=== 4. TESTING DIRECT MP4 STREAM EXTRACTION ===")
+        println("=== 4. TESTING MULTI-QUALITY STREAM EXTRACTION ===")
         
         // 1. YamyHub Video
         val yamySample = "https://www.yamyhub.com/video/brazzers-mature-stepmother-cherrie-deville-fuck-during-kitchen-work-892/"
@@ -104,3 +110,4 @@ class PLibraryLiveTest {
         assertTrue(daftLinks.isNotEmpty(), "DaftSex should extract direct MP4 links")
     }
 }
+

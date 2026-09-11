@@ -49,6 +49,37 @@ open class Requests(
         val body = res.body?.string() ?: ""
         return NiceResponse(body, Jsoup.parse(body, url), url, res.code, res.headers, res)
     }
+
+    open suspend fun post(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        referer: String? = null,
+        params: Map<String, String> = emptyMap(),
+        cookies: Map<String, String> = emptyMap(),
+        data: Map<String, String> = emptyMap(),
+        allowRedirects: Boolean = true,
+        timeout: Long = 0L,
+        verify: Boolean = true,
+        responseParser: ResponseParser = ResponseParser()
+    ): NiceResponse {
+        val client = okhttp3.OkHttpClient.Builder()
+            .followRedirects(allowRedirects)
+            .followSslRedirects(allowRedirects)
+            .build()
+        val formBuilder = okhttp3.FormBody.Builder()
+        data.forEach { (k, v) -> formBuilder.add(k, v) }
+        val reqBuilder = okhttp3.Request.Builder().url(url).post(formBuilder.build())
+        val mergedHeaders = mutableMapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        )
+        mergedHeaders.putAll(defaultHeaders)
+        mergedHeaders.putAll(headers)
+        if (referer != null) mergedHeaders["Referer"] = referer
+        mergedHeaders.forEach { (k, v) -> reqBuilder.header(k, v) }
+        val res = client.newCall(reqBuilder.build()).execute()
+        val body = res.body?.string() ?: ""
+        return NiceResponse(body, Jsoup.parse(body, url), url, res.code, res.headers, res)
+    }
 }
 
 open class ResponseParser
