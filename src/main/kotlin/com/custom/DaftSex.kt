@@ -64,9 +64,9 @@ class DaftSex : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items: List<SearchResponse> = when (request.data) {
-            // Trending Videos
+            // Trending / Featured Row (Tushy 4K Playlist)
             "trending" -> {
-                val url = if (page <= 1) "$mainUrl/" else "$mainUrl/page/$page"
+                val url = if (page <= 1) "$mainUrl/playlist/tushy-4k" else "$mainUrl/playlist/tushy-4k/$page"
                 val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
                 doc?.select("a[href*='/movie/'], div.movie-item a")?.mapNotNull { parseMovieCard(it) }.orEmpty()
             }
@@ -93,16 +93,17 @@ class DaftSex : MainAPI() {
                 }
             }
 
-            // Studios / Channels Directory
+            // Studios / Channels Directory (with PornPics channel poster enrichment)
             "studios" -> {
                 coroutineScope {
                     popularStudios.map { (sName, sSlug) ->
                         async {
                             val studioDoc = runCatching { app.get("$mainUrl/video/$sSlug", headers = defaultHeaders).document }.getOrNull()
-                            val poster = extractImg(studioDoc?.selectFirst("div.video-thumb, [data-src], img"))
+                            val daftPoster = extractImg(studioDoc?.selectFirst("div.video-thumb, [data-src], img"))
+                            val poster = daftPoster ?: fetchPornPicsChannelPoster(sSlug)
                             newTvSeriesSearchResponse(sName, "$mainUrl/video/$sSlug", TvType.TvSeries) {
                                 this.posterUrl = fixUrlNull(poster, mainUrl)
-                                this.posterHeaders = defaultHeaders
+                                this.posterHeaders = if (poster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders
                             }
                         }
                     }.awaitAll()
@@ -147,6 +148,7 @@ class DaftSex : MainAPI() {
                 if (queryWords.size in 1..4 && slugQuery.isNotBlank()) {
                     val actorDoc = runCatching { app.get("$mainUrl/video/$slugQuery", headers = defaultHeaders).document }.getOrNull()
                     val actorPoster = extractImg(actorDoc?.selectFirst("div.video-thumb, [data-src], img"))
+                        ?: fetchPornPicsChannelPoster(slugQuery)
 
                     list.add(
                         newTvSeriesSearchResponse(
@@ -155,7 +157,7 @@ class DaftSex : MainAPI() {
                             type = TvType.TvSeries
                         ) {
                             this.posterUrl = fixUrlNull(actorPoster, mainUrl)
-                            this.posterHeaders = defaultHeaders
+                            this.posterHeaders = if (actorPoster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders
                         }
                     )
                 }
@@ -196,7 +198,8 @@ class DaftSex : MainAPI() {
                     .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
             val slug = rawSlug.ifBlank { name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') }
-            val poster = extractImg(doc?.selectFirst("meta[property='og:image'], .profile, .img-holder, div.video-thumb, img"))
+            val daftPoster = extractImg(doc?.selectFirst("meta[property='og:image'], .profile, .img-holder, div.video-thumb, img"))
+            val poster = daftPoster ?: fetchPornPicsChannelPoster(slug)
 
             val episodes = mutableListOf<Episode>()
             for (p in 1..modelPages.coerceIn(1, 10)) {
@@ -228,7 +231,7 @@ class DaftSex : MainAPI() {
 
             return newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes.distinctBy { it.data }) {
                 this.posterUrl = fixUrlNull(poster, url)
-                this.posterHeaders = defaultHeaders
+                this.posterHeaders = if (poster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders
                 this.plot = "Videos for $name on DaftSex"
                 this.showStatus = ShowStatus.Completed
             }
@@ -266,15 +269,21 @@ class DaftSex : MainAPI() {
         val doc = app.get(data, headers = defaultHeaders).document
         val rawHtml = doc.html()
 
-        // 1. Check for hash-daftsex AJAX player
+        // 1. Check for hash-daftsex AJAX player num token
         val numMatch = Regex("""num:\s*['"]([^'"]+)['"]""").find(rawHtml)?.groupValues?.get(1)
-        val mixMatch = Regex("""mix:\s*['"]([^'"]+)['"]""").find(rawHtml)?.groupValues?.get(1) ?: "moviesiframe2"
 
         if (!numMatch.isNullOrBlank()) {
+            val iframeReferer = "https://daftsex-biz.ibhan2.top/"
+            val streamHeaders = mapOf(
+                "referer" to iframeReferer,
+                "user-agent" to (defaultHeaders["user-agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            )
+
+            // Step 1: Query moviesiframe2 endpoint for multi-resolution Artplayer streams
             val ajaxRes = runCatching {
                 app.post(
                     "$mainUrl/hash-daftsex",
-                    data = mapOf("mix" to mixMatch, "num" to numMatch),
+                    data = mapOf("mix" to "moviesiframe2", "num" to numMatch),
                     headers = defaultHeaders + mapOf("X-Requested-With" to "XMLHttpRequest")
                 ).text
             }.getOrNull()
@@ -296,6 +305,8 @@ class DaftSex : MainAPI() {
                         for (qEntry in qualityMatches) {
                             val qLabel = qEntry.groupValues[1].trim()
                             val qUrl = qEntry.groupValues[2].trim()
+                            if (qUrl.isBlank()) continue
+
                             val normalizedQuality = when {
                                 qLabel.contains("4k", ignoreCase = true) || qLabel.contains("2160") -> "2160p"
                                 qLabel.contains("1080") -> "1080p"
@@ -310,10 +321,10 @@ class DaftSex : MainAPI() {
                                     source = name,
                                     name = "$name $qLabel MP4",
                                     url = qUrl,
-                                    referer = "$mainUrl/",
+                                    referer = iframeReferer,
                                     quality = getQualityFromName(normalizedQuality),
                                     isM3u8 = qUrl.contains(".m3u8"),
-                                    headers = defaultHeaders
+                                    headers = streamHeaders
                                 )
                             )
                             count++
@@ -321,32 +332,69 @@ class DaftSex : MainAPI() {
                     }
                 }
             }
-        }
 
-        // 2. Direct master .mp4 links in DaftSex page (fallback & direct links)
-        if (count == 0) {
-            val mp4Matches = Regex("""(https?://daftsex\.biz/movie/[a-zA-Z0-9_\-]+\.mp4)""").findAll(rawHtml)
-                .map { it.groupValues[1] }
-                .distinct()
-                .toList()
+            // Step 2: Fallback to downvideo endpoint if Artplayer did not yield streams
+            if (count == 0) {
+                val downAjaxRes = runCatching {
+                    app.post(
+                        "$mainUrl/hash-daftsex",
+                        data = mapOf("mix" to "downvideo", "num" to numMatch, "op" to "down", "url" to "NQ=="),
+                        headers = defaultHeaders + mapOf("X-Requested-With" to "XMLHttpRequest")
+                    ).text
+                }.getOrNull()
 
-            for (mp4 in mp4Matches) {
-                callback(
-                    ExtractorLink(
-                        source = name,
-                        name = "$name 1080p MP4",
-                        url = mp4,
-                        referer = "$mainUrl/",
-                        quality = getQualityFromName("1080p"),
-                        isM3u8 = false,
-                        headers = defaultHeaders
-                    )
-                )
-                count++
+                if (!downAjaxRes.isNullOrBlank()) {
+                    val downUrlMatch = Regex("""(?:src=)?['"](https?://[^'"\s]+/download/v2/[^'"\s]+|/download/v2/[^'"\s]+)['"]""")
+                        .find(downAjaxRes)?.groupValues?.get(1)
+
+                    if (!downUrlMatch.isNullOrBlank()) {
+                        val fullDownUrl = if (downUrlMatch.startsWith("http")) downUrlMatch else "https://daftsex-biz.ibhan2.top$downUrlMatch"
+                        val downDoc = runCatching {
+                            app.get(fullDownUrl, headers = mapOf("referer" to "$mainUrl/")).document
+                        }.getOrNull()
+
+                        downDoc?.select("a.button-down, a[href*='vkuser.net'], a[download]")?.forEach { btn ->
+                            val href = btn.attr("href").trim()
+                            val text = btn.text().trim()
+                            if (href.isNotBlank() && href.startsWith("http")) {
+                                val normalizedQuality = when {
+                                    text.contains("4k", ignoreCase = true) || text.contains("2160") -> "2160p"
+                                    text.contains("1080") -> "1080p"
+                                    text.contains("720") -> "720p"
+                                    text.contains("480") -> "480p"
+                                    text.contains("360") -> "360p"
+                                    else -> "720p"
+                                }
+                                callback(
+                                    ExtractorLink(
+                                        source = name,
+                                        name = "$name ${if (text.isNotBlank()) text else "Direct"} MP4",
+                                        url = href,
+                                        referer = iframeReferer,
+                                        quality = getQualityFromName(normalizedQuality),
+                                        isM3u8 = href.contains(".m3u8"),
+                                        headers = streamHeaders
+                                    )
+                                )
+                                count++
+                            }
+                        }
+                    }
+                }
             }
         }
 
         return count > 0
+    }
+
+    private suspend fun fetchPornPicsChannelPoster(channelSlug: String): String? {
+        val cleanSlug = channelSlug.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        if (cleanSlug.isBlank()) return null
+        return runCatching {
+            val doc = app.get("$pornpicsUrl/channels/$cleanSlug/", headers = pornpicsHeaders).document
+            val imgEl = doc.selectFirst("li.thumb img, div.thumb-holder img, img.thumb_image, .channel-logo img, meta[property='og:image']")
+            extractImg(imgEl) ?: imgEl?.attr("data-src")?.ifBlank { null } ?: imgEl?.attr("src")?.ifBlank { null }
+        }.getOrNull()
     }
 
     // 5. HELPER CARD PARSERS
