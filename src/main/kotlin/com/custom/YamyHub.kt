@@ -191,9 +191,6 @@ class YamyHub : MainAPI() {
             val trailerM3u8 = runCatching {
                 TrailerHelper.fetchStudioTrailerM3u8(name) ?: TrailerHelper.fetchModelTrailerM3u8(name)
             }.getOrNull()
-            if (!trailerM3u8.isNullOrBlank()) {
-                episodes.add(TrailerHelper.createTrailerEpisode(trailerM3u8, "🎬 Trailer / Preview ($name)", poster))
-            }
 
             val prefix = if (url.contains("/channel/")) "channel" else "pornstar"
             for (p in 1..modelPages.coerceIn(1, 10)) {
@@ -226,6 +223,9 @@ class YamyHub : MainAPI() {
                 this.posterHeaders = if (poster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders
                 this.plot = "Videos featuring $name on YamyHub"
                 this.showStatus = ShowStatus.Completed
+                if (!trailerM3u8.isNullOrBlank()) {
+                    this.addTrailer(trailerM3u8)
+                }
             }
         } else {
             val doc = app.get(url, headers = defaultHeaders).document

@@ -269,9 +269,6 @@ class PLibrary : MainAPI() {
             val trailerM3u8 = runCatching {
                 TrailerHelper.fetchStudioTrailerM3u8(name) ?: TrailerHelper.fetchModelTrailerM3u8(name)
             }.getOrNull()
-            if (!trailerM3u8.isNullOrBlank()) {
-                episodes.add(TrailerHelper.createTrailerEpisode(trailerM3u8, "🎬 Trailer / Preview ($name)", poster))
-            }
 
             // Season 1: YamyHub videos (/pornstar/{slug}/)
             val yamyJob = async {
@@ -412,6 +409,9 @@ class PLibrary : MainAPI() {
                 this.posterHeaders = defaultHeaders
                 this.plot = "PLibrary collection for $name: Season 1 = YamyHub, Season 2 = DaftSex, Season 3 = TnaFlix, Season 4 = FPO"
                 this.showStatus = ShowStatus.Completed
+                if (!trailerM3u8.isNullOrBlank()) {
+                    this.addTrailer(trailerM3u8)
+                }
             }
         } else if (url.contains("daftsex.biz")) {
             // === DAFTSEX VIDEO DETAILS ===

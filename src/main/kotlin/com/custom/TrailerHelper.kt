@@ -150,15 +150,6 @@ object TrailerHelper {
         )
     }
 
-    fun createTrailerEpisode(m3u8Url: String, title: String = "🎬 Trailer / Preview", posterUrl: String? = null): Episode {
-        return Episode(
-            data = "trailer:$m3u8Url",
-            name = title,
-            season = 1,
-            episode = 0,
-            posterUrl = posterUrl
-        )
-    }
 
     fun handleTrailerStream(data: String, providerName: String, callback: (ExtractorLink) -> Unit): Boolean {
         if (data.startsWith("trailer:") || data.contains("pornstar-scenes.com") || data.endsWith(".m3u8")) {
