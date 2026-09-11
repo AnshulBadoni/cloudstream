@@ -1,6 +1,6 @@
 {
   "name": "Anshul Providers",
-  "description": "CloudStream adult and multi-source streaming providers repository.",
+  "description": "CloudStream adult and streaming providers repository.",
   "manifestVersion": 1,
   "pluginLists": [
     "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/plugins.json"

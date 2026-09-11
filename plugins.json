@@ -12,14 +12,74 @@
     "tvTypes": ["NSFW", "Movie", "Others"],
     "iconUrl": "https://www.porntrex.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PornTrex.cs3",
-    "fileSize": 137020
+    "fileSize": 168422
+  },
+  {
+    "name": "YamyHub",
+    "internalName": "YamyHub",
+    "version": 84,
+    "apiVersion": 1,
+    "description": "Fast video streaming with studio channels (Vixen, Blacked, Brazzers), performer catalogs, and direct multi-resolution MP4 downloads (360p-1080p).",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie", "TvSeries"],
+    "iconUrl": "https://www.yamyhub.com/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/YamyHub.cs3",
+    "fileSize": 168419
+  },
+  {
+    "name": "DaftSex",
+    "internalName": "DaftSex",
+    "version": 84,
+    "apiVersion": 1,
+    "description": "High performance provider with fast CDN streaming, performer profiles, and multi-resolution MP4 video streams from 360p up to 4K.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie", "TvSeries"],
+    "iconUrl": "https://daftsex.biz/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/DaftSex.cs3",
+    "fileSize": 168419
+  },
+  {
+    "name": "TnaFlix",
+    "internalName": "TnaFlix",
+    "version": 84,
+    "apiVersion": 1,
+    "description": "Extensive video catalog with trending scenes, categories, performer channels, and multi-resolution stream extraction.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie", "TvSeries"],
+    "iconUrl": "https://www.tnaflix.com/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/TnaFlix.cs3",
+    "fileSize": 168419
+  },
+  {
+    "name": "FPO",
+    "internalName": "FPO",
+    "version": 84,
+    "apiVersion": 1,
+    "description": "Fast video indexing with model profiles, trending videos, and direct downloadable MP4 streams.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie", "TvSeries"],
+    "iconUrl": "https://www.fpo.xxx/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/FPO.cs3",
+    "fileSize": 168415
   },
   {
     "name": "MultiSource",
     "internalName": "MultiSource",
     "version": 84,
     "apiVersion": 1,
-    "description": "Multi-source aggregator with SpeedPorn, ParadiseHill, and PornTrex: multi-page deep search, VOE/Dood/MixDrop/MP4 stream resolvers, uncompressed 300x430 covers, multi-part CD episodes, and actor catalog seasons.",
+    "description": "Multi-source aggregator with SpeedPorn and ParadiseHill: deep search, MP4/VOE stream resolvers, multi-part CD episodes, and actor catalogs.",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,
@@ -27,14 +87,14 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://en.paradisehill.cc/img/favicon/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/MultiSource.cs3",
-    "fileSize": 137018
+    "fileSize": 168420
   },
   {
     "name": "PLibrary",
     "internalName": "PLibrary",
     "version": 84,
     "apiVersion": 1,
-    "description": "Premium multi-source library with YamyHub, DaftSex, TnaFlix & PornPics: studio catalogs (Vixen, Blacked, Brazzers), actor multi-season views, and direct downloadable multi-resolution MP4s.",
+    "description": "Multi-source aggregated collection with 4 seasons per performer across YamyHub, DaftSex, TnaFlix, and FPO.",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,
@@ -42,6 +102,6 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://www.yamyhub.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PLibrary.cs3",
-    "fileSize": 137018
+    "fileSize": 168420
   }
 ]
