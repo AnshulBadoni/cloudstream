@@ -156,72 +156,43 @@ tasks.register("makePlugin") {
             }
         }
 
-        val porntrexManifest = """
+        fun createPluginZip(pluginName: String, className: String, outFile: File) {
+            val manifest = """
 {
-  "name": "PornTrex",
-  "pluginClassName": "com.megix.PorntrexProvider",
+  "name": "$pluginName",
+  "pluginClassName": "$className",
   "requiresResources": false,
   "version": 84
 }
-        """.trimIndent()
-        val cs3File = File(distDir, "PornTrex.cs3")
-
-        // 1. Create PornTrex.cs3
-        ZipOutputStream(FileOutputStream(cs3File)).use { zos ->
-            zos.putNextEntry(ZipEntry("manifest.json"))
-            zos.write(porntrexManifest.toByteArray(Charsets.UTF_8))
-            zos.closeEntry()
-
-            dexDir.listFiles()?.filter { it.extension == "dex" }?.sortedBy { it.name }?.forEach { dexFile ->
-                zos.putNextEntry(ZipEntry(dexFile.name))
-                dexFile.inputStream().use { it.copyTo(zos) }
+            """.trimIndent()
+            ZipOutputStream(FileOutputStream(outFile)).use { zos ->
+                zos.putNextEntry(ZipEntry("manifest.json"))
+                zos.write(manifest.toByteArray(Charsets.UTF_8))
                 zos.closeEntry()
+
+                dexDir.listFiles()?.filter { it.extension == "dex" }?.sortedBy { it.name }?.forEach { dexFile ->
+                    zos.putNextEntry(ZipEntry(dexFile.name))
+                    dexFile.inputStream().use { it.copyTo(zos) }
+                    zos.closeEntry()
+                }
             }
         }
 
-        // 2. Create MultiSource.cs3
-        val multiSourceManifest = """
-{
-  "name": "MultiSource",
-  "pluginClassName": "com.custom.CustomProvider",
-  "requiresResources": false,
-  "version": 84
-}
-        """.trimIndent()
+        val porntrexCs3 = File(distDir, "PornTrex.cs3")
         val multiSourceCs3 = File(distDir, "MultiSource.cs3")
-        ZipOutputStream(FileOutputStream(multiSourceCs3)).use { zos ->
-            zos.putNextEntry(ZipEntry("manifest.json"))
-            zos.write(multiSourceManifest.toByteArray(Charsets.UTF_8))
-            zos.closeEntry()
-
-            dexDir.listFiles()?.filter { it.extension == "dex" }?.sortedBy { it.name }?.forEach { dexFile ->
-                zos.putNextEntry(ZipEntry(dexFile.name))
-                dexFile.inputStream().use { it.copyTo(zos) }
-                zos.closeEntry()
-            }
-        }
-
-        // 3. Create PLibrary.cs3
-        val plibraryManifest = """
-{
-  "name": "PLibrary",
-  "pluginClassName": "com.custom.CustomProvider",
-  "requiresResources": false,
-  "version": 84
-}
-        """.trimIndent()
+        val yamyHubCs3 = File(distDir, "YamyHub.cs3")
+        val daftSexCs3 = File(distDir, "DaftSex.cs3")
+        val tnaFlixCs3 = File(distDir, "TnaFlix.cs3")
+        val fpoCs3 = File(distDir, "FPO.cs3")
         val plibraryCs3 = File(distDir, "PLibrary.cs3")
-        ZipOutputStream(FileOutputStream(plibraryCs3)).use { zos ->
-            zos.putNextEntry(ZipEntry("manifest.json"))
-            zos.write(plibraryManifest.toByteArray(Charsets.UTF_8))
-            zos.closeEntry()
 
-            dexDir.listFiles()?.filter { it.extension == "dex" }?.sortedBy { it.name }?.forEach { dexFile ->
-                zos.putNextEntry(ZipEntry(dexFile.name))
-                dexFile.inputStream().use { it.copyTo(zos) }
-                zos.closeEntry()
-            }
-        }
+        createPluginZip("PornTrex", "com.megix.PorntrexProvider", porntrexCs3)
+        createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3)
+        createPluginZip("YamyHub", "com.custom.CustomProvider", yamyHubCs3)
+        createPluginZip("DaftSex", "com.custom.CustomProvider", daftSexCs3)
+        createPluginZip("TnaFlix", "com.custom.CustomProvider", tnaFlixCs3)
+        createPluginZip("FPO", "com.custom.CustomProvider", fpoCs3)
+        createPluginZip("PLibrary", "com.custom.CustomProvider", plibraryCs3)
 
         val pluginsJson = """
 [
@@ -238,14 +209,74 @@ tasks.register("makePlugin") {
     "tvTypes": ["NSFW", "Movie", "Others"],
     "iconUrl": "https://www.porntrex.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PornTrex.cs3",
-    "fileSize": ${if (cs3File.exists()) cs3File.length() else 102400}
+    "fileSize": ${if (porntrexCs3.exists()) porntrexCs3.length() else 102400}
+  },
+  {
+    "name": "YamyHub",
+    "internalName": "YamyHub",
+    "version": 84,
+    "apiVersion": 1,
+    "description": "Fast video streaming with studio channels (Vixen, Blacked, Brazzers), performer catalogs, and direct multi-resolution MP4 downloads (360p-1080p).",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie", "TvSeries"],
+    "iconUrl": "https://www.yamyhub.com/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/YamyHub.cs3",
+    "fileSize": ${if (yamyHubCs3.exists()) yamyHubCs3.length() else 102400}
+  },
+  {
+    "name": "DaftSex",
+    "internalName": "DaftSex",
+    "version": 84,
+    "apiVersion": 1,
+    "description": "High performance provider with fast CDN streaming, performer profiles, and multi-resolution MP4 video streams from 360p up to 4K.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie", "TvSeries"],
+    "iconUrl": "https://daftsex.biz/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/DaftSex.cs3",
+    "fileSize": ${if (daftSexCs3.exists()) daftSexCs3.length() else 102400}
+  },
+  {
+    "name": "TnaFlix",
+    "internalName": "TnaFlix",
+    "version": 84,
+    "apiVersion": 1,
+    "description": "Extensive video catalog with trending scenes, categories, performer channels, and multi-resolution stream extraction.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie", "TvSeries"],
+    "iconUrl": "https://www.tnaflix.com/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/TnaFlix.cs3",
+    "fileSize": ${if (tnaFlixCs3.exists()) tnaFlixCs3.length() else 102400}
+  },
+  {
+    "name": "FPO",
+    "internalName": "FPO",
+    "version": 84,
+    "apiVersion": 1,
+    "description": "Fast video indexing with model profiles, trending videos, and direct downloadable MP4 streams.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie", "TvSeries"],
+    "iconUrl": "https://www.fpo.xxx/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/FPO.cs3",
+    "fileSize": ${if (fpoCs3.exists()) fpoCs3.length() else 102400}
   },
   {
     "name": "MultiSource",
     "internalName": "MultiSource",
     "version": 84,
     "apiVersion": 1,
-    "description": "Multi-source aggregator with SpeedPorn, ParadiseHill, and PornTrex: multi-page deep search, VOE/Dood/MixDrop/MP4 stream resolvers, uncompressed 300x430 covers, multi-part CD episodes, and actor catalog seasons.",
+    "description": "Multi-source aggregator with SpeedPorn and ParadiseHill: deep search, MP4/VOE stream resolvers, multi-part CD episodes, and actor catalogs.",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,
@@ -260,7 +291,7 @@ tasks.register("makePlugin") {
     "internalName": "PLibrary",
     "version": 84,
     "apiVersion": 1,
-    "description": "Premium multi-source library with YamyHub, DaftSex, TnaFlix & PornPics: studio catalogs (Vixen, Blacked, Brazzers), actor multi-season views, and direct downloadable multi-resolution MP4s.",
+    "description": "Multi-source aggregated collection with 4 seasons per performer across YamyHub, DaftSex, TnaFlix, and FPO.",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,
@@ -276,7 +307,7 @@ tasks.register("makePlugin") {
         val repoJson = """
 {
   "name": "Anshul Providers",
-  "description": "CloudStream adult and multi-source streaming providers repository.",
+  "description": "CloudStream adult and streaming providers repository.",
   "manifestVersion": 1,
   "pluginLists": [
     "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/plugins.json"
@@ -287,7 +318,8 @@ tasks.register("makePlugin") {
         File(distDir, "plugins.json").writeText(pluginsJson)
         File(distDir, "builds.json").writeText(pluginsJson)
         File(distDir, "repo.json").writeText(repoJson)
-        println("✓ Successfully generated repo.json, plugins.json, PornTrex.cs3, MultiSource.cs3, and PLibrary.cs3 in ${distDir.absolutePath}")
+        println("✓ Successfully generated repo.json, plugins.json, and all standalone .cs3 plugins in ${distDir.absolutePath}")
     }
 }
+
 

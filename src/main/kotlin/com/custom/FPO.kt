@@ -1,0 +1,280 @@
+package com.custom
+
+import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.utils.*
+import kotlinx.coroutines.*
+import org.jsoup.nodes.Element
+
+/**
+ * FPO Standalone Provider for CloudStream
+ */
+class FPO : MainAPI() {
+    override var mainUrl = "https://www.fpo.xxx"
+    override var name = "FPO"
+    override val hasMainPage = true
+    override var lang = "en"
+    override val hasDownloadSupport = true
+    override val vpnStatus = VPNStatus.MightBeNeeded
+    override val supportedTypes = setOf(TvType.NSFW, TvType.TvSeries, TvType.Movie)
+
+    private val defaultHeaders = mapOf(
+        "referer" to "$mainUrl/",
+        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+
+    companion object {
+        var searchPages: Int = 2
+        var modelPages: Int = 2
+    }
+
+    // 1. HOME PAGE CATALOG DEFINITIONS (Clean, No Emojis)
+    override val mainPage = mainPageOf(
+        "trending" to "Trending",
+        "latest" to "Latest",
+        "actors" to "Actors",
+        "categories" to "Categories"
+    )
+
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        val items: List<SearchResponse> = when (request.data) {
+            // Trending Videos
+            "trending" -> {
+                val url = if (page <= 1) "$mainUrl/" else "$mainUrl/page/$page/"
+                val doc = app.get(url, headers = defaultHeaders).document
+                doc.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/']").mapNotNull { parseVideoCard(it) }
+            }
+
+            // Latest Videos
+            "latest" -> {
+                val url = if (page <= 1) "$mainUrl/latest-updates/" else "$mainUrl/latest-updates/page/$page/"
+                val doc = app.get(url, headers = defaultHeaders).document
+                doc.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/']").mapNotNull { parseVideoCard(it) }
+            }
+
+            // Actors / Models
+            "actors" -> {
+                val url = if (page <= 1) "$mainUrl/models/" else "$mainUrl/models/page/$page/"
+                val doc = app.get(url, headers = defaultHeaders).document
+                doc.select("div.item, div.model-item, a[href*='/models/']").mapNotNull { parseActorCard(it) }
+            }
+
+            // Categories
+            else -> {
+                val url = if (page <= 1) "$mainUrl/categories/" else "$mainUrl/categories/page/$page/"
+                val doc = app.get(url, headers = defaultHeaders).document
+                doc.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/']").mapNotNull { parseVideoCard(it) }
+            }
+        }
+
+        val hasNextPage = items.size >= 12
+        val homePageList = HomePageList(request.name, items.distinctBy { it.url }, isHorizontalImages = request.data == "actors")
+        return newHomePageResponse(homePageList, hasNextPage)
+    }
+
+    // 2. SEARCH WITH PERFORMER MATCH PRIORITIZATION
+    override suspend fun search(query: String): List<SearchResponse> = coroutineScope {
+        val cleanQuery = query.trim().replace(" ", "+")
+        val slugQuery = query.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        val queryWords = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        val titleCaseQuery = queryWords.joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+
+        // 1. Search actors (Synthetic Performer Card)
+        val actorsJob = async {
+            runCatching {
+                val list = mutableListOf<SearchResponse>()
+                if (queryWords.size in 1..4 && slugQuery.isNotBlank()) {
+                    list.add(
+                        newTvSeriesSearchResponse(
+                            name = titleCaseQuery,
+                            url = "$mainUrl/models/$slugQuery/",
+                            type = TvType.TvSeries
+                        ) {
+                            this.posterHeaders = defaultHeaders
+                        }
+                    )
+                }
+                list.distinctBy { it.url }
+            }.getOrDefault(emptyList())
+        }
+
+        // 2. Search videos across configured searchPages
+        val videosJob = async {
+            runCatching {
+                val list = mutableListOf<SearchResponse>()
+                for (p in 1..searchPages.coerceIn(1, 10)) {
+                    val url = if (p <= 1) "$mainUrl/search/$slugQuery/" else "$mainUrl/search/$slugQuery/page/$p/"
+                    val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull() ?: break
+                    val items = doc.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/']").mapNotNull { parseVideoCard(it) }
+                    if (items.isEmpty()) break
+                    list.addAll(items)
+                }
+                list.distinctBy { it.url }
+            }.getOrDefault(emptyList())
+        }
+
+        val actors = actorsJob.await()
+        val videos = videosJob.await()
+
+        (actors + videos).distinctBy { it.url }
+    }
+
+    // 3. LOAD RESPONSE (PERFORMER OR VIDEO)
+    override suspend fun load(url: String): LoadResponse {
+        val isPerformer = url.contains("/models/")
+
+        if (isPerformer) {
+            val rawSlug = url.trimEnd('/').substringAfterLast('/').lowercase().trim()
+            val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+            val name = doc?.selectFirst("h1")?.text()?.trim()
+                ?: rawSlug.replace("-", " ").split(" ").filter { it.isNotBlank() }
+                    .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+
+            val slug = rawSlug.ifBlank { name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') }
+            val poster = doc?.selectFirst("meta[property='og:image']")?.attr("content")
+                ?: doc?.selectFirst(".profile img, .img-holder img, img")?.attr("src")
+
+            val episodes = mutableListOf<Episode>()
+            for (p in 1..modelPages.coerceIn(1, 10)) {
+                val pageUrl = if (p <= 1) "$mainUrl/models/$slug/" else "$mainUrl/models/$slug/page/$p/"
+                val pageDoc = runCatching { app.get(pageUrl, headers = defaultHeaders).document }.getOrNull() ?: break
+                val cards = pageDoc.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/'], div:has(img) a")
+                if (cards.isEmpty()) break
+                cards.forEach { el ->
+                    val linkEl = if (el.tagName() == "a") el else el.selectFirst("a") ?: return@forEach
+                    val link = linkEl.attr("href").ifBlank { null } ?: return@forEach
+                    if (link.contains("/models/") || link.contains("/tags/") || link == "#") return@forEach
+
+                    val imgEl = el.selectFirst("img") ?: linkEl.selectFirst("img")
+                    val title = imgEl?.attr("alt")?.ifBlank { null }
+                        ?: linkEl.attr("title").ifBlank { null }
+                        ?: el.selectFirst(".title, h2, h3")?.text()?.trim()
+                        ?: "FPO Scene ${episodes.size + 1}"
+                    val img = imgEl?.attr("data-src") ?: imgEl?.attr("src")
+
+                    episodes.add(
+                        Episode(
+                            data = fixUrl(link, mainUrl),
+                            name = title,
+                            season = 1,
+                            episode = episodes.size + 1,
+                            posterUrl = fixUrlNull(img, mainUrl)
+                        )
+                    )
+                }
+            }
+
+            return newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes.distinctBy { it.data }) {
+                this.posterUrl = fixUrlNull(poster, url)
+                this.posterHeaders = defaultHeaders
+                this.plot = "Videos featuring $name on FPO"
+                this.showStatus = ShowStatus.Completed
+            }
+        } else {
+            val doc = app.get(url, headers = defaultHeaders).document
+            val title = doc.selectFirst("h1, .video-title, .title")?.text()?.trim() ?: "FPO Video"
+            val poster = doc.selectFirst("meta[property='og:image']")?.attr("content")
+                ?: doc.selectFirst("video[poster]")?.attr("poster")
+
+            return newMovieLoadResponse(title, url, TvType.Movie, url) {
+                this.posterUrl = fixUrlNull(poster, mainUrl)
+                this.posterHeaders = defaultHeaders
+            }
+        }
+    }
+
+    // 4. STREAM EXTRACTION (MULTI-RESOLUTION MP4)
+    override suspend fun loadLinks(
+        data: String,
+        isCasting: Boolean,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        var count = 0
+        val doc = runCatching { app.get(data, headers = defaultHeaders).document }.getOrNull()
+        val rawHtml = doc?.html().orEmpty()
+
+        val streams = Regex("""(https?://[^\s"'<>]+\.(?:mp4|m3u8)[^\s"'<>]*)""").findAll(rawHtml)
+            .map { it.groupValues[1] }
+            .distinct()
+            .toList()
+
+        for (sUrl in streams) {
+            val qLabel = when {
+                sUrl.contains("1080") -> "1080p"
+                sUrl.contains("720") -> "720p"
+                sUrl.contains("480") -> "480p"
+                sUrl.contains("360") -> "360p"
+                else -> "720p"
+            }
+
+            callback(
+                ExtractorLink(
+                    source = name,
+                    name = "$name $qLabel Stream",
+                    url = sUrl,
+                    referer = "$mainUrl/",
+                    quality = getQualityFromName(qLabel),
+                    isM3u8 = sUrl.contains(".m3u8"),
+                    headers = defaultHeaders
+                )
+            )
+            count++
+        }
+
+        return count > 0
+    }
+
+    // 5. HELPER CARD PARSERS
+    private fun parseVideoCard(element: Element): SearchResponse? {
+        val linkEl = if (element.tagName() == "a") element else element.selectFirst("a") ?: return null
+        val href = linkEl.attr("href")
+        if (href.isBlank() || href == "#" || href.contains("/models/") || href.contains("/categories/") || href.contains("/tags/")) return null
+
+        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
+        val title = imgEl?.attr("alt")?.ifBlank { null }
+            ?: linkEl.attr("title").ifBlank { null }
+            ?: element.selectFirst(".title, h2, h3")?.text()?.trim()
+            ?: return null
+
+        val poster = imgEl?.attr("data-src") ?: imgEl?.attr("src")
+
+        return newMovieSearchResponse(title, fixUrl(href, mainUrl), TvType.Movie) {
+            this.posterUrl = fixUrlNull(poster, mainUrl)
+            this.posterHeaders = defaultHeaders
+        }
+    }
+
+    private fun parseActorCard(element: Element): SearchResponse? {
+        val linkEl = if (element.tagName() == "a") element else element.selectFirst("a") ?: return null
+        val href = linkEl.attr("href")
+        if (href.isBlank() || href == "#" || !href.contains("/models/")) return null
+
+        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
+        val name = imgEl?.attr("alt")?.ifBlank { null }
+            ?: linkEl.attr("title").ifBlank { null }
+            ?: element.selectFirst(".title, h2, h3, .name")?.text()?.trim()
+            ?: return null
+
+        val poster = imgEl?.attr("data-src") ?: imgEl?.attr("src")
+
+        return newTvSeriesSearchResponse(name, fixUrl(href, mainUrl), TvType.TvSeries) {
+            this.posterUrl = fixUrlNull(poster, mainUrl)
+            this.posterHeaders = defaultHeaders
+        }
+    }
+
+    private fun fixUrl(url: String, base: String = mainUrl): String {
+        val cleanUrl = url.replace("\\/", "/")
+        return when {
+            cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://") -> cleanUrl
+            cleanUrl.startsWith("//") -> "https:$cleanUrl"
+            cleanUrl.startsWith("/") -> base.trimEnd('/') + cleanUrl
+            else -> base.trimEnd('/') + "/" + cleanUrl
+        }
+    }
+
+    private fun fixUrlNull(url: String?, base: String = mainUrl): String? {
+        if (url.isNullOrBlank()) return null
+        return fixUrl(url, base)
+    }
+}
