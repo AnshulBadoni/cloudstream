@@ -55,6 +55,9 @@ class StandaloneProvidersTest {
         val studioList = studios.items.firstOrNull()?.list.orEmpty()
         println("DaftSex Studios count: ${studioList.size}")
         assertTrue(studioList.isNotEmpty(), "DaftSex studios should not be empty")
+        val sampleStudioPoster = studioList.first().posterUrl
+        println("  Sample Studio Poster: $sampleStudioPoster")
+        assertNotNull(sampleStudioPoster, "Studio poster should not be null")
 
         // 3. Search
         val query = "angela white"
@@ -64,6 +67,8 @@ class StandaloneProvidersTest {
         val firstItem = searchRes.first()
         println("  First Search Result: ${firstItem.name} (Type: ${firstItem.type}) -> ${firstItem.url}")
         assertEquals(TvType.TvSeries, firstItem.type, "First item should be a TvSeries model card")
+        println("  Search Actor Poster: ${firstItem.posterUrl}")
+        assertNotNull(firstItem.posterUrl, "Search actor card should have poster image")
 
         // 4. Model / Channel Load
         val modelRes = provider.load(firstItem.url) as? TvSeriesLoadResponse

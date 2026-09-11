@@ -95,10 +95,17 @@ class DaftSex : MainAPI() {
 
             // Studios / Channels Directory
             "studios" -> {
-                popularStudios.map { (sName, sSlug) ->
-                    newTvSeriesSearchResponse(sName, "$mainUrl/video/$sSlug", TvType.TvSeries) {
-                        this.posterHeaders = defaultHeaders
-                    }
+                coroutineScope {
+                    popularStudios.map { (sName, sSlug) ->
+                        async {
+                            val studioDoc = runCatching { app.get("$mainUrl/video/$sSlug", headers = defaultHeaders).document }.getOrNull()
+                            val poster = extractImg(studioDoc?.selectFirst("div.video-thumb, [data-src], img"))
+                            newTvSeriesSearchResponse(sName, "$mainUrl/video/$sSlug", TvType.TvSeries) {
+                                this.posterUrl = fixUrlNull(poster, mainUrl)
+                                this.posterHeaders = defaultHeaders
+                            }
+                        }
+                    }.awaitAll()
                 }
             }
 
@@ -133,17 +140,21 @@ class DaftSex : MainAPI() {
         val queryWords = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
         val titleCaseQuery = queryWords.joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
-        // 1. Search actors (Synthetic Performer Card)
+        // 1. Search actors (Synthetic Performer Card with Dynamic Poster)
         val actorsJob = async {
             runCatching {
                 val list = mutableListOf<SearchResponse>()
                 if (queryWords.size in 1..4 && slugQuery.isNotBlank()) {
+                    val actorDoc = runCatching { app.get("$mainUrl/video/$slugQuery", headers = defaultHeaders).document }.getOrNull()
+                    val actorPoster = extractImg(actorDoc?.selectFirst("div.video-thumb, [data-src], img"))
+
                     list.add(
                         newTvSeriesSearchResponse(
                             name = titleCaseQuery,
                             url = "$mainUrl/video/$slugQuery",
                             type = TvType.TvSeries
                         ) {
+                            this.posterUrl = fixUrlNull(actorPoster, mainUrl)
                             this.posterHeaders = defaultHeaders
                         }
                     )

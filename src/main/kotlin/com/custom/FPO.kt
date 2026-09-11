@@ -118,12 +118,16 @@ class FPO : MainAPI() {
             runCatching {
                 val list = mutableListOf<SearchResponse>()
                 if (queryWords.size in 1..4 && slugQuery.isNotBlank()) {
+                    val actorDoc = runCatching { app.get("$mainUrl/models/$slugQuery/", headers = defaultHeaders).document }.getOrNull()
+                    val actorPoster = extractImg(actorDoc?.selectFirst("div.profile-pic img, .avatar img, div.item img, img"))
+
                     list.add(
                         newTvSeriesSearchResponse(
                             name = titleCaseQuery,
                             url = "$mainUrl/models/$slugQuery/",
                             type = TvType.TvSeries
                         ) {
+                            this.posterUrl = fixUrlNull(actorPoster, mainUrl)
                             this.posterHeaders = defaultHeaders
                         }
                     )

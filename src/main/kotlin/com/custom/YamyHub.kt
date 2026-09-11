@@ -107,20 +107,27 @@ class YamyHub : MainAPI() {
         val actorsJob = async {
             runCatching {
                 val list = mutableListOf<SearchResponse>()
-                if (queryWords.size in 1..4 && slugQuery.isNotBlank()) {
+                val yUrl = "$mainUrl/pornstars/?s=$cleanQuery"
+                val doc = runCatching { app.get(yUrl, headers = defaultHeaders).document }.getOrNull()
+                val realActors = doc?.select("a[href*='/pornstar/']")?.mapNotNull { parseActorCard(it) }.orEmpty()
+
+                if (realActors.isNotEmpty()) {
+                    list.addAll(realActors)
+                } else if (queryWords.size in 1..4 && slugQuery.isNotBlank()) {
+                    val actorDoc = runCatching { app.get("$mainUrl/pornstar/$slugQuery/", headers = defaultHeaders).document }.getOrNull()
+                    val actorPoster = extractImg(actorDoc?.selectFirst("div.profile-pic img, .img-holder img, meta[property='og:image'], img"))
+
                     list.add(
                         newTvSeriesSearchResponse(
                             name = titleCaseQuery,
                             url = "$mainUrl/pornstar/$slugQuery/",
                             type = TvType.TvSeries
                         ) {
+                            this.posterUrl = fixUrlNull(actorPoster, mainUrl)
                             this.posterHeaders = defaultHeaders
                         }
                     )
                 }
-                val yUrl = "$mainUrl/pornstars/?s=$cleanQuery"
-                val doc = runCatching { app.get(yUrl, headers = defaultHeaders).document }.getOrNull()
-                doc?.select("a[href*='/pornstar/']")?.mapNotNull { parseActorCard(it) }?.let { list.addAll(it) }
                 list.distinctBy { it.url }
             }.getOrDefault(emptyList())
         }
