@@ -93,14 +93,18 @@ class DaftSex : MainAPI() {
                 }
             }
 
-            // Studios / Channels Directory (with PornPics channel poster enrichment)
+            // Studios / Channels Directory (Prioritizing PornPics channel posters)
             "studios" -> {
                 coroutineScope {
                     popularStudios.map { (sName, sSlug) ->
                         async {
-                            val studioDoc = runCatching { app.get("$mainUrl/video/$sSlug", headers = defaultHeaders).document }.getOrNull()
-                            val daftPoster = extractImg(studioDoc?.selectFirst("div.video-thumb, [data-src], img"))
-                            val poster = daftPoster ?: fetchPornPicsChannelPoster(sSlug)
+                            val ppPoster = fetchPornPicsChannelPoster(sSlug)
+                            val poster = if (!ppPoster.isNullOrBlank()) {
+                                ppPoster
+                            } else {
+                                val studioDoc = runCatching { app.get("$mainUrl/video/$sSlug", headers = defaultHeaders).document }.getOrNull()
+                                extractImg(studioDoc?.selectFirst("div.video-thumb, [data-src], img"))
+                            }
                             newTvSeriesSearchResponse(sName, "$mainUrl/video/$sSlug", TvType.TvSeries) {
                                 this.posterUrl = fixUrlNull(poster, mainUrl)
                                 this.posterHeaders = if (poster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders
@@ -198,8 +202,13 @@ class DaftSex : MainAPI() {
                     .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
             val slug = rawSlug.ifBlank { name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') }
-            val daftPoster = extractImg(doc?.selectFirst("meta[property='og:image'], .profile, .img-holder, div.video-thumb, img"))
-            val poster = daftPoster ?: fetchPornPicsChannelPoster(slug)
+            val ppPoster = fetchPornPicsChannelPoster(slug)
+            val poster = if (!ppPoster.isNullOrBlank()) {
+                ppPoster
+            } else {
+                val daftPoster = extractImg(doc?.selectFirst("meta[property='og:image'], .profile, .img-holder, div.video-thumb, img"))
+                daftPoster
+            }
 
             val episodes = mutableListOf<Episode>()
             for (p in 1..modelPages.coerceIn(1, 10)) {
@@ -392,8 +401,16 @@ class DaftSex : MainAPI() {
         if (cleanSlug.isBlank()) return null
         return runCatching {
             val doc = app.get("$pornpicsUrl/channels/$cleanSlug/", headers = pornpicsHeaders).document
-            val imgEl = doc.selectFirst("li.thumb img, div.thumb-holder img, img.thumb_image, .channel-logo img, meta[property='og:image']")
-            extractImg(imgEl) ?: imgEl?.attr("data-src")?.ifBlank { null } ?: imgEl?.attr("src")?.ifBlank { null }
+            val imgEl = doc.select("li.thumb img, div.thumb-holder img, img.thumb_image, img[data-src*='cdni.pornpics.de'], img[src*='cdni.pornpics.de']")
+                .firstOrNull { el ->
+                    val s = el.attr("data-src").ifBlank { el.attr("src") }
+                    s.isNotBlank() && !s.endsWith(".svg") && !s.contains("logo")
+                }
+            val raw = imgEl?.attr("data-src")?.ifBlank { null }
+                ?: imgEl?.attr("src")?.ifBlank { null }
+            if (raw != null && !raw.endsWith(".svg") && !raw.contains("logo")) {
+                fixUrlNull(raw, pornpicsUrl)
+            } else null
         }.getOrNull()
     }
 
