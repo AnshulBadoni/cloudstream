@@ -17,8 +17,14 @@ class DaftSex : MainAPI() {
     override val vpnStatus = VPNStatus.MightBeNeeded
     override val supportedTypes = setOf(TvType.NSFW, TvType.TvSeries, TvType.Movie)
 
+    val pornpicsUrl = "https://www.pornpics.de"
+
     private val defaultHeaders = mapOf(
         "referer" to "$mainUrl/",
+        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+    private val pornpicsHeaders = mapOf(
+        "referer" to "$pornpicsUrl/",
         "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
 
@@ -27,12 +33,14 @@ class DaftSex : MainAPI() {
         var modelPages: Int = 2
     }
 
-    // 1. HOME PAGE CATALOG DEFINITIONS (Clean, No Emojis)
+    // 1. HOME PAGE CATALOG DEFINITIONS (Standard 6 Rows, Clean, No Emojis)
     override val mainPage = mainPageOf(
         "trending" to "Trending",
-        "latest" to "Latest",
         "actors" to "Actors",
-        "channels" to "Studios"
+        "studios" to "Studios",
+        "vixen" to "Vixen",
+        "blacked" to "Blacked",
+        "brazzers" to "Brazzers"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
@@ -44,25 +52,52 @@ class DaftSex : MainAPI() {
                 doc.select("a[href*='/movie/'], div.movie-item a").mapNotNull { parseMovieCard(it) }
             }
 
-            // Latest Videos
-            "latest" -> {
-                val url = if (page <= 1) "$mainUrl/fresh" else "$mainUrl/fresh/$page"
+            // Actors / Models (PornPics Trending Models with DaftSex video profile link)
+            "actors" -> {
+                val ppUrl = if (page <= 1) {
+                    "$pornpicsUrl/pornstars/?gender=female&orientation=straight&s=trending"
+                } else {
+                    "$pornpicsUrl/pornstars/?gender=female&orientation=straight&s=trending&page=$page"
+                }
+                val ppItems = runCatching {
+                    val doc = app.get(ppUrl, headers = pornpicsHeaders).document
+                    doc.select("li.thumb-block, li:has(a[href*='/pornstars/']), div.thumb-holder").mapNotNull {
+                        parsePornPicsActorCard(it)
+                    }
+                }.getOrDefault(emptyList())
+
+                if (ppItems.isNotEmpty()) {
+                    ppItems
+                } else {
+                    val doc = app.get("$mainUrl/models", headers = defaultHeaders).document
+                    doc.select("a[href*='/video/']").mapNotNull { parseActorCard(it) }
+                }
+            }
+
+            // Studios / Channels Directory
+            "studios" -> {
+                val url = if (page <= 1) "$mainUrl/channels" else "$mainUrl/channels/$page"
+                val doc = app.get(url, headers = defaultHeaders).document
+                doc.select("a[href*='/channel/'], a[href*='/movie/'], div.channel-item a").mapNotNull { parseMovieCard(it) }
+            }
+
+            // Studio Specific Channels: Vixen, Blacked, Brazzers
+            "vixen" -> {
+                val url = if (page <= 1) "$mainUrl/video/vixen" else "$mainUrl/video/vixen/$page"
                 val doc = app.get(url, headers = defaultHeaders).document
                 doc.select("a[href*='/movie/'], div.movie-item a").mapNotNull { parseMovieCard(it) }
             }
 
-            // Actors / Models
-            "actors" -> {
-                val url = if (page <= 1) "$mainUrl/models" else "$mainUrl/models/$page"
+            "blacked" -> {
+                val url = if (page <= 1) "$mainUrl/video/blacked" else "$mainUrl/video/blacked/$page"
                 val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/video/']").mapNotNull { parseActorCard(it) }
+                doc.select("a[href*='/movie/'], div.movie-item a").mapNotNull { parseMovieCard(it) }
             }
 
-            // Studios / Channels
             else -> {
-                val url = if (page <= 1) "$mainUrl/channels" else "$mainUrl/channels/$page"
+                val url = if (page <= 1) "$mainUrl/video/brazzers" else "$mainUrl/video/brazzers/$page"
                 val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/channel/'], a[href*='/movie/']").mapNotNull { parseMovieCard(it) }
+                doc.select("a[href*='/movie/'], div.movie-item a").mapNotNull { parseMovieCard(it) }
             }
         }
 
@@ -73,12 +108,11 @@ class DaftSex : MainAPI() {
 
     // 2. SEARCH WITH PERFORMER MATCH PRIORITIZATION
     override suspend fun search(query: String): List<SearchResponse> = coroutineScope {
-        val cleanQuery = query.trim().replace(" ", "+")
         val slugQuery = query.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
         val queryWords = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
         val titleCaseQuery = queryWords.joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
-        // 1. Search actors (Synthetic Performer Card + Model Search)
+        // 1. Search actors (Synthetic Performer Card)
         val actorsJob = async {
             runCatching {
                 val list = mutableListOf<SearchResponse>()
@@ -131,7 +165,7 @@ class DaftSex : MainAPI() {
 
             val slug = rawSlug.ifBlank { name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') }
             val poster = doc?.selectFirst("meta[property='og:image']")?.attr("content")
-                ?: doc?.selectFirst(".profile img, .img-holder img, img")?.attr("src")
+                ?: extractImg(doc?.selectFirst(".profile img, .img-holder img, img"))
 
             val episodes = mutableListOf<Episode>()
             for (p in 1..modelPages.coerceIn(1, 10)) {
@@ -141,10 +175,11 @@ class DaftSex : MainAPI() {
                 if (cards.isEmpty()) break
                 cards.forEach { el ->
                     val link = el.attr("href").ifBlank { null } ?: return@forEach
-                    val title = el.selectFirst("img")?.attr("alt")?.ifBlank { null }
+                    val imgEl = el.selectFirst("img")
+                    val title = imgEl?.attr("alt")?.ifBlank { null }
                         ?: el.attr("title").ifBlank { null }
                         ?: "DaftSex Video ${episodes.size + 1}"
-                    val img = el.selectFirst("img")?.attr("src") ?: el.selectFirst("img")?.attr("data-src")
+                    val img = extractImg(imgEl)
 
                     episodes.add(
                         Episode(
@@ -168,7 +203,7 @@ class DaftSex : MainAPI() {
             val doc = app.get(url, headers = defaultHeaders).document
             val title = doc.selectFirst("h1, .video-title")?.text()?.trim() ?: "DaftSex Video"
             val poster = doc.selectFirst("meta[property='og:image']")?.attr("content")
-                ?: doc.selectFirst("video[poster]")?.attr("poster")
+                ?: extractImg(doc.selectFirst("video[poster], .player img, img"))
 
             return newMovieLoadResponse(title, url, TvType.Movie, url) {
                 this.posterUrl = fixUrlNull(poster, mainUrl)
@@ -274,7 +309,7 @@ class DaftSex : MainAPI() {
             ?: element.text().trim()
         if (title.isBlank()) return null
 
-        val poster = imgEl?.attr("src") ?: imgEl?.attr("data-src")
+        val poster = extractImg(imgEl)
 
         return newMovieSearchResponse(title, fixUrl(href, mainUrl), TvType.Movie) {
             this.posterUrl = fixUrlNull(poster, mainUrl)
@@ -293,12 +328,41 @@ class DaftSex : MainAPI() {
             ?: element.text().trim()
         if (name.isBlank()) return null
 
-        val poster = imgEl?.attr("src") ?: imgEl?.attr("data-src")
+        val poster = extractImg(imgEl)
 
         return newTvSeriesSearchResponse(name, fixUrl(href, mainUrl), TvType.TvSeries) {
             this.posterUrl = fixUrlNull(poster, mainUrl)
             this.posterHeaders = defaultHeaders
         }
+    }
+
+    private fun parsePornPicsActorCard(element: Element): SearchResponse? {
+        val linkEl = element.selectFirst("a[href*='/pornstars/']") ?: return null
+        val href = linkEl.attr("href")
+        if (href.isBlank() || href == "#" || href.contains("/list/")) return null
+
+        val slug = href.trimEnd('/').substringAfterLast('/')
+        val name = element.selectFirst(".name, span.title, .title")?.text()?.trim()
+            ?: element.selectFirst("img")?.attr("alt")?.ifBlank { null }
+            ?: return null
+
+        val poster = extractImg(element.selectFirst("img"))
+
+        return newTvSeriesSearchResponse(name, "$mainUrl/video/$slug", TvType.TvSeries) {
+            this.posterUrl = fixUrlNull(poster, pornpicsUrl)
+            this.posterHeaders = pornpicsHeaders
+        }
+    }
+
+    private fun extractImg(element: Element?): String? {
+        if (element == null) return null
+        val raw = element.attr("data-src").ifBlank { null }
+            ?: element.attr("data-original").ifBlank { null }
+            ?: element.attr("data-thumb").ifBlank { null }
+            ?: element.attr("data-lazy-src").ifBlank { null }
+            ?: element.attr("data-image").ifBlank { null }
+            ?: element.attr("src").ifBlank { null }
+        return if (raw != null && !raw.startsWith("data:image")) raw else null
     }
 
     private fun fixUrl(url: String, base: String = mainUrl): String {

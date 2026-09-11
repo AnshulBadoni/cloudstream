@@ -82,13 +82,19 @@ class StandaloneProvidersTest {
         println("=== TESTING FPO STANDALONE PROVIDER ===")
         val provider = FPO()
 
-        // 1. Search
+        // 1. Catalogs
+        val trending = runCatching { provider.getMainPage(1, MainPageRequest("Trending", "trending")) }.getOrNull()
+        val list = trending?.items?.firstOrNull()?.list.orEmpty()
+        println("FPO Trending count: ${list.size}")
+
+        // 2. Search
         val query = "aletta ocean"
         val searchRes = provider.search(query)
         println("FPO Search results for '$query': ${searchRes.size}")
-        assertTrue(searchRes.isNotEmpty(), "FPO search should return items")
+        assertTrue(searchRes.isNotEmpty(), "FPO search should return at least synthetic performer card")
         val firstItem = searchRes.first()
         println("  First Search Result: ${firstItem.name} (Type: ${firstItem.type}) -> ${firstItem.url}")
         assertEquals(TvType.TvSeries, firstItem.type, "First item should be a TvSeries model card")
     }
 }
+

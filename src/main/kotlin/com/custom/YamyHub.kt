@@ -17,8 +17,14 @@ class YamyHub : MainAPI() {
     override val vpnStatus = VPNStatus.MightBeNeeded
     override val supportedTypes = setOf(TvType.NSFW, TvType.TvSeries, TvType.Movie)
 
+    val pornpicsUrl = "https://www.pornpics.de"
+
     private val defaultHeaders = mapOf(
         "referer" to "$mainUrl/",
+        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+    private val pornpicsHeaders = mapOf(
+        "referer" to "$pornpicsUrl/",
         "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
 
@@ -27,10 +33,9 @@ class YamyHub : MainAPI() {
         var modelPages: Int = 2
     }
 
-    // 1. HOME PAGE CATALOG DEFINITIONS (Clean, No Emojis)
+    // 1. HOME PAGE CATALOG DEFINITIONS (Standard 6 Rows, Clean, No Emojis)
     override val mainPage = mainPageOf(
         "trending" to "Trending",
-        "latest" to "Latest",
         "actors" to "Actors",
         "studios" to "Studios",
         "channel/vixen/" to "Vixen",
@@ -47,18 +52,27 @@ class YamyHub : MainAPI() {
                 doc.select("a[href*='/video/']").mapNotNull { parseVideoCard(it) }
             }
 
-            // Latest Videos
-            "latest" -> {
-                val url = if (page <= 1) "$mainUrl/page/1/" else "$mainUrl/page/$page/"
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/video/']").mapNotNull { parseVideoCard(it) }
-            }
-
-            // Actors / Models
+            // Actors / Models (PornPics Trending Models with YamyHub fallback)
             "actors" -> {
-                val url = if (page <= 1) "$mainUrl/pornstars/" else "$mainUrl/pornstars/page/$page/"
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/pornstar/']").mapNotNull { parseActorCard(it) }
+                val ppUrl = if (page <= 1) {
+                    "$pornpicsUrl/pornstars/?gender=female&orientation=straight&s=trending"
+                } else {
+                    "$pornpicsUrl/pornstars/?gender=female&orientation=straight&s=trending&page=$page"
+                }
+                val ppItems = runCatching {
+                    val doc = app.get(ppUrl, headers = pornpicsHeaders).document
+                    doc.select("li.thumb-block, li:has(a[href*='/pornstars/']), div.thumb-holder").mapNotNull {
+                        parsePornPicsActorCard(it)
+                    }
+                }.getOrDefault(emptyList())
+
+                if (ppItems.isNotEmpty()) {
+                    ppItems
+                } else {
+                    val yUrl = if (page <= 1) "$mainUrl/pornstars/" else "$mainUrl/pornstars/page/$page/"
+                    val doc = app.get(yUrl, headers = defaultHeaders).document
+                    doc.select("a[href*='/pornstar/']").mapNotNull { parseActorCard(it) }
+                }
             }
 
             // Studios / Channels
@@ -68,7 +82,7 @@ class YamyHub : MainAPI() {
                 doc.select("a[href*='/channel/']").mapNotNull { parseChannelCard(it) }
             }
 
-            // Studio Specific Channels
+            // Studio Specific Channels (Vixen, Blacked, Brazzers)
             else -> {
                 val slug = request.data.trimStart('/')
                 val url = if (page <= 1) "$mainUrl/$slug" else "$mainUrl/${slug}page/$page/"
@@ -135,7 +149,7 @@ class YamyHub : MainAPI() {
 
     // 3. LOAD RESPONSE (PERFORMER OR VIDEO)
     override suspend fun load(url: String): LoadResponse {
-        val isPerformer = url.contains("/pornstar/")
+        val isPerformer = url.contains("/pornstar/") || url.contains("/pornstars/")
 
         if (isPerformer) {
             val rawSlug = url.trimEnd('/').substringAfterLast('/').lowercase().trim()
@@ -146,7 +160,7 @@ class YamyHub : MainAPI() {
 
             val slug = rawSlug.ifBlank { name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') }
             val poster = doc?.selectFirst("meta[property='og:image']")?.attr("content")
-                ?: doc?.selectFirst(".profile img, .img-holder img, img")?.attr("src")
+                ?: extractImg(doc?.selectFirst(".profile img, .img-holder img, img"))
 
             val episodes = mutableListOf<Episode>()
             for (p in 1..modelPages.coerceIn(1, 10)) {
@@ -156,10 +170,11 @@ class YamyHub : MainAPI() {
                 if (cards.isEmpty()) break
                 cards.forEach { el ->
                     val link = el.attr("href").ifBlank { null } ?: return@forEach
-                    val title = el.selectFirst("img")?.attr("alt")?.ifBlank { null }
+                    val imgEl = el.selectFirst("img")
+                    val title = imgEl?.attr("alt")?.ifBlank { null }
                         ?: el.attr("title").ifBlank { null }
                         ?: "Scene ${episodes.size + 1}"
-                    val img = el.selectFirst("img")?.attr("src") ?: el.selectFirst("img")?.attr("data-src")
+                    val img = extractImg(imgEl)
 
                     episodes.add(
                         Episode(
@@ -186,7 +201,7 @@ class YamyHub : MainAPI() {
                 ?: "YamyHub Video"
 
             val poster = doc.selectFirst("meta[property='og:image']")?.attr("content")
-                ?: doc.selectFirst(".player-holder img, img.thumb")?.attr("src")
+                ?: extractImg(doc.selectFirst(".player-holder img, img.thumb, .player img"))
 
             val description = doc.selectFirst("meta[property='og:description']")?.attr("content")
                 ?: doc.selectFirst(".video-details, .description")?.text()?.trim()
@@ -253,7 +268,7 @@ class YamyHub : MainAPI() {
             ?: element.selectFirst(".title, h2, h3")?.text()?.trim()
             ?: return null
 
-        val poster = imgEl?.attr("src") ?: imgEl?.attr("data-src")
+        val poster = extractImg(imgEl)
 
         return newMovieSearchResponse(title, fixUrl(href, mainUrl), TvType.Movie) {
             this.posterUrl = fixUrlNull(poster, mainUrl)
@@ -272,11 +287,29 @@ class YamyHub : MainAPI() {
             ?: element.text().trim()
         if (name.isBlank()) return null
 
-        val poster = imgEl?.attr("src") ?: imgEl?.attr("data-src")
+        val poster = extractImg(imgEl)
 
         return newTvSeriesSearchResponse(name, fixUrl(href, mainUrl), TvType.TvSeries) {
             this.posterUrl = fixUrlNull(poster, mainUrl)
             this.posterHeaders = defaultHeaders
+        }
+    }
+
+    private fun parsePornPicsActorCard(element: Element): SearchResponse? {
+        val linkEl = element.selectFirst("a[href*='/pornstars/']") ?: return null
+        val href = linkEl.attr("href")
+        if (href.isBlank() || href == "#" || href.contains("/list/")) return null
+
+        val slug = href.trimEnd('/').substringAfterLast('/')
+        val name = element.selectFirst(".name, span.title, .title")?.text()?.trim()
+            ?: element.selectFirst("img")?.attr("alt")?.ifBlank { null }
+            ?: return null
+
+        val poster = extractImg(element.selectFirst("img"))
+
+        return newTvSeriesSearchResponse(name, "$mainUrl/pornstar/$slug/", TvType.TvSeries) {
+            this.posterUrl = fixUrlNull(poster, pornpicsUrl)
+            this.posterHeaders = pornpicsHeaders
         }
     }
 
@@ -291,12 +324,23 @@ class YamyHub : MainAPI() {
             ?: element.text().trim()
         if (name.isBlank()) return null
 
-        val poster = imgEl?.attr("src") ?: imgEl?.attr("data-src")
+        val poster = extractImg(imgEl)
 
         return newMovieSearchResponse(name, fixUrl(href, mainUrl), TvType.Movie) {
             this.posterUrl = fixUrlNull(poster, mainUrl)
             this.posterHeaders = defaultHeaders
         }
+    }
+
+    private fun extractImg(element: Element?): String? {
+        if (element == null) return null
+        val raw = element.attr("data-src").ifBlank { null }
+            ?: element.attr("data-original").ifBlank { null }
+            ?: element.attr("data-thumb").ifBlank { null }
+            ?: element.attr("data-lazy-src").ifBlank { null }
+            ?: element.attr("data-image").ifBlank { null }
+            ?: element.attr("src").ifBlank { null }
+        return if (raw != null && !raw.startsWith("data:image")) raw else null
     }
 
     private fun fixUrl(url: String, base: String = mainUrl): String {
