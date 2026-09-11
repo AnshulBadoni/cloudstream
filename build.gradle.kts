@@ -199,7 +199,7 @@ tasks.register("makePlugin") {
   {
     "name": "PornTrex",
     "internalName": "PornTrex",
-    "version": 94,
+    "version": 95,
     "apiVersion": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],
@@ -214,7 +214,7 @@ tasks.register("makePlugin") {
   {
     "name": "YamyHub",
     "internalName": "YamyHub",
-    "version": 94,
+    "version": 95,
     "apiVersion": 1,
     "description": "Fast video streaming with studio channels (Vixen, Blacked, Brazzers), performer catalogs, and direct multi-resolution MP4 downloads (360p-1080p).",
     "authors": ["AnshulBadoni"],
@@ -229,7 +229,7 @@ tasks.register("makePlugin") {
   {
     "name": "DaftSex",
     "internalName": "DaftSex",
-    "version": 94,
+    "version": 95,
     "apiVersion": 1,
     "description": "High performance provider with fast CDN streaming, performer profiles, studio channels, recommendations, and multi-resolution MP4 video streams from 360p up to 4K.",
     "authors": ["AnshulBadoni"],
@@ -244,7 +244,7 @@ tasks.register("makePlugin") {
   {
     "name": "TnaFlix",
     "internalName": "TnaFlix",
-    "version": 94,
+    "version": 95,
     "apiVersion": 1,
     "description": "Extensive video catalog with trending scenes, categories, performer channels, and multi-resolution stream extraction.",
     "authors": ["AnshulBadoni"],
@@ -259,7 +259,7 @@ tasks.register("makePlugin") {
   {
     "name": "FPO",
     "internalName": "FPO",
-    "version": 94,
+    "version": 95,
     "apiVersion": 1,
     "description": "Fast video indexing with model profiles, trending videos, and direct downloadable MP4 streams.",
     "authors": ["AnshulBadoni"],
@@ -274,7 +274,7 @@ tasks.register("makePlugin") {
   {
     "name": "MultiSource",
     "internalName": "MultiSource",
-    "version": 94,
+    "version": 95,
     "apiVersion": 1,
     "description": "Multi-source aggregator with SpeedPorn and ParadiseHill: deep search, MP4/VOE stream resolvers, multi-part CD episodes, and actor catalogs.",
     "authors": ["AnshulBadoni"],
@@ -289,7 +289,7 @@ tasks.register("makePlugin") {
   {
     "name": "PLibrary",
     "internalName": "PLibrary",
-    "version": 94,
+    "version": 95,
     "apiVersion": 1,
     "description": "Multi-source aggregated collection with 4 seasons per performer across YamyHub, DaftSex, TnaFlix, and FPO.",
     "authors": ["AnshulBadoni"],

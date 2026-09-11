@@ -190,9 +190,6 @@ class FPO : MainAPI() {
             }
 
             val episodes = mutableListOf<Episode>()
-            val trailerM3u8 = runCatching {
-                TrailerHelper.fetchStudioTrailerM3u8(name) ?: TrailerHelper.fetchModelTrailerM3u8(name)
-            }.getOrNull()
 
             for (p in 1..modelPages.coerceIn(1, 10)) {
                 val pageUrl = if (url.contains("/search/")) {
@@ -232,9 +229,6 @@ class FPO : MainAPI() {
                 this.posterHeaders = if (poster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders
                 this.plot = "Videos featuring $name on FPO"
                 this.showStatus = ShowStatus.Completed
-                if (!trailerM3u8.isNullOrBlank()) {
-                    this.addTrailer(trailerM3u8)
-                }
             }
         } else {
             val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
