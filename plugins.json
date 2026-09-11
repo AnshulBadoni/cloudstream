@@ -12,7 +12,7 @@
     "tvTypes": ["NSFW", "Movie", "Others"],
     "iconUrl": "https://www.porntrex.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PornTrex.cs3",
-    "fileSize": 130978
+    "fileSize": 137020
   },
   {
     "name": "MultiSource",
@@ -27,7 +27,7 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://en.paradisehill.cc/img/favicon/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/MultiSource.cs3",
-    "fileSize": 130976
+    "fileSize": 137018
   },
   {
     "name": "PLibrary",
@@ -42,6 +42,6 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://www.yamyhub.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PLibrary.cs3",
-    "fileSize": 130976
+    "fileSize": 137018
   }
 ]
