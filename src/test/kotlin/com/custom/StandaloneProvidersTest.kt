@@ -75,12 +75,13 @@ class StandaloneProvidersTest {
         assertNotNull(modelRes, "Should load model profile as TvSeriesLoadResponse")
         println("  Model Name: ${modelRes?.name}, Total Videos: ${modelRes?.episodes?.size}")
         assertTrue((modelRes?.episodes?.size ?: 0) > 0, "Model should have video episodes")
-        val firstEp = modelRes?.episodes?.first()
-        println("  First Episode Poster: ${firstEp?.posterUrl}")
-        assertNotNull(firstEp?.posterUrl, "Episode poster should not be null")
+        val firstMovieEp = modelRes?.episodes?.firstOrNull { !it.data.startsWith("trailer:") } ?: modelRes?.episodes?.first()
+        println("  First Movie Episode: ${firstMovieEp?.name} -> ${firstMovieEp?.data}")
+        println("  First Episode Poster: ${firstMovieEp?.posterUrl}")
+        assertNotNull(firstMovieEp?.posterUrl, "Episode poster should not be null")
 
         // 5. Movie Detail Load & Recommendations
-        val movieUrl = firstEp?.data ?: list.first().url
+        val movieUrl = firstMovieEp?.data ?: list.first().url
         val movieRes = provider.load(movieUrl) as? MovieLoadResponse
         assertNotNull(movieRes, "Should load movie details")
         println("  Movie Title: ${movieRes?.name}, Recommendations: ${movieRes?.recommendations?.size}")
@@ -133,5 +134,33 @@ class StandaloneProvidersTest {
         println("  First Search Result: ${firstItem.name} (Type: ${firstItem.type}) -> ${firstItem.url}")
         assertEquals(TvType.TvSeries, firstItem.type, "First item should be a TvSeries model card")
     }
+
+    @Test
+    fun testTrailerHelper() = runBlocking {
+        println("=== TESTING TRAILER HELPER ===")
+        val vixenTrailer = TrailerHelper.fetchStudioTrailerM3u8("Vixen")
+        println("Vixen Studio Trailer: $vixenTrailer")
+        assertNotNull(vixenTrailer, "Should fetch Vixen studio trailer")
+        assertTrue(vixenTrailer!!.endsWith(".m3u8"), "Trailer should be an M3U8 stream")
+
+        val alettaTrailer = TrailerHelper.fetchModelTrailerM3u8("Aletta Ocean")
+        println("Aletta Ocean Model Trailer: $alettaTrailer")
+        assertNotNull(alettaTrailer, "Should fetch Aletta Ocean model trailer")
+        assertTrue(alettaTrailer!!.endsWith(".m3u8"), "Trailer should be an M3U8 stream")
+
+        val vixenLogo = TrailerHelper.fetchPornPicsStudioLogo("vixen")
+        println("Vixen Studio Logo: $vixenLogo")
+        assertNotNull(vixenLogo, "Should fetch Vixen studio logo from PornPics")
+        assertTrue(vixenLogo!!.contains("hfma.pornpics.de") || vixenLogo.startsWith("http"), "Should be valid logo URL")
+
+        val extractedLinks = mutableListOf<ExtractorLink>()
+        val handled = TrailerHelper.handleTrailerStream("trailer:$vixenTrailer", "DaftSex") {
+            extractedLinks.add(it)
+        }
+        assertTrue(handled, "Trailer stream handler should handle trailer: prefix")
+        assertTrue(extractedLinks.isNotEmpty(), "Trailer stream should produce ExtractorLink")
+        println("  Extracted Trailer Link: ${extractedLinks.first().name} -> ${extractedLinks.first().url}")
+    }
 }
+
 

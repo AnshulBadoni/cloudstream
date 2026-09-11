@@ -192,6 +192,10 @@ class DaftSex : MainAPI() {
 
     // 3. LOAD RESPONSE (PERFORMER/CHANNEL OR VIDEO)
     override suspend fun load(url: String): LoadResponse {
+        if (url.startsWith("trailer:")) {
+            return newMovieLoadResponse("Trailer / Preview", url, TvType.Movie, url)
+        }
+
         val isChannelOrPerformer = url.contains("/video/") && !url.contains("/movie/")
 
         if (isChannelOrPerformer) {
@@ -211,6 +215,13 @@ class DaftSex : MainAPI() {
             }
 
             val episodes = mutableListOf<Episode>()
+            val trailerM3u8 = runCatching {
+                TrailerHelper.fetchStudioTrailerM3u8(name) ?: TrailerHelper.fetchModelTrailerM3u8(name)
+            }.getOrNull()
+            if (!trailerM3u8.isNullOrBlank()) {
+                episodes.add(TrailerHelper.createTrailerEpisode(trailerM3u8, "🎬 Trailer / Preview ($name)", poster))
+            }
+
             for (p in 1..modelPages.coerceIn(1, 10)) {
                 val pageUrl = if (p <= 1) "$mainUrl/video/$slug" else "$mainUrl/video/$slug/$p"
                 val pageDoc = runCatching { app.get(pageUrl, headers = defaultHeaders).document }.getOrNull() ?: break
@@ -274,6 +285,10 @@ class DaftSex : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        if (TrailerHelper.handleTrailerStream(data, name, callback)) {
+            return true
+        }
+
         var count = 0
         val movieUrl = fixUrl(data, mainUrl)
         val doc = runCatching { app.get(movieUrl, headers = defaultHeaders).document }.getOrNull()

@@ -79,17 +79,17 @@ class PLibrary : MainAPI() {
 
     // 1. HOME PAGE CATALOG DEFINITIONS
     override val mainPage = mainPageOf(
-        "trending" to "🔥 Trending",
-        "actors" to "👤 Actors",
-        "studios" to "🏢 Studios",
-        "channel/vixen/" to "⭐ Vixen",
-        "channel/blacked-porn/" to "⭐ Blacked",
-        "channel/brazzers-porn/" to "⭐ Brazzers"
+        "trending" to "Trending",
+        "actors" to "Actors",
+        "studios" to "Studios",
+        "channel/vixen/" to "Vixen",
+        "channel/blacked-porn/" to "Blacked",
+        "channel/brazzers-porn/" to "Brazzers"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items: List<SearchResponse> = when (request.data) {
-            // 🔥 Trending Videos (YamyHub)
+            // Trending Videos (YamyHub)
             "trending" -> {
                 val url = if (page <= 1) "$yamyUrl/" else "$yamyUrl/page/$page/"
                 val doc = app.get(url, headers = defaultHeaders).document
@@ -98,7 +98,7 @@ class PLibrary : MainAPI() {
                 }
             }
 
-            // 👤 Actors (PornPics Trending Models with YamyHub fallback)
+            // Actors (PornPics Trending Models with YamyHub fallback)
             "actors" -> {
                 val ppUrl = if (page <= 1) {
                     "$pornpicsUrl/pornstars/?gender=female&orientation=straight&s=trending"
@@ -124,12 +124,19 @@ class PLibrary : MainAPI() {
                 }
             }
 
-            // 🏢 Studios / Channels (YamyHub)
+            // Studios (Prioritizing PornPics official logos)
             "studios" -> {
-                val url = if (page <= 1) "$yamyUrl/channels/" else "$yamyUrl/channels/page/$page/"
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/channel/']").mapNotNull {
-                    parseYamyChannelCard(it)
+                coroutineScope {
+                    TrailerHelper.popularStudios.map { (sName, sSlug) ->
+                        async {
+                            val ppPoster = TrailerHelper.fetchPornPicsStudioLogo(sSlug)
+                            val channelUrl = "$yamyUrl/channel/$sSlug/"
+                            newTvSeriesSearchResponse(sName, channelUrl, TvType.TvSeries) {
+                                this.posterUrl = ppPoster
+                                this.posterHeaders = if (ppPoster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders
+                            }
+                        }
+                    }.awaitAll()
                 }
             }
 
@@ -259,6 +266,12 @@ class PLibrary : MainAPI() {
                 ?: doc?.selectFirst(".profile img, .img-holder img, img")?.attr("src")
 
             val episodes = mutableListOf<Episode>()
+            val trailerM3u8 = runCatching {
+                TrailerHelper.fetchStudioTrailerM3u8(name) ?: TrailerHelper.fetchModelTrailerM3u8(name)
+            }.getOrNull()
+            if (!trailerM3u8.isNullOrBlank()) {
+                episodes.add(TrailerHelper.createTrailerEpisode(trailerM3u8, "🎬 Trailer / Preview ($name)", poster))
+            }
 
             // Season 1: YamyHub videos (/pornstar/{slug}/)
             val yamyJob = async {
@@ -450,6 +463,10 @@ class PLibrary : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        if (TrailerHelper.handleTrailerStream(data, name, callback)) {
+            return true
+        }
+
         var count = 0
 
         // 1. DaftSex Multi-Quality Stream Resolver (360p to 4K)

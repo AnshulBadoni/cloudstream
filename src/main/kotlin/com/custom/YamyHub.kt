@@ -75,11 +75,20 @@ class YamyHub : MainAPI() {
                 }
             }
 
-            // Studios / Channels
+            // Studios / Channels (Prioritizing PornPics official logos)
             "studios" -> {
-                val url = if (page <= 1) "$mainUrl/channels/" else "$mainUrl/channels/page/$page/"
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/channel/']").mapNotNull { parseChannelCard(it) }
+                coroutineScope {
+                    TrailerHelper.popularStudios.map { (sName, sSlug) ->
+                        async {
+                            val ppPoster = TrailerHelper.fetchPornPicsStudioLogo(sSlug)
+                            val channelUrl = "$mainUrl/channel/$sSlug/"
+                            newTvSeriesSearchResponse(sName, channelUrl, TvType.TvSeries) {
+                                this.posterUrl = ppPoster
+                                this.posterHeaders = if (ppPoster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders
+                            }
+                        }
+                    }.awaitAll()
+                }
             }
 
             // Studio Specific Channels (Vixen, Blacked, Brazzers)
@@ -154,11 +163,15 @@ class YamyHub : MainAPI() {
         (actors + videos).distinctBy { it.url }
     }
 
-    // 3. LOAD RESPONSE (PERFORMER OR VIDEO)
+    // 3. LOAD RESPONSE (PERFORMER/CHANNEL OR VIDEO)
     override suspend fun load(url: String): LoadResponse {
-        val isPerformer = url.contains("/pornstar/") || url.contains("/pornstars/")
+        if (url.startsWith("trailer:")) {
+            return newMovieLoadResponse("Trailer / Preview", url, TvType.Movie, url)
+        }
 
-        if (isPerformer) {
+        val isPerformerOrChannel = url.contains("/pornstar/") || url.contains("/pornstars/") || url.contains("/channel/") || url.contains("/channels/")
+
+        if (isPerformerOrChannel) {
             val rawSlug = url.trimEnd('/').substringAfterLast('/').lowercase().trim()
             val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
             val name = doc?.selectFirst("h1")?.text()?.trim()
@@ -166,12 +179,25 @@ class YamyHub : MainAPI() {
                     .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
             val slug = rawSlug.ifBlank { name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') }
-            val poster = doc?.selectFirst("meta[property='og:image']")?.attr("content")
-                ?: extractImg(doc?.selectFirst(".profile img, .img-holder img, img"))
+            val ppPoster = TrailerHelper.fetchPornPicsStudioLogo(slug)
+            val poster = if (!ppPoster.isNullOrBlank()) {
+                ppPoster
+            } else {
+                doc?.selectFirst("meta[property='og:image']")?.attr("content")
+                    ?: extractImg(doc?.selectFirst(".profile img, .img-holder img, img"))
+            }
 
             val episodes = mutableListOf<Episode>()
+            val trailerM3u8 = runCatching {
+                TrailerHelper.fetchStudioTrailerM3u8(name) ?: TrailerHelper.fetchModelTrailerM3u8(name)
+            }.getOrNull()
+            if (!trailerM3u8.isNullOrBlank()) {
+                episodes.add(TrailerHelper.createTrailerEpisode(trailerM3u8, "🎬 Trailer / Preview ($name)", poster))
+            }
+
+            val prefix = if (url.contains("/channel/")) "channel" else "pornstar"
             for (p in 1..modelPages.coerceIn(1, 10)) {
-                val pageUrl = if (p <= 1) "$mainUrl/pornstar/$slug/" else "$mainUrl/pornstar/$slug/page/$p/"
+                val pageUrl = if (p <= 1) "$mainUrl/$prefix/$slug/" else "$mainUrl/$prefix/$slug/page/$p/"
                 val pageDoc = runCatching { app.get(pageUrl, headers = defaultHeaders).document }.getOrNull() ?: break
                 val cards = pageDoc.select("a[href*='/video/']")
                 if (cards.isEmpty()) break
@@ -197,7 +223,7 @@ class YamyHub : MainAPI() {
 
             return newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes.distinctBy { it.data }) {
                 this.posterUrl = fixUrlNull(poster, url)
-                this.posterHeaders = defaultHeaders
+                this.posterHeaders = if (poster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders
                 this.plot = "Videos featuring $name on YamyHub"
                 this.showStatus = ShowStatus.Completed
             }
@@ -228,6 +254,10 @@ class YamyHub : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        if (TrailerHelper.handleTrailerStream(data, name, callback)) {
+            return true
+        }
+
         var count = 0
         val doc = app.get(data, headers = defaultHeaders).document
         val iframeSrc = doc.selectFirst("iframe[src*='/player/']")?.attr("src")

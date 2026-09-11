@@ -75,11 +75,20 @@ class FPO : MainAPI() {
                 }
             }
 
-            // Studios / Categories Directory
+            // Studios / Channels (Prioritizing PornPics official logos)
             "studios" -> {
-                val url = if (page <= 1) "$mainUrl/categories/" else "$mainUrl/categories/page/$page/"
-                val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
-                doc?.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/'], a[href*='/categories/']")?.mapNotNull { parseVideoCard(it) }.orEmpty()
+                coroutineScope {
+                    TrailerHelper.popularStudios.map { (sName, sSlug) ->
+                        async {
+                            val ppPoster = TrailerHelper.fetchPornPicsStudioLogo(sSlug)
+                            val channelUrl = "$mainUrl/search/$sSlug/"
+                            newTvSeriesSearchResponse(sName, channelUrl, TvType.TvSeries) {
+                                this.posterUrl = ppPoster
+                                this.posterHeaders = if (ppPoster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders
+                            }
+                        }
+                    }.awaitAll()
+                }
             }
 
             // Studio Specific Channels: Vixen, Blacked, Brazzers
@@ -157,9 +166,13 @@ class FPO : MainAPI() {
         (actors + videos).distinctBy { it.url }
     }
 
-    // 3. LOAD RESPONSE (PERFORMER OR VIDEO)
+    // 3. LOAD RESPONSE (PERFORMER/CHANNEL OR VIDEO)
     override suspend fun load(url: String): LoadResponse {
-        val isPerformer = url.contains("/models/")
+        if (url.startsWith("trailer:")) {
+            return newMovieLoadResponse("Trailer / Preview", url, TvType.Movie, url)
+        }
+
+        val isPerformer = url.contains("/models/") || (url.contains("/search/") && !url.contains("/video/") && !url.contains("/videos/"))
 
         if (isPerformer) {
             val rawSlug = url.trimEnd('/').substringAfterLast('/').lowercase().trim()
@@ -169,11 +182,27 @@ class FPO : MainAPI() {
                     .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
             val slug = rawSlug.ifBlank { name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') }
-            val poster = extractImg(doc?.selectFirst("meta[property='og:image'], .profile img, .img-holder img, img"))
+            val ppPoster = TrailerHelper.fetchPornPicsStudioLogo(slug)
+            val poster = if (!ppPoster.isNullOrBlank()) {
+                ppPoster
+            } else {
+                extractImg(doc?.selectFirst("meta[property='og:image'], .profile img, .img-holder img, img"))
+            }
 
             val episodes = mutableListOf<Episode>()
+            val trailerM3u8 = runCatching {
+                TrailerHelper.fetchStudioTrailerM3u8(name) ?: TrailerHelper.fetchModelTrailerM3u8(name)
+            }.getOrNull()
+            if (!trailerM3u8.isNullOrBlank()) {
+                episodes.add(TrailerHelper.createTrailerEpisode(trailerM3u8, "🎬 Trailer / Preview ($name)", poster))
+            }
+
             for (p in 1..modelPages.coerceIn(1, 10)) {
-                val pageUrl = if (p <= 1) "$mainUrl/models/$slug/" else "$mainUrl/models/$slug/page/$p/"
+                val pageUrl = if (url.contains("/search/")) {
+                    if (p <= 1) "$mainUrl/search/$slug/" else "$mainUrl/search/$slug/page/$p/"
+                } else {
+                    if (p <= 1) "$mainUrl/models/$slug/" else "$mainUrl/models/$slug/page/$p/"
+                }
                 val pageDoc = runCatching { app.get(pageUrl, headers = defaultHeaders).document }.getOrNull() ?: break
                 val cards = pageDoc.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/'], div:has(img) a")
                 if (cards.isEmpty()) break
@@ -203,7 +232,7 @@ class FPO : MainAPI() {
 
             return newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes.distinctBy { it.data }) {
                 this.posterUrl = fixUrlNull(poster, url)
-                this.posterHeaders = defaultHeaders
+                this.posterHeaders = if (poster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders
                 this.plot = "Videos featuring $name on FPO"
                 this.showStatus = ShowStatus.Completed
             }
@@ -228,6 +257,10 @@ class FPO : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        if (TrailerHelper.handleTrailerStream(data, name, callback)) {
+            return true
+        }
+
         var count = 0
         val doc = runCatching { app.get(data, headers = defaultHeaders).document }.getOrNull()
         val rawHtml = doc?.html().orEmpty()

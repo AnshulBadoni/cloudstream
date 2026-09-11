@@ -307,6 +307,10 @@ class Porntrex : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        if (com.custom.TrailerHelper.handleTrailerStream(data, name, callback)) {
+            return true
+        }
+
         val response = app.get(data, headers = mapOf("referer" to "$mainUrl/")).text
 
         val flashvarsMatch = Regex("""var\s+flashvars\s*=\s*\{([^}]+)\}""", RegexOption.DOT_MATCHES_ALL).find(response)

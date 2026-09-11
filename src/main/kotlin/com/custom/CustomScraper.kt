@@ -468,6 +468,10 @@ class CustomScraper : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        if (TrailerHelper.handleTrailerStream(data, name, callback)) {
+            return true
+        }
+
         // A. Direct MP4 Stream Link (Instant handler - no HTTP request needed)
         if (data.contains(".mp4", ignoreCase = true)) {
             val streamUrl = fixUrl(data, mainUrl)
