@@ -153,6 +153,13 @@ interface LoadResponse {
     var recommendations: List<SearchResponse>?
     var actors: List<ActorData>?
     var posterHeaders: Map<String, String>?
+    var trailers: List<TrailerData>?
+}
+
+fun LoadResponse.addTrailer(url: String) {
+    val list = (this.trailers ?: emptyList()).toMutableList()
+    list.add(TrailerData(extractorUrl = url))
+    this.trailers = list
 }
 
 data class MovieLoadResponse(
@@ -170,6 +177,7 @@ data class MovieLoadResponse(
     override var recommendations: List<SearchResponse>? = null,
     override var actors: List<ActorData>? = null,
     override var posterHeaders: Map<String, String>? = null,
+    override var trailers: List<TrailerData>? = null,
 ) : LoadResponse
 
 data class TvSeriesLoadResponse(
@@ -188,6 +196,7 @@ data class TvSeriesLoadResponse(
     override var actors: List<ActorData>? = null,
     override var posterHeaders: Map<String, String>? = null,
     var showStatus: ShowStatus? = null,
+    override var trailers: List<TrailerData>? = null,
 ) : LoadResponse
 
 data class Episode(
