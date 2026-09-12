@@ -145,10 +145,12 @@ class Porntrex : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url, headers = defaultHeaders).document
+        val isModel = url.contains("/models/") || url.contains("/pornstars/") || url.contains("/model/")
+        val targetUrl = if (isModel) "${url.trimEnd('/')}/" else url
+        val document = app.get(targetUrl, headers = defaultHeaders).document
 
         // 1. Model / Performer Collection Page
-        if (url.contains("/models/") || url.contains("/pornstars/") || url.contains("/model/")) {
+        if (isModel) {
             val slug = url.trimEnd('/').substringAfterLast('/').lowercase().trim()
             val rawName = document.selectFirst(".profile-model-info h1, .profile-model h1, .profile-model-info .name h1, h1")?.text()?.trim()
                 ?: document.selectFirst("meta[property='og:title']")?.attr("content")?.substringBefore("|")?.trim()

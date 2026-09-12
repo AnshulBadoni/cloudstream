@@ -161,7 +161,7 @@ object TrailerHelper {
             ?: imgEl?.attr("src")?.ifBlank { null }
 
         val cleanPrefix = pathPrefix.trim('/')
-        val fullUrl = "${targetBaseUrl.trimEnd('/')}/$cleanPrefix/$slug"
+        val fullUrl = "${targetBaseUrl.trimEnd('/')}/$cleanPrefix/$slug/"
 
         return TvSeriesSearchResponse(
             name = name,

@@ -247,7 +247,8 @@ class Eporner : MainAPI() {
             val isChannel = url.contains("/channel/")
             val prefix = if (isChannel) "channel" else "pornstar"
 
-            val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+            val targetUrl = "${url.trimEnd('/')}/"
+            val doc = runCatching { app.get(targetUrl, headers = defaultHeaders).document }.getOrNull()
             val rawName = doc?.selectFirst("h1, .profile-title, .title")?.text()?.trim()
                 ?: slug.replace("-", " ").replaceFirstChar { it.uppercase() }
             val name = rawName.replaceFirstChar { it.uppercase() }
