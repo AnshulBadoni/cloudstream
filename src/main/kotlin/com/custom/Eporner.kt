@@ -12,6 +12,7 @@ class Eporner : MainAPI() {
     override val hasMainPage = true
     override var lang = "en"
     override val hasDownloadSupport = true
+    override val vpnStatus = VPNStatus.MightBeNeeded
     override val supportedTypes = setOf(TvType.NSFW, TvType.Movie, TvType.TvSeries)
 
     companion object {
@@ -296,6 +297,40 @@ class Eporner : MainAPI() {
                 }
             }
 
+            if (episodes.isEmpty()) {
+                val cleanQuery = slug.replace("-", "+")
+                for (p in 1..modelPages.coerceIn(1, 10)) {
+                    val searchUrl = if (p <= 1) "$mainUrl/search/$cleanQuery/" else "$mainUrl/search/$cleanQuery/$p/"
+                    val searchDoc = runCatching { app.get(searchUrl, headers = defaultHeaders).document }.getOrNull() ?: break
+                    val cards = searchDoc.select("div.mb, div.mbblock, div[id^='vf'], a[href*='/video-'], a[href*='/hd-porn/']")
+                    if (cards.isEmpty()) break
+
+                    cards.forEach { el ->
+                        val linkEl = if (el.tagName() == "a") el else el.selectFirst("a[href*='/video-'], a[href*='/hd-porn/']") ?: return@forEach
+                        val link = linkEl.attr("href").ifBlank { null } ?: return@forEach
+                        if (link.contains("/pornstar/") || link.contains("/channel/") || link == "#") return@forEach
+
+                        val imgEl = el.selectFirst("img") ?: linkEl.selectFirst("img")
+                        val title = el.selectFirst(".mbtit, .mbtitle, .title, h2, h3")?.text()?.trim()
+                            ?.ifBlank { null }
+                            ?: imgEl?.attr("alt")?.ifBlank { null }
+                            ?: linkEl.attr("title").ifBlank { null }
+                            ?: "Scene ${episodes.size + 1}"
+                        val img = imgEl?.attr("data-src")?.ifBlank { null } ?: imgEl?.attr("src")?.ifBlank { null }
+
+                        episodes.add(
+                            Episode(
+                                data = fixUrl(link, mainUrl),
+                                name = title,
+                                season = 1,
+                                episode = episodes.size + 1,
+                                posterUrl = fixUrlNull(img, mainUrl)
+                            )
+                        )
+                    }
+                }
+            }
+
             return newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes.distinctBy { it.data }) {
                 this.posterUrl = fixUrlNull(poster, url)
                 this.posterHeaders = if (poster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders
@@ -367,22 +402,41 @@ class Eporner : MainAPI() {
                     name = "$name ${quality}p MP4",
                     url = fixUrl(href, mainUrl),
                     referer = "$mainUrl/",
-                    quality = quality
+                    quality = quality,
+                    headers = defaultHeaders
                 )
             )
             count++
         }
 
-        // 2. Fallback to schema contentUrl or video data-vid
+        // 2. Schema contentUrl / direct video source
         val schemaUrl = Regex(""""contentUrl":\s*"([^"]+)"""").find(html)?.groupValues?.get(1)
-        if (!schemaUrl.isNullOrBlank() && count == 0) {
+        if (!schemaUrl.isNullOrBlank()) {
             callback(
                 ExtractorLink(
                     source = name,
-                    name = "$name HD MP4",
+                    name = "$name HD MP4 (Direct)",
                     url = schemaUrl,
                     referer = "$mainUrl/",
-                    quality = Qualities.P1080.value
+                    quality = Qualities.P1080.value,
+                    headers = defaultHeaders
+                )
+            )
+            count++
+        }
+
+        // 3. Fallback to video data-vid
+        val dataVid = doc.selectFirst("video#EPvideo, video[data-vid]")?.attr("data-vid")
+        if (!dataVid.isNullOrBlank()) {
+            val vidClean = if (dataVid.startsWith("http")) dataVid else "https://gvideo.eporner.com/$dataVid"
+            callback(
+                ExtractorLink(
+                    source = name,
+                    name = "$name Stream",
+                    url = vidClean,
+                    referer = "$mainUrl/",
+                    quality = Qualities.P1080.value,
+                    headers = defaultHeaders
                 )
             )
             count++

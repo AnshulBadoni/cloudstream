@@ -191,6 +191,17 @@ class Porntrex : MainAPI() {
                 }
             }
 
+            if (videoElements.isEmpty()) {
+                val cleanQuery = slug.replace("-", "+")
+                for (p in 1..modelPages.coerceIn(1, 10)) {
+                    val searchUrl = if (p <= 1) "$mainUrl/search/$cleanQuery/" else "$mainUrl/search/$cleanQuery/$p/"
+                    val searchDoc = runCatching { app.get(searchUrl, headers = defaultHeaders).document }.getOrNull() ?: break
+                    val searchElements = searchDoc.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item")
+                    if (searchElements.isEmpty()) break
+                    videoElements.addAll(searchElements)
+                }
+            }
+
             val episodes = videoElements.mapNotNull { element ->
                 toEpisodeResult(element, 1)
             }.distinctBy { it.data }.mapIndexed { index, ep ->

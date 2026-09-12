@@ -224,6 +224,38 @@ class FPO : MainAPI() {
                 }
             }
 
+            if (episodes.isEmpty()) {
+                val cleanQuery = slug.replace("-", "+")
+                for (p in 1..modelPages.coerceIn(1, 10)) {
+                    val searchUrl = if (p <= 1) "$mainUrl/search/$cleanQuery/" else "$mainUrl/search/$cleanQuery/page/$p/"
+                    val searchDoc = runCatching { app.get(searchUrl, headers = defaultHeaders).document }.getOrNull() ?: break
+                    val cards = searchDoc.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/'], div:has(img) a")
+                    if (cards.isEmpty()) break
+                    cards.forEach { el ->
+                        val linkEl = if (el.tagName() == "a") el else el.selectFirst("a") ?: return@forEach
+                        val link = linkEl.attr("href").ifBlank { null } ?: return@forEach
+                        if (link.contains("/models/") || link.contains("/tags/") || link == "#") return@forEach
+
+                        val imgEl = el.selectFirst("img") ?: linkEl.selectFirst("img")
+                        val title = imgEl?.attr("alt")?.ifBlank { null }
+                            ?: linkEl.attr("title").ifBlank { null }
+                            ?: el.selectFirst(".title, h2, h3")?.text()?.trim()
+                            ?: "FPO Scene ${episodes.size + 1}"
+                        val img = extractImg(imgEl)
+
+                        episodes.add(
+                            Episode(
+                                data = fixUrl(link, mainUrl),
+                                name = title,
+                                season = 1,
+                                episode = episodes.size + 1,
+                                posterUrl = fixUrlNull(img, mainUrl)
+                            )
+                        )
+                    }
+                }
+            }
+
             return newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes.distinctBy { it.data }) {
                 this.posterUrl = fixUrlNull(poster, url)
                 this.posterHeaders = if (poster?.contains("pornpics") == true) pornpicsHeaders else defaultHeaders

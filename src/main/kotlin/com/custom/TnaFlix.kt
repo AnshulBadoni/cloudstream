@@ -213,11 +213,37 @@ class TnaFlix : MainAPI() {
                         Episode(
                             data = fixUrl(link, mainUrl),
                             name = title,
-                            season = 1,
-                            episode = episodes.size + 1,
                             posterUrl = fixUrlNull(img, mainUrl)
                         )
                     )
+                }
+            }
+
+            if (episodes.isEmpty()) {
+                val cleanQuery = slug.replace("-", "+")
+                for (p in 1..modelPages.coerceIn(1, 10)) {
+                    val searchUrl = if (p <= 1) "$mainUrl/search?what=$cleanQuery" else "$mainUrl/search?what=$cleanQuery&page=$p"
+                    val searchDoc = runCatching { app.get(searchUrl, headers = defaultHeaders).document }.getOrNull() ?: break
+                    val cards = searchDoc.select("a[href*='video']")
+                    if (cards.isEmpty()) break
+                    cards.forEach { el ->
+                        val link = el.attr("href").ifBlank { null } ?: return@forEach
+                        val imgEl = el.selectFirst("img")
+                        val title = imgEl?.attr("alt")?.ifBlank { null }
+                            ?: el.attr("title").ifBlank { null }
+                            ?: "TnaFlix Video ${episodes.size + 1}"
+                        val img = extractImg(imgEl)
+
+                        episodes.add(
+                            Episode(
+                                data = fixUrl(link, mainUrl),
+                                name = title,
+                                season = 1,
+                                episode = episodes.size + 1,
+                                posterUrl = fixUrlNull(img, mainUrl)
+                            )
+                        )
+                    }
                 }
             }
 
