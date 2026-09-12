@@ -77,17 +77,26 @@ class StandaloneProvidersTest {
         assertNotNull(movieRes, "Should load movie details")
         println("  Movie Title: ${movieRes?.name}, Recommendations: ${movieRes?.recommendations?.size}")
 
-        // 6. Stream Link Extraction (Multiple Qualities)
-        val extractedLinks = mutableListOf<ExtractorLink>()
-        val success = provider.loadLinks(movieUrl, isCasting = false, subtitleCallback = {}) {
-            extractedLinks.add(it)
+        // 6. Stream Link Extraction (Multiple Qualities across multiple videos)
+        val testUrls = listOf(
+            movieUrl,
+            list.first().url,
+            list.getOrNull(1)?.url ?: movieUrl
+        ).distinct()
+
+        for (u in testUrls) {
+            println("\nTesting stream extraction for: $u")
+            val links = mutableListOf<ExtractorLink>()
+            val s = provider.loadLinks(u, isCasting = false, subtitleCallback = {}) {
+                links.add(it)
+            }
+            println("  Extracted stream links count: ${links.size}")
+            for (l in links) {
+                println("    -> [${l.quality}p] ${l.name}: ${l.url}")
+            }
+            assertTrue(s, "loadLinks should succeed for $u")
+            assertTrue(links.isNotEmpty(), "Should extract links for $u")
         }
-        println("  Extracted stream links count: ${extractedLinks.size}")
-        for (l in extractedLinks) {
-            println("    -> ${l.name} (${l.quality}p): ${l.url.take(60)}...")
-        }
-        assertTrue(success, "loadLinks should succeed")
-        assertTrue(extractedLinks.isNotEmpty(), "Should extract at least 1 stream link")
     }
 
     @Test
