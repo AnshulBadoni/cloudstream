@@ -181,7 +181,7 @@ tasks.register("makePlugin") {
         val porntrexCs3 = File(distDir, "PornTrex.cs3")
         val multiSourceCs3 = File(distDir, "MultiSource.cs3")
         val yamyHubCs3 = File(distDir, "YamyHub.cs3")
-        val daftSexCs3 = File(distDir, "DaftSex.cs3")
+        val epornerCs3 = File(distDir, "Eporner.cs3")
         val tnaFlixCs3 = File(distDir, "TnaFlix.cs3")
         val fpoCs3 = File(distDir, "FPO.cs3")
         val plibraryCs3 = File(distDir, "PLibrary.cs3")
@@ -189,7 +189,7 @@ tasks.register("makePlugin") {
         createPluginZip("PornTrex", "com.megix.PorntrexProvider", porntrexCs3)
         createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3)
         createPluginZip("YamyHub", "com.custom.YamyHubProvider", yamyHubCs3)
-        createPluginZip("DaftSex", "com.custom.DaftSexProvider", daftSexCs3)
+        createPluginZip("Eporner", "com.custom.EpornerProvider", epornerCs3)
         createPluginZip("TnaFlix", "com.custom.TnaFlixProvider", tnaFlixCs3)
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3)
         createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3)
@@ -227,19 +227,19 @@ tasks.register("makePlugin") {
     "fileSize": ${if (yamyHubCs3.exists()) yamyHubCs3.length() else 102400}
   },
   {
-    "name": "DaftSex",
-    "internalName": "DaftSex",
+    "name": "Eporner",
+    "internalName": "Eporner",
     "version": 95,
     "apiVersion": 1,
-    "description": "High performance provider with fast CDN streaming, performer profiles, studio channels, recommendations, and multi-resolution MP4 video streams from 360p up to 4K.",
+    "description": "Ultra high-quality streaming provider with 4K/1080p 60fps catalogs, studio channels (Vixen, Tushy, Blacked), performer profiles, and multi-resolution MP4 downloads (240p up to 4K).",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,
     "language": "en",
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
-    "iconUrl": "https://daftsex.biz/favicon.ico",
-    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/DaftSex.cs3",
-    "fileSize": ${if (daftSexCs3.exists()) daftSexCs3.length() else 102400}
+    "iconUrl": "https://www.eporner.com/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/Eporner.cs3",
+    "fileSize": ${if (epornerCs3.exists()) epornerCs3.length() else 102400}
   },
   {
     "name": "TnaFlix",
@@ -291,7 +291,7 @@ tasks.register("makePlugin") {
     "internalName": "PLibrary",
     "version": 95,
     "apiVersion": 1,
-    "description": "Multi-source aggregated collection with 4 seasons per performer across YamyHub, DaftSex, TnaFlix, and FPO.",
+    "description": "Multi-source aggregated collection with 4 seasons per performer across YamyHub, Eporner, TnaFlix, and FPO.",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,

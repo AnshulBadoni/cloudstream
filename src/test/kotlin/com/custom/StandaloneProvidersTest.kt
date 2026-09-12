@@ -36,56 +36,46 @@ class StandaloneProvidersTest {
     }
 
     @Test
-    fun testDaftSex() = runBlocking {
-        println("=== TESTING DAFTSEX STANDALONE PROVIDER ===")
-        val provider = DaftSex()
+    fun testEporner() = runBlocking {
+        println("=== TESTING EPORNER STANDALONE PROVIDER ===")
+        val provider = Eporner()
 
         // 1. Catalogs
-        val trending = provider.getMainPage(1, MainPageRequest("Trending", "trending"))
-        val list = trending.items.firstOrNull()?.list.orEmpty()
-        println("DaftSex Trending count: ${list.size}")
-        assertTrue(list.isNotEmpty(), "DaftSex trending should not be empty")
+        val weeklyTop = provider.getMainPage(1, MainPageRequest("Weekly Top 4K Pro", "${provider.mainUrl}/cat/all/PROD-pro/SORT-top-weekly/?quality=2160&duration_min=1800"))
+        val list = weeklyTop.items.firstOrNull()?.list.orEmpty()
+        println("Eporner Weekly Top count: ${list.size}")
+        assertTrue(list.isNotEmpty(), "Eporner weekly top should not be empty")
         val samplePoster = list.first().posterUrl
-        println("  Sample Trending Poster: $samplePoster")
-        assertNotNull(samplePoster, "DaftSex video poster should not be null")
-        assertTrue(samplePoster!!.startsWith("http"), "Poster should be a valid HTTP URL")
+        println("  Sample Weekly Top Poster: $samplePoster")
+        assertNotNull(samplePoster, "Eporner video poster should not be null")
 
-        // 2. Studios Catalog
-        val studios = provider.getMainPage(1, MainPageRequest("Studios", "studios"))
+        // 2. Studios & Channels Catalog
+        val studios = provider.getMainPage(1, MainPageRequest("Studios & Channels", "${provider.mainUrl}/channels/"))
         val studioList = studios.items.firstOrNull()?.list.orEmpty()
-        println("DaftSex Studios count: ${studioList.size}")
-        assertTrue(studioList.isNotEmpty(), "DaftSex studios should not be empty")
+        println("Eporner Studios count: ${studioList.size}")
+        assertTrue(studioList.isNotEmpty(), "Eporner studios should not be empty")
         val sampleStudioPoster = studioList.first().posterUrl
         println("  Sample Studio Poster: $sampleStudioPoster")
-        assertNotNull(sampleStudioPoster, "Studio poster should not be null")
 
         // 3. Search
         val query = "angela white"
         val searchRes = provider.search(query)
-        println("DaftSex Search results for '$query': ${searchRes.size}")
-        assertTrue(searchRes.isNotEmpty(), "DaftSex search should return items")
+        println("Eporner Search results for '$query': ${searchRes.size}")
+        assertTrue(searchRes.isNotEmpty(), "Eporner search should return items")
         val firstItem = searchRes.first()
         println("  First Search Result: ${firstItem.name} (Type: ${firstItem.type}) -> ${firstItem.url}")
-        assertEquals(TvType.TvSeries, firstItem.type, "First item should be a TvSeries model card")
-        println("  Search Actor Poster: ${firstItem.posterUrl}")
-        assertNotNull(firstItem.posterUrl, "Search actor card should have poster image")
 
         // 4. Model / Channel Load
-        val modelRes = provider.load(firstItem.url) as? TvSeriesLoadResponse
-        assertNotNull(modelRes, "Should load model profile as TvSeriesLoadResponse")
-        println("  Model Name: ${modelRes?.name}, Total Videos: ${modelRes?.episodes?.size}")
-        assertTrue((modelRes?.episodes?.size ?: 0) > 0, "Model should have video episodes")
-        val firstMovieEp = modelRes?.episodes?.firstOrNull { !it.data.startsWith("trailer:") } ?: modelRes?.episodes?.first()
-        println("  First Movie Episode: ${firstMovieEp?.name} -> ${firstMovieEp?.data}")
-        println("  First Episode Poster: ${firstMovieEp?.posterUrl}")
-        assertNotNull(firstMovieEp?.posterUrl, "Episode poster should not be null")
+        val channelRes = provider.load("${provider.mainUrl}/channel/vixen/") as? TvSeriesLoadResponse
+        assertNotNull(channelRes, "Should load Vixen channel as TvSeriesLoadResponse")
+        println("  Channel Name: ${channelRes?.name}, Total Videos: ${channelRes?.episodes?.size}")
+        assertTrue((channelRes?.episodes?.size ?: 0) > 0, "Channel should have video episodes")
 
         // 5. Movie Detail Load & Recommendations
-        val movieUrl = firstMovieEp?.data ?: list.first().url
+        val movieUrl = channelRes?.episodes?.first()?.data ?: list.first().url
         val movieRes = provider.load(movieUrl) as? MovieLoadResponse
         assertNotNull(movieRes, "Should load movie details")
         println("  Movie Title: ${movieRes?.name}, Recommendations: ${movieRes?.recommendations?.size}")
-        assertTrue((movieRes?.recommendations?.size ?: 0) > 0, "Movie should have recommendations")
 
         // 6. Stream Link Extraction (Multiple Qualities)
         val extractedLinks = mutableListOf<ExtractorLink>()

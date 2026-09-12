@@ -19,8 +19,8 @@ object ProviderSettingsHelper {
 
             YamyHub.searchPages = sPages
             YamyHub.modelPages = mPages
-            DaftSex.searchPages = sPages
-            DaftSex.modelPages = mPages
+            Eporner.maxSearchPages = sPages
+            Eporner.modelPages = mPages
             TnaFlix.searchPages = sPages
             TnaFlix.modelPages = mPages
             FPO.searchPages = sPages
@@ -75,7 +75,7 @@ object ProviderSettingsHelper {
                                 val pages = sWhich + 1
 
                                 YamyHub.searchPages = pages
-                                DaftSex.searchPages = pages
+                                Eporner.maxSearchPages = pages
                                 TnaFlix.searchPages = pages
                                 FPO.searchPages = pages
 
@@ -117,7 +117,7 @@ object ProviderSettingsHelper {
                                 val pages = modelValues.getOrElse(mWhich) { 2 }
 
                                 YamyHub.modelPages = pages
-                                DaftSex.modelPages = pages
+                                Eporner.modelPages = pages
                                 TnaFlix.modelPages = pages
                                 FPO.modelPages = pages
 
@@ -164,12 +164,12 @@ class YamyHubProvider : Plugin() {
 }
 
 /**
- * Dedicated Plugin for DaftSex
+ * Dedicated Plugin for Eporner
  */
 @CloudstreamPlugin
-class DaftSexProvider : Plugin() {
+class EpornerProvider : Plugin() {
     override fun load(context: Context) {
-        registerMainAPI(DaftSex())
+        registerMainAPI(Eporner())
         ProviderSettingsHelper.initSettings(context)
         this.openSettings = { ctx -> ProviderSettingsHelper.openSettingsDialog(ctx) }
     }

@@ -63,10 +63,10 @@ class CustomScraper : MainAPI() {
 
     // 1. HOME PAGE CATALOG DEFINITIONS
     override val mainPage = mainPageOf(
-        "popular/?filter=all&sort=by_likes" to "Popular Movies (ParadiseHill)",
-        "ph_actors" to "Popular Actors",
-        "sp_latest" to "SpeedPorn: Recently Added",
-        "sp_movies" to "SpeedPorn: Full Movies",
+        "popular/?filter=all&sort=by_likes" to "Popular Movies",
+        "ph_actors" to "Actors",
+        "sp_latest" to "Recently Added",
+        "sp_movies" to "Full Movies",
         "all/?sort=created_at" to "New Releases (ParadiseHill)",
         "category/feature-films/?sort=created_at" to "Feature Films",
         "studios/?sort=by_likes" to "Popular Studios"

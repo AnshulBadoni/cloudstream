@@ -43,18 +43,18 @@ class PLibrary : MainAPI() {
     override val supportedTypes = setOf(TvType.NSFW, TvType.TvSeries, TvType.Movie)
 
     val yamyUrl = "https://www.yamyhub.com"
-    val daftSexUrl = "https://daftsex.biz"
+    val epornerUrl = "https://www.eporner.com"
     val tnaFlixUrl = "https://www.tnaflix.com"
     val pornpicsUrl = "https://www.pornpics.de"
     val fpoUrl = "https://www.fpo.xxx"
 
     private val defaultHeaders = mapOf(
         "referer" to "$mainUrl/",
-        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     )
-    private val daftHeaders = mapOf(
-        "referer" to "$daftSexUrl/",
-        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    private val epornerHeaders = mapOf(
+        "referer" to "$epornerUrl/",
+        "user-agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     )
     private val tnaHeaders = mapOf(
         "referer" to "$tnaFlixUrl/",
@@ -205,14 +205,14 @@ class PLibrary : MainAPI() {
             }.getOrDefault(emptyList())
         }
 
-        // 3. Search DaftSex videos
-        val daftJob = async {
+        // 3. Search Eporner videos
+        val epornerJob = async {
             runCatching {
                 val list = mutableListOf<SearchResponse>()
                 for (p in 1..searchPages.coerceIn(1, 3)) {
-                    val url = if (p <= 1) "$daftSexUrl/video/$slugQuery" else "$daftSexUrl/video/$slugQuery/$p"
-                    val doc = runCatching { app.get(url, headers = daftHeaders).document }.getOrNull() ?: break
-                    val items = doc.select("a[href*='/movie/'], div.movie-item a").mapNotNull { parseDaftMovieCard(it) }
+                    val url = if (p <= 1) "$epornerUrl/search/$slugQuery/" else "$epornerUrl/search/$slugQuery/$p/"
+                    val doc = runCatching { app.get(url, headers = epornerHeaders).document }.getOrNull() ?: break
+                    val items = doc.select("div.mb, div.mbblock, div[id^='vf'], a[href*='/video-'], a[href*='/hd-porn/']").mapNotNull { parseEpornerMovieCard(it) }
                     if (items.isEmpty()) break
                     list.addAll(items)
                 }
@@ -224,9 +224,13 @@ class PLibrary : MainAPI() {
         val tnaJob = async {
             runCatching {
                 val list = mutableListOf<SearchResponse>()
-                val url = "$tnaFlixUrl/search?what=$cleanQuery"
-                val doc = runCatching { app.get(url, headers = tnaHeaders).document }.getOrNull()
-                doc?.select("a[href*='video']")?.mapNotNull { parseTnaVideoCard(it) }?.let { list.addAll(it) }
+                for (p in 1..searchPages.coerceIn(1, 3)) {
+                    val url = if (p <= 1) "$tnaFlixUrl/search?what=$slugQuery" else "$tnaFlixUrl/search?what=$slugQuery&page=$p"
+                    val doc = runCatching { app.get(url, headers = tnaHeaders).document }.getOrNull() ?: break
+                    val items = doc.select("a[href*='video']").mapNotNull { parseTnaVideoCard(it) }
+                    if (items.isEmpty()) break
+                    list.addAll(items)
+                }
                 list.distinctBy { it.url }
             }.getOrDefault(emptyList())
         }
@@ -235,15 +239,14 @@ class PLibrary : MainAPI() {
         val fpoJob = async {
             runCatching {
                 val list = mutableListOf<SearchResponse>()
-                val url = "$fpoUrl/search/$slugQuery/"
-                val doc = runCatching { app.get(url, headers = fpoHeaders).document }.getOrNull()
+                val doc = runCatching { app.get("$fpoUrl/search/$slugQuery/", headers = fpoHeaders).document }.getOrNull()
                 doc?.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/']")?.mapNotNull { parseFpoVideoCard(it) }?.let { list.addAll(it) }
                 list.distinctBy { it.url }
             }.getOrDefault(emptyList())
         }
 
         val actors = actorsJob.await()
-        val videos = (yamyJob.await() + daftJob.await() + tnaJob.await() + fpoJob.await()).distinctBy { it.url }
+        val videos = (yamyJob.await() + epornerJob.await() + tnaJob.await() + fpoJob.await()).distinctBy { it.url }
 
         // Place Performer / Model profiles at index 0 (TvType.TvSeries)
         (actors + videos).distinctBy { it.url }
@@ -298,34 +301,39 @@ class PLibrary : MainAPI() {
                 }.getOrDefault(emptyList())
             }
 
-            // Season 2: DaftSex videos (/video/{slug})
-            val daftJob = async {
+            // Season 2: Eporner videos (/pornstar/{slug}/)
+            val epornerJob = async {
                 runCatching {
-                    val dList = mutableListOf<Episode>()
-                    for (p in 1..daftModelPages.coerceIn(1, 4)) {
-                        val dUrl = if (p <= 1) "$daftSexUrl/video/$slug" else "$daftSexUrl/video/$slug/$p"
-                        val dDoc = runCatching { app.get(dUrl, headers = daftHeaders).document }.getOrNull() ?: break
-                        val cards = dDoc.select("a[href*='/movie/'], div.movie-item a")
+                    val epList = mutableListOf<Episode>()
+                    for (p in 1..4) {
+                        val epUrl = if (p <= 1) "$epornerUrl/pornstar/$slug/" else "$epornerUrl/pornstar/$slug/$p/"
+                        val epDoc = runCatching { app.get(epUrl, headers = epornerHeaders).document }.getOrNull() ?: break
+                        val cards = epDoc.select("div.mb, div.mbblock, div[id^='vf'], a[href*='/video-'], a[href*='/hd-porn/']")
                         if (cards.isEmpty()) break
                         cards.forEachIndexed { idx, el ->
-                            val link = el.attr("href").ifBlank { null } ?: return@forEachIndexed
-                            val title = el.selectFirst("img")?.attr("alt")?.ifBlank { null }
-                                ?: el.attr("title").ifBlank { null }
-                                ?: "DaftSex Video ${dList.size + 1}"
-                            val img = el.selectFirst("img")?.attr("src") ?: el.selectFirst("img")?.attr("data-src")
+                            val linkEl = if (el.tagName() == "a") el else el.selectFirst("a[href*='/video-'], a[href*='/hd-porn/']") ?: return@forEachIndexed
+                            val link = linkEl.attr("href").ifBlank { null } ?: return@forEachIndexed
+                            if (link.contains("/pornstar/") || link.contains("/channel/") || link == "#") return@forEachIndexed
 
-                            dList.add(
+                            val imgEl = el.selectFirst("img") ?: linkEl.selectFirst("img")
+                            val title = el.selectFirst(".mbtit, .mbtitle, .title, h2, h3")?.text()?.trim()
+                                ?: imgEl?.attr("alt")?.ifBlank { null }
+                                ?: linkEl.attr("title").ifBlank { null }
+                                ?: "Eporner Scene ${epList.size + 1}"
+                            val img = imgEl?.attr("data-src")?.ifBlank { null } ?: imgEl?.attr("src")?.ifBlank { null }
+
+                            epList.add(
                                 Episode(
-                                    data = fixUrl(link, daftSexUrl),
+                                    data = fixUrl(link, epornerUrl),
                                     name = title,
-                                    season = 2, // Season 2 = DaftSex
-                                    episode = dList.size + 1,
-                                    posterUrl = fixUrlNull(img, daftSexUrl)
+                                    season = 2, // Season 2 = Eporner
+                                    episode = epList.size + 1,
+                                    posterUrl = fixUrlNull(img, epornerUrl)
                                 )
                             )
                         }
                     }
-                    dList.distinctBy { it.data }
+                    epList.distinctBy { it.data }
                 }.getOrDefault(emptyList())
             }
 
@@ -397,26 +405,26 @@ class PLibrary : MainAPI() {
             }
 
             episodes.addAll(yamyJob.await())
-            episodes.addAll(daftJob.await())
+            episodes.addAll(epornerJob.await())
             episodes.addAll(tnaJob.await())
             episodes.addAll(fpoModelJob.await())
 
             newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes) {
                 this.posterUrl = fixUrlNull(poster, url)
                 this.posterHeaders = defaultHeaders
-                this.plot = "PLibrary collection for $name: Season 1 = YamyHub, Season 2 = DaftSex, Season 3 = TnaFlix, Season 4 = FPO"
+                this.plot = "PLibrary collection for $name: Season 1 = YamyHub, Season 2 = Eporner, Season 3 = TnaFlix, Season 4 = FPO"
                 this.showStatus = ShowStatus.Completed
             }
-        } else if (url.contains("daftsex.biz")) {
-            // === DAFTSEX VIDEO DETAILS ===
-            val doc = app.get(url, headers = daftHeaders).document
-            val title = doc.selectFirst("h1, .video-title")?.text()?.trim() ?: "DaftSex Video"
+        } else if (url.contains("eporner.com")) {
+            // === EPORNER VIDEO DETAILS ===
+            val doc = app.get(url, headers = epornerHeaders).document
+            val title = doc.selectFirst("h1, meta[property='og:title']")?.text()?.trim() ?: "Eporner Video"
             val poster = doc.selectFirst("meta[property='og:image']")?.attr("content")
                 ?: doc.selectFirst("video[poster]")?.attr("poster")
 
             newMovieLoadResponse(title, url, TvType.Movie, url) {
-                this.posterUrl = fixUrlNull(poster, daftSexUrl)
-                this.posterHeaders = daftHeaders
+                this.posterUrl = fixUrlNull(poster, epornerUrl)
+                this.posterHeaders = epornerHeaders
             }
         } else if (url.contains("fpo.xxx")) {
             // === FPO VIDEO DETAILS ===
@@ -463,82 +471,51 @@ class PLibrary : MainAPI() {
 
         var count = 0
 
-        // 1. DaftSex Multi-Quality Stream Resolver (360p to 4K)
-        if (data.contains("daftsex.biz")) {
-            val doc = app.get(data, headers = daftHeaders).document
-            val rawHtml = doc.html()
-
-            // A. Check for hash-daftsex AJAX player
-            val numMatch = Regex("""num:\s*['"]([^'"]+)['"]""").find(rawHtml)?.groupValues?.get(1)
-            val mixMatch = Regex("""mix:\s*['"]([^'"]+)['"]""").find(rawHtml)?.groupValues?.get(1) ?: "moviesiframe2"
-
-            if (!numMatch.isNullOrBlank()) {
-                val ajaxRes = runCatching {
-                    app.post(
-                        "$daftSexUrl/hash-daftsex",
-                        data = mapOf("mix" to mixMatch, "num" to numMatch),
-                        headers = daftHeaders
-                    ).text
-                }.getOrNull()
-
-                if (!ajaxRes.isNullOrBlank()) {
-                    val iframePath = Regex("""(?:src=)?['"](/iframe/(?:v2/|convert/v2/)?([^'"]+))['"]""").find(ajaxRes)?.groupValues?.get(1)
-                        ?: Regex("""(/iframe/v2/[^'"]+)""").find(ajaxRes)?.groupValues?.get(1)
-
-                    if (!iframePath.isNullOrBlank()) {
-                        val convertPath = iframePath.replace("/iframe/v2/", "/iframe/convert/v2/")
-                        val playerDomain = if (convertPath.startsWith("http")) convertPath else "https://daftsex-biz.ibhan2.top$convertPath"
-                        val playerHtml = runCatching {
-                            app.get(playerDomain, headers = mapOf("referer" to "$daftSexUrl/")).text
-                        }.getOrNull()
-
-                        if (!playerHtml.isNullOrBlank()) {
-                            // Match Artplayer quality array: { html: '360p', url: '...' }
-                            val qualityMatches = Regex("""html:\s*['"]([^'"]+)['"],\s*url:\s*['"]([^'"]+)['"]""").findAll(playerHtml)
-                            for (qEntry in qualityMatches) {
-                                val qLabel = qEntry.groupValues[1] // e.g. 360p, 480p, 720p, 1080p, 4K
-                                val qUrl = qEntry.groupValues[2]
-                                val normalizedQuality = if (qLabel.equals("4k", ignoreCase = true)) "2160p" else qLabel
-
-                                callback(
-                                    ExtractorLink(
-                                        source = name,
-                                        name = "$name DaftSex $qLabel MP4",
-                                        url = qUrl,
-                                        referer = "$daftSexUrl/",
-                                        quality = getQualityFromName(normalizedQuality),
-                                        isM3u8 = qUrl.contains(".m3u8"),
-                                        headers = daftHeaders
-                                    )
-                                )
-                                count++
-                            }
-                        }
+        // 1. Eporner Multi-Resolution MP4 Resolver (240p to 4K)
+        if (data.contains("eporner.com")) {
+            val doc = runCatching { app.get(data, headers = epornerHeaders).document }.getOrNull()
+            if (doc != null) {
+                val dloadLinks = doc.select("a[href*='/dload/']")
+                for (a in dloadLinks) {
+                    val href = a.attr("href").ifBlank { null } ?: continue
+                    val text = a.text()
+                    val quality = when {
+                        text.contains("2160p") || text.contains("4K") -> Qualities.P2160.value
+                        text.contains("1440p") || text.contains("2K") -> Qualities.P1440.value
+                        text.contains("1080p") -> Qualities.P1080.value
+                        text.contains("720p") -> Qualities.P720.value
+                        text.contains("480p") -> Qualities.P480.value
+                        text.contains("360p") -> Qualities.P360.value
+                        text.contains("240p") -> Qualities.P240.value
+                        else -> Qualities.P720.value
                     }
+
+                    callback(
+                        ExtractorLink(
+                            source = name,
+                            name = "$name Eporner ${quality}p MP4",
+                            url = fixUrl(href, epornerUrl),
+                            referer = "$epornerUrl/",
+                            quality = quality
+                        )
+                    )
+                    count++
+                }
+
+                val schemaUrl = Regex(""""contentUrl":\s*"([^"]+)"""").find(doc.html())?.groupValues?.get(1)
+                if (!schemaUrl.isNullOrBlank() && count == 0) {
+                    callback(
+                        ExtractorLink(
+                            source = name,
+                            name = "$name Eporner HD MP4",
+                            url = schemaUrl,
+                            referer = "$epornerUrl/",
+                            quality = Qualities.P1080.value
+                        )
+                    )
+                    count++
                 }
             }
-
-            // B. Direct master .mp4 links in DaftSex page (fallback & direct links)
-            val mp4Matches = Regex("""(https?://daftsex\.biz/movie/[a-zA-Z0-9_\-]+\.mp4)""").findAll(rawHtml)
-                .map { it.groupValues[1] }
-                .distinct()
-                .toList()
-
-            for (mp4 in mp4Matches) {
-                callback(
-                    ExtractorLink(
-                        source = name,
-                        name = "$name DaftSex 1080p MP4",
-                        url = mp4,
-                        referer = "$daftSexUrl/",
-                        quality = getQualityFromName("1080p"),
-                        isM3u8 = false,
-                        headers = daftHeaders
-                    )
-                )
-                count++
-            }
-            return count > 0
         }
 
         // 2. YamyHub Playerjs Multi-Resolution MP4 Resolver (360p to 1080p)
@@ -728,22 +705,23 @@ class PLibrary : MainAPI() {
         }
     }
 
-    private fun parseDaftMovieCard(element: Element): SearchResponse? {
-        val linkEl = if (element.tagName() == "a") element else element.selectFirst("a[href*='/movie/']") ?: return null
+    private fun parseEpornerMovieCard(element: Element): SearchResponse? {
+        val linkEl = if (element.tagName() == "a") element else element.selectFirst("a[href*='/video-'], a[href*='/hd-porn/']") ?: return null
         val href = linkEl.attr("href")
-        if (href.isBlank() || href == "#") return null
+        if (href.isBlank() || href == "#" || href.contains("/pornstar/") || href.contains("/channel/")) return null
 
         val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
-        val title = imgEl?.attr("alt")?.ifBlank { null }
+        val title = element.selectFirst(".mbtit, .mbtitle, .title, h2, h3")?.text()?.trim()
+            ?: imgEl?.attr("alt")?.ifBlank { null }
             ?: linkEl.attr("title").ifBlank { null }
             ?: element.text().trim()
         if (title.isBlank()) return null
 
-        val poster = imgEl?.attr("src") ?: imgEl?.attr("data-src")
+        val poster = imgEl?.attr("data-src") ?: imgEl?.attr("src")
 
-        return newMovieSearchResponse(title, fixUrl(href, daftSexUrl), TvType.Movie) {
-            this.posterUrl = fixUrlNull(poster, daftSexUrl)
-            this.posterHeaders = daftHeaders
+        return newMovieSearchResponse(title, fixUrl(href, epornerUrl), TvType.Movie) {
+            this.posterUrl = fixUrlNull(poster, epornerUrl)
+            this.posterHeaders = epornerHeaders
         }
     }
 
