@@ -2,7 +2,7 @@
   {
     "name": "PornTrex",
     "internalName": "PornTrex",
-    "version": 95,
+    "version": 96,
     "apiVersion": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],
@@ -12,12 +12,12 @@
     "tvTypes": ["NSFW", "Movie", "Others"],
     "iconUrl": "https://www.porntrex.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PornTrex.cs3",
-    "fileSize": 187494
+    "fileSize": 192527
   },
   {
     "name": "YamyHub",
     "internalName": "YamyHub",
-    "version": 95,
+    "version": 96,
     "apiVersion": 1,
     "description": "Fast video streaming with studio channels (Vixen, Blacked, Brazzers), performer catalogs, and direct multi-resolution MP4 downloads (360p-1080p).",
     "authors": ["AnshulBadoni"],
@@ -27,12 +27,12 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://www.yamyhub.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/YamyHub.cs3",
-    "fileSize": 187492
+    "fileSize": 192525
   },
   {
     "name": "Eporner",
     "internalName": "Eporner",
-    "version": 95,
+    "version": 96,
     "apiVersion": 1,
     "description": "Ultra high-quality streaming provider with 4K/1080p 60fps catalogs, studio channels (Vixen, Tushy, Blacked), performer profiles, and multi-resolution MP4 downloads (240p up to 4K).",
     "authors": ["AnshulBadoni"],
@@ -42,12 +42,12 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://www.eporner.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/Eporner.cs3",
-    "fileSize": 187490
+    "fileSize": 192522
   },
   {
     "name": "TnaFlix",
     "internalName": "TnaFlix",
-    "version": 95,
+    "version": 96,
     "apiVersion": 1,
     "description": "Extensive video catalog with trending scenes, categories, performer channels, and multi-resolution stream extraction.",
     "authors": ["AnshulBadoni"],
@@ -57,12 +57,12 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://www.tnaflix.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/TnaFlix.cs3",
-    "fileSize": 187492
+    "fileSize": 192525
   },
   {
     "name": "FPO",
     "internalName": "FPO",
-    "version": 95,
+    "version": 96,
     "apiVersion": 1,
     "description": "Fast video indexing with model profiles, trending videos, and direct downloadable MP4 streams.",
     "authors": ["AnshulBadoni"],
@@ -72,12 +72,12 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://www.fpo.xxx/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/FPO.cs3",
-    "fileSize": 187488
+    "fileSize": 192521
   },
   {
     "name": "MultiSource",
     "internalName": "MultiSource",
-    "version": 95,
+    "version": 96,
     "apiVersion": 1,
     "description": "Multi-source aggregator with SpeedPorn and ParadiseHill: deep search, MP4/VOE stream resolvers, multi-part CD episodes, and actor catalogs.",
     "authors": ["AnshulBadoni"],
@@ -87,12 +87,12 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://en.paradisehill.cc/img/favicon/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/MultiSource.cs3",
-    "fileSize": 187493
+    "fileSize": 192526
   },
   {
     "name": "PLibrary",
     "internalName": "PLibrary",
-    "version": 95,
+    "version": 96,
     "apiVersion": 1,
     "description": "Multi-source aggregated collection with 4 seasons per performer across YamyHub, Eporner, TnaFlix, and FPO.",
     "authors": ["AnshulBadoni"],
@@ -102,6 +102,6 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://www.yamyhub.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PLibrary.cs3",
-    "fileSize": 187493
+    "fileSize": 192525
   }
 ]
