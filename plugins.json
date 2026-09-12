@@ -12,7 +12,7 @@
     "tvTypes": ["NSFW", "Movie", "Others"],
     "iconUrl": "https://www.porntrex.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PornTrex.cs3",
-    "fileSize": 186478
+    "fileSize": 187494
   },
   {
     "name": "YamyHub",
@@ -27,7 +27,7 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://www.yamyhub.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/YamyHub.cs3",
-    "fileSize": 186476
+    "fileSize": 187492
   },
   {
     "name": "Eporner",
@@ -42,7 +42,7 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://www.eporner.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/Eporner.cs3",
-    "fileSize": 186474
+    "fileSize": 187490
   },
   {
     "name": "TnaFlix",
@@ -57,7 +57,7 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://www.tnaflix.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/TnaFlix.cs3",
-    "fileSize": 186476
+    "fileSize": 187492
   },
   {
     "name": "FPO",
@@ -72,7 +72,7 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://www.fpo.xxx/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/FPO.cs3",
-    "fileSize": 186472
+    "fileSize": 187488
   },
   {
     "name": "MultiSource",
@@ -87,7 +87,7 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://en.paradisehill.cc/img/favicon/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/MultiSource.cs3",
-    "fileSize": 186477
+    "fileSize": 187493
   },
   {
     "name": "PLibrary",
@@ -102,6 +102,6 @@
     "tvTypes": ["NSFW", "Movie", "TvSeries"],
     "iconUrl": "https://www.yamyhub.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PLibrary.cs3",
-    "fileSize": 186477
+    "fileSize": 187493
   }
 ]
