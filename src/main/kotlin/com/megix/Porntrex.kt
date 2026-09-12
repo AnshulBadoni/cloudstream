@@ -2,6 +2,7 @@ package com.megix
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
+import com.custom.TrailerHelper
 import kotlinx.coroutines.*
 import org.jsoup.nodes.Element
 
@@ -14,42 +15,56 @@ class Porntrex : MainAPI() {
     override val vpnStatus = VPNStatus.MightBeNeeded
     override val supportedTypes = setOf(TvType.NSFW, TvType.TvSeries, TvType.Movie)
 
+    private val defaultHeaders = mapOf(
+        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Referer" to "$mainUrl/",
+        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language" to "en-US,en;q=0.9"
+    )
+
     override val mainPage = mainPageOf(
-        "latest-updates" to "Latest Videos",
-        "most-popular/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_today&from4=" to "Most popular daily",
-        "top-rated/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_today&from4=" to "Top rated daily",
-        "models" to "Models",
-        "most-popular/weekly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_week&from4=" to "Most popular weekly",
-        "top-rated/weekly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_week&from4=" to "Top rated weekly",
-        "most-popular/monthly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_month&from4=" to "Most popular monthly",
-        "top-rated/monthly/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating_month&from4=" to "Top rated monthly",
-        "most-popular/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed&from4=" to "Most popular all time",
-        "top-rated/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=rating&from4=" to "Top rated all time"
+        "most-popular/daily/?mode=async&function=get_block&block_id=list_videos_common_videos_list_norm&sort_by=video_viewed_today&from4=" to "Trending",
+        "actors" to "Actors",
+        "latest-updates" to "Trending",
+        "search/vixen/" to "Vixen",
+        "search/tushy/" to "Tushy",
+        "search/blacked/" to "Blacked"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        if (request.data == "actors" || request.name.equals("actors", ignoreCase = true) || request.name.equals("actor", ignoreCase = true)) {
+            val ppActors = TrailerHelper.fetchPornPicsTrendingActors(page, mainUrl, "models")
+            val list = if (ppActors.isNotEmpty()) {
+                ppActors
+            } else {
+                val modelUrl = if (page <= 1) "$mainUrl/models/" else "$mainUrl/models/?from_models=" + (if (page < 10) "0$page" else "$page")
+                val doc = runCatching { app.get(modelUrl, headers = defaultHeaders).document }.getOrNull()
+                doc?.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/']), .item:has(a[href*='/model/'])")?.mapNotNull { element ->
+                    toModelSearchResult(element)
+                } ?: emptyList()
+            }
+            return newHomePageResponse(
+                HomePageList(request.name, list, isHorizontalImages = false),
+                hasNext = list.isNotEmpty()
+            )
+        }
+
         val url = if (request.data.contains("mode=async")) {
             "$mainUrl/${request.data}$page"
-        } else if (request.data.startsWith("models")) {
-            if (page <= 1) "$mainUrl/models/" else "$mainUrl/models/?from_models=" + (if (page < 10) "0$page" else "$page")
+        } else if (request.data.startsWith("search/")) {
+            val clean = request.data.trimEnd('/')
+            if (page <= 1) "$mainUrl/$clean/" else "$mainUrl/$clean/$page/"
         } else {
             if (page <= 1) "$mainUrl/${request.data}/" else "$mainUrl/${request.data}/$page/"
         }
 
-        val document = app.get(url, headers = mapOf("referer" to "$mainUrl/")).document
+        val document = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+        val items = document?.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item")?.mapNotNull { element ->
+            toSearchResult(element)
+        } ?: emptyList()
 
-        val items = if (request.data.startsWith("models")) {
-            document.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/']), .item:has(a[href*='/model/'])").mapNotNull { element ->
-                toModelSearchResult(element)
-            }
-        } else {
-            document.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item").mapNotNull { element ->
-                toSearchResult(element)
-            }
-        }
-
-        val homePageList = HomePageList(request.name, items, isHorizontalImages = true)
-        return newHomePageResponse(homePageList, true)
+        val homePageList = HomePageList(request.name, items.distinctBy { it.url }, isHorizontalImages = true)
+        return newHomePageResponse(homePageList, hasNext = items.isNotEmpty())
     }
 
     companion object {
@@ -68,7 +83,7 @@ class Porntrex : MainAPI() {
 
         // 1a. Check direct performer profile
         runCatching {
-            val directDoc = app.get(modelDirectUrl, headers = mapOf("referer" to "$mainUrl/")).document
+            val directDoc = app.get(modelDirectUrl, headers = defaultHeaders).document
             val h1 = directDoc.selectFirst(".profile-model-info h1, .profile-model h1, .profile-model-info .name h1, h1")?.text()?.trim()
             if (!h1.isNullOrBlank() && queryWords.all { word -> h1.contains(word, ignoreCase = true) }) {
                 val posterEl = directDoc.selectFirst(".profile-model-info .img-holder img, .profile-model .img-holder img, .img-holder img, .profile-model img:not(.cover-img), .profile-model-info img")
@@ -87,7 +102,7 @@ class Porntrex : MainAPI() {
 
         // 1b. Search models directory
         runCatching {
-            val modelDoc = app.get(modelSearchUrl, headers = mapOf("referer" to "$mainUrl/")).document
+            val modelDoc = app.get(modelSearchUrl, headers = defaultHeaders).document
             val models = modelDoc.select("div.list-models div.item, #list_models_models_list_items .item, .list-models .item, .item:has(a[href*='/models/']), .item:has(a[href*='/model/'])")
                 .mapNotNull { toModelSearchResult(it) }
 
@@ -118,7 +133,7 @@ class Porntrex : MainAPI() {
             for (page in 1..maxPages) {
                 runCatching {
                     val url = if (page <= 1) "$mainUrl/search/$cleanQuery/" else "$mainUrl/search/$cleanQuery/$page/"
-                    val videoDoc = app.get(url, headers = mapOf("referer" to "$mainUrl/")).document
+                    val videoDoc = app.get(url, headers = defaultHeaders).document
                     val videoElements = videoDoc.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item")
                     val pageResults = videoElements.mapNotNull { toSearchResult(it) }
                     results.addAll(pageResults)
@@ -130,28 +145,30 @@ class Porntrex : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url, headers = mapOf("referer" to "$mainUrl/")).document
+        val document = app.get(url, headers = defaultHeaders).document
 
         // 1. Model / Performer Collection Page
         if (url.contains("/models/") || url.contains("/pornstars/") || url.contains("/model/")) {
-            val name = document.selectFirst(".profile-model-info h1, .profile-model h1, .profile-model-info .name h1, h1")?.text()?.trim()
+            val slug = url.trimEnd('/').substringAfterLast('/').lowercase().trim()
+            val rawName = document.selectFirst(".profile-model-info h1, .profile-model h1, .profile-model-info .name h1, h1")?.text()?.trim()
                 ?: document.selectFirst("meta[property='og:title']")?.attr("content")?.substringBefore("|")?.trim()
-                ?: "Model Profile"
+                ?: slug.replace("-", " ").split(" ").filter { it.isNotBlank() }.joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+            val name = rawName.replaceFirstChar { it.uppercase() }
 
+            val ppPoster = TrailerHelper.fetchPornPicsActorAvatar(slug) ?: TrailerHelper.fetchPornPicsStudioLogo(slug)
             val posterEl = document.selectFirst(".profile-model-info .img-holder img, .profile-model .img-holder img, .img-holder img, .profile-model img:not(.cover-img), .profile-model-info img")
             val rawPoster = posterEl?.attr("data-src")?.takeIf { !it.contains("data:image") && it.isNotBlank() }
                 ?: posterEl?.attr("src")?.takeIf { !it.contains("data:image") && it.isNotBlank() }
                 ?: document.selectFirst(".profile-model img.cover-img")?.attr("data-src")
                 ?: document.selectFirst("meta[property='og:image']")?.attr("content")
-            val poster = fixUrlNull(rawPoster)
+            val poster = if (!ppPoster.isNullOrBlank()) ppPoster else fixUrlNull(rawPoster)
 
             val bio = document.selectFirst(".profile-model-info .des, .profile-model .des, .description-block, .profile-model-info .description")?.text()?.trim()
 
             if (!poster.isNullOrBlank()) {
                 avatarCache[name.lowercase().trim()] = poster
-                val slug = url.trimEnd('/').substringAfterLast('/')
                 if (slug.isNotBlank()) {
-                    avatarCache[slug.lowercase().trim()] = poster
+                    avatarCache[slug] = poster
                 }
             }
 
@@ -167,7 +184,7 @@ class Porntrex : MainAPI() {
                 for (page in 2..targetPages) {
                     runCatching {
                         val pageUrl = "$baseUrl/$page/"
-                        val pageDoc = app.get(pageUrl, headers = mapOf("referer" to "$mainUrl/")).document
+                        val pageDoc = app.get(pageUrl, headers = defaultHeaders).document
                         val extraElements = pageDoc.select("div.video-list div.video-item, .list-videos .item, #list_videos_common_videos_list_items .item, .item")
                         videoElements.addAll(extraElements)
                     }
@@ -182,7 +199,7 @@ class Porntrex : MainAPI() {
 
             return newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
-                this.posterHeaders = mapOf("referer" to "$mainUrl/")
+                this.posterHeaders = if (ppPoster != null) TrailerHelper.pornpicsHeaders else defaultHeaders
                 this.plot = if (!bio.isNullOrBlank()) bio else "Complete collection of $name's videos (${episodes.size} videos)"
                 this.showStatus = ShowStatus.Completed
             }
@@ -229,10 +246,14 @@ class Porntrex : MainAPI() {
                     val slug = modelUrl.trimEnd('/').substringAfterLast('/').lowercase().trim()
                     var avatar = avatarCache[key] ?: avatarCache[slug]
 
+                    if (avatar == null) {
+                        avatar = TrailerHelper.fetchPornPicsActorAvatar(slug) ?: TrailerHelper.fetchPornPicsActorAvatar(key)
+                    }
+
                     if (avatar == null && modelUrl.isNotBlank()) {
                         avatar = runCatching {
                             withTimeoutOrNull(2000L) {
-                                val mDoc = app.get(modelUrl, headers = mapOf("referer" to "$mainUrl/")).document
+                                val mDoc = app.get(modelUrl, headers = defaultHeaders).document
                                 val posterEl = mDoc.selectFirst(".profile-model-info .img-holder img, .profile-model .img-holder img, .img-holder img, .profile-model img:not(.cover-img), .profile-model-info img")
                                 val rawPoster = posterEl?.attr("data-src")?.takeIf { !it.contains("data:image") && it.isNotBlank() }
                                     ?: posterEl?.attr("src")?.takeIf { !it.contains("data:image") && it.isNotBlank() }

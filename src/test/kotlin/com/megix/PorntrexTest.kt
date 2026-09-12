@@ -15,7 +15,7 @@ class PorntrexTest {
         assertEquals("https://www.porntrex.com", provider.mainUrl)
         assertTrue(provider.hasMainPage)
         assertTrue(provider.mainPage.isNotEmpty())
-        assertTrue(provider.mainPage.any { it.name == "Models & Stars" || it.data == "models" })
+        assertTrue(provider.mainPage.any { it.name == "Actors" || it.data == "actors" || it.data == "models" })
     }
 
     @Test
