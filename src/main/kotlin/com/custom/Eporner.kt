@@ -65,19 +65,18 @@ class Eporner : MainAPI() {
 
     // 1. HOME CATALOGS
     override val mainPage = mainPageOf(
-        "$mainUrl/cat/all/PROD-pro/SORT-top-weekly/?quality=2160&duration_min=1800" to "Weekly Top 4K Pro",
-        "$mainUrl/cat/pornstar/?quality=1080&duration_min=1740" to "Recent 1080p Pornstars",
-        "$mainUrl/cat/all/PROD-pro/SORT-top-monthly/?quality=1080" to "Monthly Top 1080p",
-        "$mainUrl/cat/60fps/?quality=1080" to "60FPS HD",
-        "$mainUrl/channels/" to "Studios & Channels",
-        "actors" to "Trending Actors"
+        "$mainUrl/cat/all/PROD-pro/SORT-top-weekly/?quality=2160&duration_min=1800" to "Weekly Top",
+        "actors" to "Actors",
+        "$mainUrl/cat/pornstar/?quality=1080&duration_min=1740" to "Recent",
+        "$mainUrl/cat/all/PROD-pro/SORT-top-monthly/?quality=1080" to "Monthly Top",
+        "$mainUrl/channels/" to "Studios"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val path = request.data
         val name = request.name
 
-        if (name == "Trending Actors") {
+        if (name == "Actors" || path == "actors") {
             val actors = TrailerHelper.fetchPornPicsTrendingActors(page, mainUrl, "pornstar")
             return newHomePageResponse(
                 HomePageList(name = name, list = actors, isHorizontalImages = false),
@@ -85,7 +84,7 @@ class Eporner : MainAPI() {
             )
         }
 
-        if (name == "Studios & Channels" || path.contains("/channels/")) {
+        if (name == "Studios" || path.contains("/channels/")) {
             val studios = withContext(Dispatchers.IO) {
                 popularChannels.map { (sName, sSlug) ->
                     async {
@@ -255,7 +254,7 @@ class Eporner : MainAPI() {
             val ppPoster = if (isChannel) {
                 TrailerHelper.fetchPornPicsStudioLogo(slug)
             } else {
-                TrailerHelper.fetchPornPicsStudioLogo(slug)
+                TrailerHelper.fetchPornPicsActorAvatar(slug) ?: TrailerHelper.fetchPornPicsStudioLogo(slug)
             }
             val poster = if (!ppPoster.isNullOrBlank()) {
                 ppPoster

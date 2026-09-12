@@ -108,6 +108,29 @@ object TrailerHelper {
         }.getOrNull()
     }
 
+    suspend fun fetchPornPicsActorAvatar(actorSlug: String): String? {
+        val cleanSlug = actorSlug.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        if (cleanSlug.isBlank()) return null
+        return runCatching {
+            val doc = app.get("$PORNPICS_URL/pornstars/$cleanSlug/", headers = pornpicsHeaders).document
+            val avatarEl = doc.selectFirst("div.entity-card-avatar img, .entity-card-avatar img, .channel-avatar img, img[src*='hfma.pornpics.de'], img[data-src*='hfma.pornpics.de']")
+            val avatarRaw = avatarEl?.attr("src")?.ifBlank { null } ?: avatarEl?.attr("data-src")?.ifBlank { null }
+            if (!avatarRaw.isNullOrBlank() && !avatarRaw.endsWith(".svg")) {
+                return@runCatching if (avatarRaw.startsWith("http")) avatarRaw else "$PORNPICS_URL$avatarRaw"
+            }
+
+            val imgEl = doc.select("li.thumb img, div.thumb-holder img, img.thumb_image, img[data-src*='cdni.pornpics.de'], img[src*='cdni.pornpics.de']")
+                .firstOrNull { el ->
+                    val s = el.attr("data-src").ifBlank { el.attr("src") }
+                    s.isNotBlank() && !s.endsWith(".svg") && !s.contains("logo")
+                }
+            val raw = imgEl?.attr("data-src")?.ifBlank { null } ?: imgEl?.attr("src")?.ifBlank { null }
+            if (raw != null && !raw.endsWith(".svg") && !raw.contains("logo")) {
+                if (raw.startsWith("http")) raw else "$PORNPICS_URL$raw"
+            } else null
+        }.getOrNull()
+    }
+
     suspend fun fetchPornPicsTrendingActors(page: Int = 1, targetBaseUrl: String, pathPrefix: String): List<SearchResponse> {
         val ppUrl = if (page <= 1) {
             "$PORNPICS_URL/pornstars/?gender=female&orientation=straight&s=trending"

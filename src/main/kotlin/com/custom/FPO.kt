@@ -182,7 +182,7 @@ class FPO : MainAPI() {
                     .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
             val slug = rawSlug.ifBlank { name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') }
-            val ppPoster = TrailerHelper.fetchPornPicsStudioLogo(slug)
+            val ppPoster = TrailerHelper.fetchPornPicsActorAvatar(slug) ?: TrailerHelper.fetchPornPicsStudioLogo(slug)
             val poster = if (!ppPoster.isNullOrBlank()) {
                 ppPoster
             } else {

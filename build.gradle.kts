@@ -156,13 +156,13 @@ tasks.register("makePlugin") {
             }
         }
 
-        fun createPluginZip(pluginName: String, className: String, outFile: File) {
+        fun createPluginZip(pluginName: String, className: String, outFile: File, version: Int = 95) {
             val manifest = """
 {
   "name": "$pluginName",
   "pluginClassName": "$className",
   "requiresResources": false,
-  "version": 93
+  "version": $version
 }
             """.trimIndent()
             ZipOutputStream(FileOutputStream(outFile)).use { zos ->
