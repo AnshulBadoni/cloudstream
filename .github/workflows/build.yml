@@ -44,7 +44,7 @@ jobs:
 
       - name: Verify classes.dex in cs3 plugins
         run: |
-          for plugin in PornTrex MultiSource; do
+          for plugin in PornTrex MultiSource Himeros; do
             if unzip -l build/dist/$plugin.cs3 | grep -q "classes.dex"; then
               echo "✓ classes.dex found in $plugin.cs3"
             else
@@ -55,9 +55,14 @@ jobs:
           done
 
       - name: Deploy to Builds Branch
-        uses: peaceiris/actions-gh-pages@v3
         if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: builds
-          publish_dir: ./build/dist
+        run: |
+          cd build/dist
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b builds
+          git add -A
+          git commit -m "Deploy plugins [skip ci]"
+          git push -f https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git builds
+
