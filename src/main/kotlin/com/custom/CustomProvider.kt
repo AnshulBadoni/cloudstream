@@ -223,3 +223,16 @@ class CustomProvider : Plugin() {
     }
 }
 
+/**
+ * Dedicated Plugin for Himeros Master Aggregator
+ */
+@CloudstreamPlugin
+class HimerosProvider : Plugin() {
+    override fun load(context: Context) {
+        registerMainAPI(Himeros())
+        ProviderSettingsHelper.initSettings(context)
+        this.openSettings = { ctx -> ProviderSettingsHelper.openSettingsDialog(ctx) }
+    }
+}
+
+

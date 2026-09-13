@@ -212,13 +212,9 @@ class Himeros : MainAPI() {
             ?: imgEl?.attr("data-src")?.ifBlank { null }
             ?: imgEl?.attr("data-original")
 
-        return MovieSearchResponse(
-            name = cleanTitle,
-            url = href,
-            apiName = this.name,
-            type = TvType.Movie,
-            posterUrl = poster
-        )
+        return newMovieSearchResponse(cleanTitle, href, TvType.Movie) {
+            this.posterUrl = poster
+        }
     }
 
     private fun parsePornPicsModelCard(element: Element): SearchResponse? {
@@ -239,14 +235,10 @@ class Himeros : MainAPI() {
 
         val fullPoster = if (poster != null && poster.startsWith("http")) poster else if (poster != null) "$pornpicsUrl$poster" else null
 
-        return TvSeriesSearchResponse(
-            name = title,
-            url = href,
-            apiName = this.name,
-            type = TvType.TvSeries,
-            posterUrl = fullPoster,
-            posterHeaders = pornpicsHeaders
-        )
+        return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+            this.posterUrl = fullPoster
+            this.posterHeaders = pornpicsHeaders
+        }
     }
 
     private fun parseData18SeriesCard(element: Element): SearchResponse? {
@@ -258,14 +250,10 @@ class Himeros : MainAPI() {
         val imgEl = element.selectFirst("img")
         val poster = imgEl?.attr("src")?.ifBlank { null } ?: imgEl?.attr("data-src")
 
-        return TvSeriesSearchResponse(
-            name = title,
-            url = href,
-            apiName = this.name,
-            type = TvType.TvSeries,
-            posterUrl = poster,
-            posterHeaders = data18Headers
-        )
+        return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+            this.posterUrl = poster
+            this.posterHeaders = data18Headers
+        }
     }
 
     private fun parsePornPicsStudioCard(element: Element): SearchResponse? {
@@ -286,14 +274,10 @@ class Himeros : MainAPI() {
 
         val fullPoster = if (poster != null && poster.startsWith("http")) poster else if (poster != null) "$pornpicsUrl$poster" else null
 
-        return TvSeriesSearchResponse(
-            name = title,
-            url = href,
-            apiName = this.name,
-            type = TvType.TvSeries,
-            posterUrl = fullPoster,
-            posterHeaders = pornpicsHeaders
-        )
+        return newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+            this.posterUrl = fullPoster
+            this.posterHeaders = pornpicsHeaders
+        }
     }
 
     private fun parseData18ShowcaseCard(element: Element): SearchResponse? {
@@ -305,13 +289,9 @@ class Himeros : MainAPI() {
         val imgEl = element.selectFirst("img")
         val poster = imgEl?.attr("src")?.ifBlank { null } ?: imgEl?.attr("data-src")
 
-        return MovieSearchResponse(
-            name = title,
-            url = href,
-            apiName = this.name,
-            type = TvType.Movie,
-            posterUrl = poster
-        )
+        return newMovieSearchResponse(title, href, TvType.Movie) {
+            this.posterUrl = poster
+        }
     }
 
     // --- LOAD DETAIL PAGE ---
@@ -409,18 +389,13 @@ class Himeros : MainAPI() {
             }
         }
 
-        return TvSeriesLoadResponse(
-            name = title,
-            url = url,
-            apiName = this.name,
-            type = TvType.TvSeries,
-            episodes = episodes,
-            posterUrl = enhancedPoster,
-            year = year,
-            plot = description,
-            tags = tags,
-            actors = actors
-        )
+        return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            this.posterUrl = enhancedPoster
+            this.year = year
+            this.plot = description
+            this.tags = tags
+            this.actors = actors
+        }
     }
 
     private suspend fun fetchParadiseHillMovieParts(title: String): List<String> {
@@ -489,14 +464,9 @@ class Himeros : MainAPI() {
             )
         }
 
-        return TvSeriesLoadResponse(
-            name = title,
-            url = url,
-            apiName = this.name,
-            type = TvType.TvSeries,
-            episodes = episodes,
-            posterUrl = enhancedPoster
-        )
+        return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            this.posterUrl = enhancedPoster
+        }
     }
 
     private suspend fun loadPornPicsModel(url: String): LoadResponse? {
@@ -524,14 +494,9 @@ class Himeros : MainAPI() {
             }
         }
 
-        return TvSeriesLoadResponse(
-            name = name,
-            url = url,
-            apiName = this.name,
-            type = TvType.TvSeries,
-            episodes = episodes,
-            posterUrl = avatar
-        )
+        return newTvSeriesLoadResponse(name, url, TvType.TvSeries, episodes) {
+            this.posterUrl = avatar
+        }
     }
 
     private suspend fun loadPornPicsStudio(url: String): LoadResponse? {
@@ -559,14 +524,9 @@ class Himeros : MainAPI() {
             }
         }
 
-        return TvSeriesLoadResponse(
-            name = studioName,
-            url = url,
-            apiName = this.name,
-            type = TvType.TvSeries,
-            episodes = episodes,
-            posterUrl = logo
-        )
+        return newTvSeriesLoadResponse(studioName, url, TvType.TvSeries, episodes) {
+            this.posterUrl = logo
+        }
     }
 
     private suspend fun loadParadiseHillMovie(url: String): LoadResponse? {
@@ -607,14 +567,9 @@ class Himeros : MainAPI() {
             }
         }
 
-        return TvSeriesLoadResponse(
-            name = title,
-            url = url,
-            apiName = this.name,
-            type = TvType.TvSeries,
-            episodes = episodes,
-            posterUrl = enhancedPoster
-        )
+        return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            this.posterUrl = enhancedPoster
+        }
     }
 
     // --- PLAYBACK & STREAM RESOLVER (loadLinks) ---
@@ -858,13 +813,9 @@ class Himeros : MainAPI() {
                         val title = linkEl.attr("title").ifBlank { linkEl.text() }.trim()
                         val poster = el.selectFirst("img")?.attr("src")
                         if (title.isNotBlank() && href.isNotBlank()) {
-                            MovieSearchResponse(
-                                name = title,
-                                url = href,
-                                apiName = this@Himeros.name,
-                                type = TvType.Movie,
-                                posterUrl = poster
-                            )
+                            newMovieSearchResponse(title, href, TvType.Movie) {
+                                this.posterUrl = poster
+                            }
                         } else null
                     }
                 }.getOrDefault(emptyList())
