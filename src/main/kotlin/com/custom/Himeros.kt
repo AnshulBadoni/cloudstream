@@ -64,11 +64,11 @@ class Himeros : MainAPI() {
 
     // 1. HOME PAGE CATALOG DEFINITIONS
     override val mainPage = mainPageOf(
-        "recent_movies" to "Recent Movies",
+        "d18_recent" to "Recent",
         "pp_models" to "Models",
-        "featured_series" to "Featured Series",
+        "d18_series" to "Recent Series",
         "pp_studios" to "Studios",
-        "latest_releases" to "Latest Releases"
+        "d18_showcases" to "Showcase"
     )
 
     // Title Normalization Helper: Handles "Ignite Vol. 10" -> "Ignite 10", "Anal Icons Vol #5" -> "Anal Icons 5"
@@ -135,7 +135,7 @@ class Himeros : MainAPI() {
             val url = "https://v3.sg.media-imdb.com/suggestion/x/$encoded.json"
             val text = app.get(url, headers = mapOf("User-Agent" to "Mozilla/5.0")).text
             val imgMatch = Regex("""["']imageUrl["']\s*:\s*["']([^"']+)["']""").find(text)?.groupValues?.get(1)
-            val labelMatch = Regex("""["']l["']\s*:\s*["']([^"']+)["']""").find(text)?.groupValues?.get(1)
+            val labelMatch = Regex("""["']l["']\s*:\s*["']([^"']+)""").find(text)?.groupValues?.get(1)
             if (!imgMatch.isNullOrBlank()) {
                 if (labelMatch.isNullOrBlank() || fuzzyMatchScore(cleanTitle, labelMatch) >= 0.5) {
                     return@runCatching imgMatch
@@ -152,24 +152,24 @@ class Himeros : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items: List<SearchResponse> = when (request.data) {
-            // Row 1: Recent Full Movies (SpeedPorn with Data18 fallback)
-            "recent_movies", "d18_recent" -> {
-                val spItems = runCatching {
-                    val url = if (page <= 1) "$speedpornUrl/" else "$speedpornUrl/page/$page/"
-                    val doc = app.get(url, headers = speedpornHeaders).document
-                    doc.select(".video-block, .item, div.post").mapNotNull {
-                        parseSpeedPornMovieCard(it)
+            // Row 1: Recent Movies from Data18 (with SpeedPorn fallback)
+            "d18_recent", "recent_movies" -> {
+                val d18Items = runCatching {
+                    val url = if (page <= 1) "$mainUrl/movies" else "$mainUrl/movies/page/$page"
+                    val doc = app.get(url, headers = data18Headers).document
+                    doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
+                        parseData18MovieCard(it)
                     }.distinctBy { it.url }
                 }.getOrDefault(emptyList())
 
-                if (spItems.isNotEmpty()) {
-                    spItems
+                if (d18Items.isNotEmpty()) {
+                    d18Items
                 } else {
                     runCatching {
-                        val url = if (page <= 1) "$mainUrl/movies" else "$mainUrl/movies/page/$page"
-                        val doc = app.get(url, headers = data18Headers).document
-                        doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
-                            parseData18MovieCard(it)
+                        val url = if (page <= 1) "$speedpornUrl/" else "$speedpornUrl/page/$page/"
+                        val doc = app.get(url, headers = speedpornHeaders).document
+                        doc.select(".video-block, .item, div.post").mapNotNull {
+                            parseSpeedPornMovieCard(it)
                         }.distinctBy { it.url }
                     }.getOrDefault(emptyList())
                 }
@@ -188,8 +188,8 @@ class Himeros : MainAPI() {
                 }.distinctBy { it.url }
             }
 
-            // Row 3: Featured Series from Data18 (with SpeedPorn category fallback)
-            "featured_series", "d18_series" -> {
+            // Row 3: Recent Series from Data18 (with SpeedPorn category fallback)
+            "d18_series", "featured_series" -> {
                 val d18Items = runCatching {
                     val url = if (page <= 1) "$mainUrl/movies/series" else "$mainUrl/movies/series/page/$page"
                     val doc = app.get(url, headers = data18Headers).document
@@ -220,24 +220,24 @@ class Himeros : MainAPI() {
                 }.distinctBy { it.url }
             }
 
-            // Row 5: Latest Releases (SpeedPorn 2026/2025 releases with Data18 Showcases fallback)
-            "latest_releases", "d18_showcases" -> {
-                val spReleases = runCatching {
-                    val url = if (page <= 1) "$speedpornUrl/release-year/2026/" else "$speedpornUrl/release-year/2026/page/$page/"
-                    val doc = app.get(url, headers = speedpornHeaders).document
-                    doc.select(".video-block, .item, div.post").mapNotNull {
-                        parseSpeedPornMovieCard(it)
+            // Row 5: Showcase from Data18 (with SpeedPorn fallback)
+            "d18_showcases", "latest_releases" -> {
+                val d18Showcases = runCatching {
+                    val url = if (page <= 1) "$mainUrl/movies/showcases" else "$mainUrl/movies/showcases/page/$page"
+                    val doc = app.get(url, headers = data18Headers).document
+                    doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
+                        parseData18ShowcaseCard(it)
                     }.distinctBy { it.url }
                 }.getOrDefault(emptyList())
 
-                if (spReleases.isNotEmpty()) {
-                    spReleases
+                if (d18Showcases.isNotEmpty()) {
+                    d18Showcases
                 } else {
                     runCatching {
-                        val url = if (page <= 1) "$mainUrl/movies/showcases" else "$mainUrl/movies/showcases/page/$page"
-                        val doc = app.get(url, headers = data18Headers).document
-                        doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
-                            parseData18ShowcaseCard(it)
+                        val url = if (page <= 1) "$speedpornUrl/release-year/2026/" else "$speedpornUrl/release-year/2026/page/$page/"
+                        val doc = app.get(url, headers = speedpornHeaders).document
+                        doc.select(".video-block, .item, div.post").mapNotNull {
+                            parseSpeedPornMovieCard(it)
                         }.distinctBy { it.url }
                     }.getOrDefault(emptyList())
                 }
