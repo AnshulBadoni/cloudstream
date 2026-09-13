@@ -201,7 +201,7 @@ tasks.register("makePlugin") {
   {
     "name": "Himeros",
     "internalName": "Himeros",
-    "version": 96,
+    "version": 97,
     "apiVersion": 1,
     "description": "Master aggregator provider with Data18 movie/series/showcase catalogs, PornPics trending models & studios, IMDb/TMDb enhanced artwork, episodic scene breakdowns, and SpeedPorn/1337x/ParadiseHill streaming and torrents.",
     "authors": ["AnshulBadoni"],
@@ -216,7 +216,7 @@ tasks.register("makePlugin") {
   {
     "name": "PornTrex",
     "internalName": "PornTrex",
-    "version": 96,
+    "version": 97,
     "apiVersion": 1,
     "description": "High quality adult streaming provider with actor catalogs, multi-resolution streaming (480p/720p/1080p), and fast search.",
     "authors": ["AnshulBadoni"],
@@ -231,7 +231,7 @@ tasks.register("makePlugin") {
   {
     "name": "YamyHub",
     "internalName": "YamyHub",
-    "version": 96,
+    "version": 97,
     "apiVersion": 1,
     "description": "Fast video streaming with studio channels (Vixen, Blacked, Brazzers), performer catalogs, and direct multi-resolution MP4 downloads (360p-1080p).",
     "authors": ["AnshulBadoni"],
@@ -246,7 +246,7 @@ tasks.register("makePlugin") {
   {
     "name": "Eporner",
     "internalName": "Eporner",
-    "version": 96,
+    "version": 97,
     "apiVersion": 1,
     "description": "Ultra high-quality streaming provider with 4K/1080p 60fps catalogs, studio channels (Vixen, Tushy, Blacked), performer profiles, and multi-resolution MP4 downloads (240p up to 4K).",
     "authors": ["AnshulBadoni"],
@@ -261,7 +261,7 @@ tasks.register("makePlugin") {
   {
     "name": "TnaFlix",
     "internalName": "TnaFlix",
-    "version": 96,
+    "version": 97,
     "apiVersion": 1,
     "description": "Extensive video catalog with trending scenes, categories, performer channels, and multi-resolution stream extraction.",
     "authors": ["AnshulBadoni"],
@@ -276,7 +276,7 @@ tasks.register("makePlugin") {
   {
     "name": "FPO",
     "internalName": "FPO",
-    "version": 96,
+    "version": 97,
     "apiVersion": 1,
     "description": "Fast video indexing with model profiles, trending videos, and direct downloadable MP4 streams.",
     "authors": ["AnshulBadoni"],
@@ -291,7 +291,7 @@ tasks.register("makePlugin") {
   {
     "name": "MultiSource",
     "internalName": "MultiSource",
-    "version": 96,
+    "version": 97,
     "apiVersion": 1,
     "description": "Multi-source aggregator with SpeedPorn and ParadiseHill: deep search, MP4/VOE stream resolvers, multi-part CD episodes, and actor catalogs.",
     "authors": ["AnshulBadoni"],
@@ -306,7 +306,7 @@ tasks.register("makePlugin") {
   {
     "name": "PLibrary",
     "internalName": "PLibrary",
-    "version": 96,
+    "version": 97,
     "apiVersion": 1,
     "description": "Multi-source aggregated collection with 4 seasons per performer across YamyHub, Eporner, TnaFlix, and FPO.",
     "authors": ["AnshulBadoni"],
