@@ -1277,29 +1277,104 @@ class Himeros : MainAPI() {
         @Suppress("UNUSED_PARAMETER") performers: List<String>?,
         callback: (ExtractorLink) -> Unit
     ) {
-        runCatching {
-            val cleanQuery = query.replace(Regex("""(?i)\b(vol\.?|volume|full\s+movie)\b.*"""), "").trim()
-            val encoded = URLEncoder.encode(cleanQuery, "UTF-8")
+        val cleanQuery = query.replace(Regex("""(?i)\b(vol\.?|volume|full\s+movie)\b.*"""), "").trim()
+        val normalized = normalizeTitle(cleanQuery)
+        val encoded = URLEncoder.encode(cleanQuery, "UTF-8")
+        val browserHeaders = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Referer" to "$epornerUrl/"
+        )
 
+        // 1. Eporner Multi-Quality MP4 Downloads (1080p, 720p, 480p, 360p)
+        runCatching {
             val epSearchUrl = "$epornerUrl/search/$encoded/"
-            val epDoc = app.get(epSearchUrl, headers = mapOf("User-Agent" to "Mozilla/5.0")).document
-            val epVideo = epDoc.selectFirst("div.mb, div.video-box, a[href*='/video-']")?.selectFirst("a[href*='/video-']")?.attr("href")
-            if (!epVideo.isNullOrBlank()) {
-                val fullUrl = if (epVideo.startsWith("http")) epVideo else "$epornerUrl$epVideo"
-                val epPage = app.get(fullUrl, headers = mapOf("User-Agent" to "Mozilla/5.0")).text
-                val dloadMatches = Regex("""href=['"](/dload/[^'"]+)['"]""").findAll(epPage)
-                dloadMatches.take(3).forEach { m ->
-                    val dUrl = "$epornerUrl${m.groupValues[1]}"
-                    callback(
-                        ExtractorLink(
-                            source = "Eporner",
-                            name = "Eporner HD",
-                            url = dUrl,
-                            referer = "$epornerUrl/",
-                            quality = Qualities.P1080.value,
-                            isM3u8 = false
-                        )
-                    )
+            val epDoc = app.get(epSearchUrl, headers = browserHeaders).document
+            val videoEls = epDoc.select("div.mb, div.mbblock, div[id^='vf'], a[href*='/video-'], a[href*='/hd-porn/']").take(4)
+            videoEls.forEach { el ->
+                val linkEl = if (el.tagName() == "a") el else el.selectFirst("a[href*='/video-'], a[href*='/hd-porn/']") ?: return@forEach
+                val vHref = linkEl.attr("href")
+                if (vHref.isNotBlank() && !vHref.contains("/pornstar/") && !vHref.contains("/channel/")) {
+                    val fullVUrl = if (vHref.startsWith("http")) vHref else "$epornerUrl$vHref"
+                    runCatching {
+                        val epPageDoc = app.get(fullVUrl, headers = browserHeaders).document
+                        val epHtml = epPageDoc.html()
+
+                        // Direct /dload/ MP4 download links
+                        val dloads = epPageDoc.select("a[href*='/dload/']")
+                        for (a in dloads) {
+                            val dHref = a.attr("href")
+                            val text = a.text()
+                            val quality = when {
+                                text.contains("2160p") || text.contains("4K") -> Qualities.P2160.value
+                                text.contains("1440p") || text.contains("2K") -> Qualities.P1440.value
+                                text.contains("1080p") -> Qualities.P1080.value
+                                text.contains("720p") -> Qualities.P720.value
+                                text.contains("480p") -> Qualities.P480.value
+                                text.contains("360p") -> Qualities.P360.value
+                                else -> Qualities.P720.value
+                            }
+                            val fullDload = if (dHref.startsWith("http")) dHref else "$epornerUrl$dHref"
+                            callback(
+                                ExtractorLink(
+                                    source = "Eporner",
+                                    name = "Eporner ${quality}p MP4 (Direct Download)",
+                                    url = fullDload,
+                                    referer = "$epornerUrl/",
+                                    quality = quality,
+                                    isM3u8 = false
+                                )
+                            )
+                        }
+
+                        // Schema contentUrl
+                        val contentUrl = Regex(""""contentUrl":\s*"([^"]+)"""").find(epHtml)?.groupValues?.get(1)
+                        if (!contentUrl.isNullOrBlank()) {
+                            callback(
+                                ExtractorLink(
+                                    source = "Eporner",
+                                    name = "Eporner 1080p (Direct Stream)",
+                                    url = contentUrl,
+                                    referer = "$epornerUrl/",
+                                    quality = Qualities.P1080.value,
+                                    isM3u8 = false
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. PornTrex Multi-Quality MP4 Downloads
+        runCatching {
+            val ptUrl = "$porntrexUrl/search/$encoded/"
+            val ptDoc = app.get(ptUrl, headers = mapOf("User-Agent" to "Mozilla/5.0", "Referer" to "$porntrexUrl/")).document
+            val ptVideos = ptDoc.select("a[href*='/video/']").take(3)
+            ptVideos.forEach { a ->
+                val ptHref = a.attr("href")
+                if (ptHref.isNotBlank()) {
+                    val fullPt = if (ptHref.startsWith("http")) ptHref else "$porntrexUrl$ptHref"
+                    runCatching {
+                        val vDoc = app.get(fullPt, headers = mapOf("User-Agent" to "Mozilla/5.0")).document
+                        val vHtml = vDoc.html()
+
+                        // Check video sources & get_file download links
+                        val getFileMatches = Regex("""["'](https?://[^"']*porntrex\.com/get_file/[^"']*)["']""").findAll(vHtml)
+                        getFileMatches.forEach { m ->
+                            val fileUrl = m.groupValues[1]
+                            val q = if (fileUrl.contains("1080")) Qualities.P1080.value else if (fileUrl.contains("720")) Qualities.P720.value else Qualities.P480.value
+                            callback(
+                                ExtractorLink(
+                                    source = "PornTrex",
+                                    name = "PornTrex ${q}p MP4 (Direct Download)",
+                                    url = fileUrl,
+                                    referer = "$porntrexUrl/",
+                                    quality = q,
+                                    isM3u8 = false
+                                )
+                            )
+                        }
+                    }
                 }
             }
         }
