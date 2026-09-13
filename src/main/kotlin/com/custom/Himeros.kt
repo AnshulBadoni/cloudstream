@@ -150,120 +150,70 @@ class Himeros : MainAPI() {
         return fallback
     }
 
+    // Helper: Resilient fetch with automatic retry
+    suspend fun <T> fetchWithRetry(maxRetries: Int = 3, delayMs: Long = 500, block: suspend () -> List<T>): List<T> {
+        for (attempt in 1..maxRetries) {
+            val result = runCatching { block() }.getOrDefault(emptyList())
+            if (result.isNotEmpty()) return result
+            if (attempt < maxRetries) delay(delayMs * attempt)
+        }
+        return emptyList()
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items: List<SearchResponse> = when (request.data) {
-            // Row 1: Recent Movies from Data18 (with SpeedPorn fallback)
+            // Row 1: Recent Movies from Data18
             "d18_recent", "recent_movies" -> {
-                val d18Items = runCatching {
+                fetchWithRetry(maxRetries = 3) {
                     val url = if (page <= 1) "$mainUrl/movies" else "$mainUrl/movies/page/$page"
                     val doc = app.get(url, headers = data18Headers).document
                     doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
                         parseData18MovieCard(it)
                     }.distinctBy { it.url }
-                }.getOrDefault(emptyList())
-
-                if (d18Items.isNotEmpty()) {
-                    d18Items
-                } else {
-                    runCatching {
-                        val url = if (page <= 1) "$speedpornUrl/" else "$speedpornUrl/page/$page/"
-                        val doc = app.get(url, headers = speedpornHeaders).document
-                        doc.select(".video-block, .item, div.post").mapNotNull {
-                            parseSpeedPornMovieCard(it)
-                        }.distinctBy { it.url }
-                    }.getOrDefault(emptyList())
                 }
             }
 
-            // Row 2: Models from Data18 (with PornPics fallback)
+            // Row 2: Models from Data18
             "d18_models", "pp_models" -> {
-                val d18Models = runCatching {
+                fetchWithRetry(maxRetries = 3) {
                     val url = if (page <= 1) "$mainUrl/names/pornstars" else "$mainUrl/names/pornstars/page/$page"
                     val doc = app.get(url, headers = data18Headers).document
                     doc.select("a[href*='/name/'], div.boxep1").mapNotNull {
                         parseData18ModelCard(it)
                     }.distinctBy { it.url }
-                }.getOrDefault(emptyList())
-
-                if (d18Models.isNotEmpty()) {
-                    d18Models
-                } else {
-                    val url = if (page <= 1) {
-                        "$pornpicsUrl/pornstars/?gender=female&orientation=straight&s=trending"
-                    } else {
-                        "$pornpicsUrl/pornstars/?gender=female&orientation=straight&s=trending&page=$page"
-                    }
-                    val doc = app.get(url, headers = pornpicsHeaders).document
-                    doc.select("li.thumb-block:has(a[href*='/pornstars/']), li:has(a[href*='/pornstars/']), a[href*='/pornstars/']").mapNotNull {
-                        parsePornPicsModelCard(it)
-                    }.distinctBy { it.url }
                 }
             }
 
-            // Row 3: Recent Series from Data18 (with SpeedPorn category fallback)
+            // Row 3: Recent Series from Data18
             "d18_series", "featured_series" -> {
-                val d18Items = runCatching {
+                fetchWithRetry(maxRetries = 3) {
                     val url = if (page <= 1) "$mainUrl/movies/series" else "$mainUrl/movies/series/page/$page"
                     val doc = app.get(url, headers = data18Headers).document
                     doc.select("a[href*='movie-series'], a[href*='/series/'], div.boxep1, div.relative").mapNotNull {
                         parseData18SeriesCard(it)
                     }.distinctBy { it.url }
-                }.getOrDefault(emptyList())
-
-                if (d18Items.isNotEmpty()) {
-                    d18Items
-                } else {
-                    runCatching {
-                        val url = if (page <= 1) "$speedpornUrl/genres/1-erotic-vignette/" else "$speedpornUrl/genres/1-erotic-vignette/page/$page/"
-                        val doc = app.get(url, headers = speedpornHeaders).document
-                        doc.select(".video-block, .item, div.post").mapNotNull {
-                            parseSpeedPornMovieCard(it)
-                        }.distinctBy { it.url }
-                    }.getOrDefault(emptyList())
                 }
             }
 
-            // Row 4: Studios from Data18 (with PornPics fallback)
+            // Row 4: Studios from Data18
             "d18_studios", "pp_studios" -> {
-                val d18Studios = runCatching {
+                fetchWithRetry(maxRetries = 3) {
                     val url = if (page <= 1) "$mainUrl/studios" else "$mainUrl/studios/page/$page"
                     val doc = app.get(url, headers = data18Headers).document
                     doc.select("a[href*='/studios/']").mapNotNull {
                         parseData18StudioCard(it)
                     }.distinctBy { it.url }
-                }.getOrDefault(emptyList())
-
-                if (d18Studios.isNotEmpty()) {
-                    d18Studios
-                } else {
-                    val url = if (page <= 1) "$pornpicsUrl/channels/" else "$pornpicsUrl/channels/?page=$page"
-                    val doc = app.get(url, headers = pornpicsHeaders).document
-                    doc.select("li.thumb-block:has(a[href*='/channels/']), li:has(a[href*='/channels/']), a[href*='/channels/']").mapNotNull {
-                        parsePornPicsStudioCard(it)
-                    }.distinctBy { it.url }
                 }
             }
 
-            // Row 5: Showcase from Data18 (with SpeedPorn fallback)
+            // Row 5: Showcase from Data18
             "d18_showcases", "latest_releases" -> {
-                val d18Showcases = runCatching {
+                fetchWithRetry(maxRetries = 3) {
                     val url = if (page <= 1) "$mainUrl/movies/showcases" else "$mainUrl/movies/showcases/page/$page"
                     val doc = app.get(url, headers = data18Headers).document
                     doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
                         parseData18ShowcaseCard(it)
                     }.distinctBy { it.url }
-                }.getOrDefault(emptyList())
-
-                if (d18Showcases.isNotEmpty()) {
-                    d18Showcases
-                } else {
-                    runCatching {
-                        val url = if (page <= 1) "$speedpornUrl/release-year/2026/" else "$speedpornUrl/release-year/2026/page/$page/"
-                        val doc = app.get(url, headers = speedpornHeaders).document
-                        doc.select(".video-block, .item, div.post").mapNotNull {
-                            parseSpeedPornMovieCard(it)
-                        }.distinctBy { it.url }
-                    }.getOrDefault(emptyList())
                 }
             }
 
