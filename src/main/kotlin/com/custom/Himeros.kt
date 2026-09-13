@@ -148,12 +148,31 @@ class Himeros : MainAPI() {
         return matches.toDouble() / expTokens.size.toDouble()
     }
 
-    // Helper: Enhance Poster via IMDb -> TMDb -> Fallback with strict title validation
+    // Helper: Enhance Poster via TMDb (adult supported) -> IMDb -> Fallback with strict title validation
     suspend fun fetchEnhancedPoster(title: String, fallback: String?): String? {
         if (title.isBlank()) return fallback
         val cleanTitle = normalizeTitle(title)
 
-        // 1. IMDb Suggestion API
+        // 1. TMDb Search API (with include_adult=true for full movie database support)
+        val tmdbPoster = runCatching {
+            val tmdbKey = "8265bd1679663a7ea12ac168da84d2e8"
+            val encoded = URLEncoder.encode(cleanTitle, "UTF-8").replace("+", "%20")
+            val url = "https://api.themoviedb.org/3/search/movie?api_key=$tmdbKey&query=$encoded&include_adult=true"
+            val res = app.get(url, headers = mapOf("User-Agent" to "Mozilla/5.0", "Accept" to "application/json")).text
+            val posterMatches = Regex(""""title"\s*:\s*"([^"]+)".*?"poster_path"\s*:\s*"([^"]+)"""").findAll(res)
+            for (m in posterMatches) {
+                val candidateTitle = m.groupValues[1]
+                val path = m.groupValues[2]
+                if (path.isNotBlank() && path != "null" && fuzzyMatchScore(cleanTitle, candidateTitle) >= 0.5) {
+                    return@runCatching "https://image.tmdb.org/t/p/w500$path"
+                }
+            }
+            null
+        }.getOrNull()
+
+        if (!tmdbPoster.isNullOrBlank()) return tmdbPoster
+
+        // 2. IMDb Suggestion API Fallback
         val imdbPoster = runCatching {
             val encoded = URLEncoder.encode(cleanTitle, "UTF-8").replace("+", "%20")
             val url = "https://v3.sg.media-imdb.com/suggestion/x/$encoded.json"
@@ -170,7 +189,7 @@ class Himeros : MainAPI() {
 
         if (!imdbPoster.isNullOrBlank()) return imdbPoster
 
-        // 2. Fallback to authentic original cover (e.g. Data18 / PornPics)
+        // 3. Fallback to authentic original cover (e.g. Data18 / PornPics)
         return fallback
     }
 
@@ -254,7 +273,7 @@ class Himeros : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items: List<SearchResponse> = when (request.data) {
-            // Row 1: Recent Movies from Data18 (with SpeedPorn fallback)
+            // Row 1: Recent Movies from Data18 (with SpeedPorn fallback and parallel TMDb hero artwork)
             "d18_recent", "recent_movies" -> {
                 val url = if (page <= 1) "$mainUrl/movies" else "$mainUrl/movies?page=$page"
                 val d18Doc = getData18Doc(url)
@@ -262,7 +281,7 @@ class Himeros : MainAPI() {
                     parseData18MovieCard(it)
                 }?.distinctBy { it.url }.orEmpty()
 
-                if (d18List.isNotEmpty()) {
+                val baseList = if (d18List.isNotEmpty()) {
                     d18List
                 } else {
                     // Fallback to SpeedPorn
@@ -273,6 +292,22 @@ class Himeros : MainAPI() {
                             parseSpeedPornMovieCard(it)
                         }.distinctBy { it.url }
                     }.getOrDefault(emptyList())
+                }
+
+                // Enhance first row (Hero/Carousel) with TMDb artwork in parallel
+                coroutineScope {
+                    baseList.map { item ->
+                        async {
+                            val enhanced = fetchEnhancedPoster(item.name, item.posterUrl)
+                            if (enhanced != null && enhanced != item.posterUrl) {
+                                newMovieSearchResponse(item.name, item.url, item.type ?: TvType.Movie) {
+                                    this.posterUrl = enhanced
+                                }
+                            } else {
+                                item
+                            }
+                        }
+                    }.awaitAll()
                 }
             }
 
@@ -324,25 +359,25 @@ class Himeros : MainAPI() {
                 }
             }
 
-            // Row 4: Studios from Data18 (with PornPics fallback)
+            // Row 4: Studios (prioritize PornPics channels for rich studio logos, with Data18 fallback)
             "d18_studios", "pp_studios" -> {
-                val url = if (page <= 1) "$mainUrl/studios" else "$mainUrl/studios/page/$page"
-                val d18Doc = getData18Doc(url)
-                val d18List = d18Doc?.select("a[href*='/studios/']")?.mapNotNull {
-                    parseData18StudioCard(it)
-                }?.distinctBy { it.url }.orEmpty()
+                val ppList = runCatching {
+                    val ppUrl = if (page <= 1) "$pornpicsUrl/channels/" else "$pornpicsUrl/channels/?page=$page"
+                    val doc = app.get(ppUrl, headers = pornpicsHeaders).document
+                    doc.select("li.thumbwook:has(a[href*='/channels/']), li:has(a[href*='/channels/']), a[href*='/channels/']").mapNotNull {
+                        parsePornPicsStudioCard(it)
+                    }.distinctBy { it.url }
+                }.getOrDefault(emptyList())
 
-                if (d18List.isNotEmpty()) {
-                    d18List
+                if (ppList.isNotEmpty()) {
+                    ppList
                 } else {
-                    // Fallback to PornPics Channels
-                    runCatching {
-                        val ppUrl = if (page <= 1) "$pornpicsUrl/channels/" else "$pornpicsUrl/channels/?page=$page"
-                        val doc = app.get(ppUrl, headers = pornpicsHeaders).document
-                        doc.select("li.thumb-block:has(a[href*='/channels/']), li:has(a[href*='/channels/']), a[href*='/channels/']").mapNotNull {
-                            parsePornPicsStudioCard(it)
-                        }.distinctBy { it.url }
-                    }.getOrDefault(emptyList())
+                    // Fallback to Data18 Studios
+                    val url = if (page <= 1) "$mainUrl/studios" else "$mainUrl/studios/page/$page"
+                    val d18Doc = getData18Doc(url)
+                    d18Doc?.select("a[href*='/studios/']")?.mapNotNull {
+                        parseData18StudioCard(it)
+                    }?.distinctBy { it.url }.orEmpty()
                 }
             }
 
@@ -636,7 +671,7 @@ class Himeros : MainAPI() {
         if (slug.isBlank() || invalidSlugs.contains(slug.lowercase()) || cleanHref.contains("/list")) return null
 
         val slugTitle = slug.replace("-", " ").split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
-        val rawTitle = element.selectFirst(".name, span.title, .title, .thumb__title, .channel-name")?.text()?.trim()
+        val rawTitle = element.selectFirst(".m-name, .name, span.title, .title, .thumb__title, .channel-name")?.text()?.trim()
             ?.ifBlank { null }
             ?: linkEl.attr("title").trim().ifBlank { null }
             ?: element.selectFirst("img")?.attr("alt")?.trim()?.ifBlank { null }
@@ -651,11 +686,11 @@ class Himeros : MainAPI() {
             else -> null
         }
 
-        val imgEl = element.selectFirst("img")
+        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
         val poster = channelLogo
+            ?: imgEl?.attr("src")?.ifBlank { null }
             ?: imgEl?.attr("data-src")?.ifBlank { null }
             ?: imgEl?.attr("data-original")?.ifBlank { null }
-            ?: imgEl?.attr("src")?.ifBlank { null }
 
         val fullPoster = if (poster != null && poster.startsWith("http")) poster else if (poster != null) "$pornpicsUrl$poster" else null
 
