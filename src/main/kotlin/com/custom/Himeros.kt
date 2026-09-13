@@ -3,9 +3,18 @@ package com.custom
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import kotlinx.coroutines.*
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 /**
  * Himeros - Master Aggregator Provider for CloudStream
@@ -169,6 +178,70 @@ class Himeros : MainAPI() {
         var lastData18Error: String = "OK"
     }
 
+    private val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+    })
+
+    private val trustAllOkHttpClient: OkHttpClient by lazy {
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(null, trustAllCerts, SecureRandom())
+        OkHttpClient.Builder()
+            .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
+            .hostnameVerifier { _, _ -> true }
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+    }
+
+    suspend fun getData18Doc(url: String): Document? {
+        // Attempt 1: app.get with verify = false
+        val appDoc = runCatching {
+            val res = app.get(url, headers = data18Headers, verify = false)
+            if (res.code == 200 && res.text.isNotBlank() && !res.text.contains("cf-turnstile") && !res.text.contains("Checking your browser")) {
+                res.document
+            } else {
+                if (res.code != 200) lastData18Error = "HTTP ${res.code}"
+                null
+            }
+        }.getOrElse { ex ->
+            lastData18Error = "${ex.javaClass.simpleName}: ${ex.message?.take(25)}"
+            null
+        }
+
+        if (appDoc != null) {
+            lastData18Error = "OK"
+            return appDoc
+        }
+
+        // Attempt 2: Direct Trust-All OkHttpClient (bypasses Android system keystore / ISP SSL interception)
+        return runCatching {
+            val reqBuilder = Request.Builder().url(url)
+            data18Headers.forEach { (k, v) -> reqBuilder.addHeader(k, v) }
+            val call = trustAllOkHttpClient.newCall(reqBuilder.build())
+            val resp = withContext(Dispatchers.IO) { call.execute() }
+            if (resp.isSuccessful) {
+                val body = resp.body?.string().orEmpty()
+                if (body.isNotBlank() && !body.contains("cf-turnstile") && !body.contains("Checking your browser")) {
+                    lastData18Error = "OK"
+                    Jsoup.parse(body, url)
+                } else {
+                    lastData18Error = "Cloudflare Captcha Triggered"
+                    null
+                }
+            } else {
+                lastData18Error = "HTTP ${resp.code}"
+                null
+            }
+        }.getOrElse { ex ->
+            lastData18Error = "${ex.javaClass.simpleName}: ${ex.message?.take(25)}"
+            null
+        }
+    }
+
     // Helper: Resilient fetch with automatic retry
     suspend fun <T> fetchWithRetry(maxRetries: Int = 3, delayMs: Long = 800, block: suspend () -> List<T>): List<T> {
         for (attempt in 1..maxRetries) {
@@ -183,25 +256,13 @@ class Himeros : MainAPI() {
         val items: List<SearchResponse> = when (request.data) {
             // Row 1: Recent Movies from Data18 (with SpeedPorn fallback)
             "d18_recent", "recent_movies" -> {
-                val d18List = runCatching {
-                    val url = if (page <= 1) "$mainUrl/movies" else "$mainUrl/movies?page=$page"
-                    val res = app.get(url, headers = data18Headers)
-                    if (res.code != 200) {
-                        lastData18Error = "HTTP ${res.code} ${if (res.code == 403 || res.code == 503) "(Cloudflare Block)" else ""}"
-                    } else if (res.text.contains("cf-turnstile") || res.text.contains("Checking your browser") || res.text.contains("Just a moment")) {
-                        lastData18Error = "Cloudflare Captcha Triggered"
-                    }
-                    val doc = res.document
-                    doc.select("a[href*='/movies/']:not([href*='#']), div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
-                        parseData18MovieCard(it)
-                    }.distinctBy { it.url }
-                }.getOrElse { ex ->
-                    lastData18Error = "${ex.javaClass.simpleName}: ${ex.message?.take(30)}"
-                    emptyList()
-                }
+                val url = if (page <= 1) "$mainUrl/movies" else "$mainUrl/movies?page=$page"
+                val d18Doc = getData18Doc(url)
+                val d18List = d18Doc?.select("a[href*='/movies/']:not([href*='#']), div.boxep1, div.relative, div[id^='mitem']")?.mapNotNull {
+                    parseData18MovieCard(it)
+                }?.distinctBy { it.url }.orEmpty()
 
                 if (d18List.isNotEmpty()) {
-                    lastData18Error = "OK"
                     d18List
                 } else {
                     // Fallback to SpeedPorn
@@ -217,26 +278,23 @@ class Himeros : MainAPI() {
 
             // Row 2: Models from Data18 (with PornPics fallback)
             "d18_models", "pp_models" -> {
-                val d18List = runCatching {
-                    val url = if (page <= 1) "$mainUrl/names/pornstars" else "$mainUrl/names/pornstars/page/$page"
-                    val res = app.get(url, headers = data18Headers)
-                    val doc = res.document
-                    doc.select("a[href*='/name/'], div.boxep1").mapNotNull {
-                        parseData18ModelCard(it)
-                    }.distinctBy { it.url }
-                }.getOrDefault(emptyList())
+                val url = if (page <= 1) "$mainUrl/names/pornstars" else "$mainUrl/names/pornstars/page/$page"
+                val d18Doc = getData18Doc(url)
+                val d18List = d18Doc?.select("a[href*='/name/'], div.boxep1")?.mapNotNull {
+                    parseData18ModelCard(it)
+                }?.distinctBy { it.url }.orEmpty()
 
                 if (d18List.isNotEmpty()) {
                     d18List
                 } else {
                     // Fallback to PornPics
                     runCatching {
-                        val url = if (page <= 1) {
+                        val ppUrl = if (page <= 1) {
                             "$pornpicsUrl/pornstars/?gender=female&orientation=straight&s=trending"
                         } else {
                             "$pornpicsUrl/pornstars/?gender=female&orientation=straight&s=trending&page=$page"
                         }
-                        val doc = app.get(url, headers = pornpicsHeaders).document
+                        val doc = app.get(ppUrl, headers = pornpicsHeaders).document
                         doc.select("li.thumb-block:has(a[href*='/pornstars/']), li:has(a[href*='/pornstars/']), a[href*='/pornstars/']").mapNotNull {
                             parsePornPicsModelCard(it)
                         }.distinctBy { it.url }
@@ -246,22 +304,19 @@ class Himeros : MainAPI() {
 
             // Row 3: Recent Series from Data18 (with SpeedPorn fallback)
             "d18_series", "featured_series" -> {
-                val d18List = runCatching {
-                    val url = if (page <= 1) "$mainUrl/movies/series" else "$mainUrl/movies/series/page/$page"
-                    val res = app.get(url, headers = data18Headers)
-                    val doc = res.document
-                    doc.select("a[href*='movie-series'], a[href*='/series/'], div.boxep1, div.relative").mapNotNull {
-                        parseData18SeriesCard(it)
-                    }.distinctBy { it.url }
-                }.getOrDefault(emptyList())
+                val url = if (page <= 1) "$mainUrl/movies/series" else "$mainUrl/movies/series/page/$page"
+                val d18Doc = getData18Doc(url)
+                val d18List = d18Doc?.select("a[href*='movie-series'], a[href*='/series/'], div.boxep1, div.relative")?.mapNotNull {
+                    parseData18SeriesCard(it)
+                }?.distinctBy { it.url }.orEmpty()
 
                 if (d18List.isNotEmpty()) {
                     d18List
                 } else {
                     // Fallback to SpeedPorn
                     runCatching {
-                        val url = if (page <= 1) "$speedpornUrl/genres/1-erotic-vignette/" else "$speedpornUrl/genres/1-erotic-vignette/page/$page/"
-                        val doc = app.get(url, headers = speedpornHeaders).document
+                        val spUrl = if (page <= 1) "$speedpornUrl/genres/1-erotic-vignette/" else "$speedpornUrl/genres/1-erotic-vignette/page/$page/"
+                        val doc = app.get(spUrl, headers = speedpornHeaders).document
                         doc.select(".video-block, .item, div.post").mapNotNull {
                             parseSpeedPornMovieCard(it)
                         }.distinctBy { it.url }
@@ -271,22 +326,19 @@ class Himeros : MainAPI() {
 
             // Row 4: Studios from Data18 (with PornPics fallback)
             "d18_studios", "pp_studios" -> {
-                val d18List = runCatching {
-                    val url = if (page <= 1) "$mainUrl/studios" else "$mainUrl/studios/page/$page"
-                    val res = app.get(url, headers = data18Headers)
-                    val doc = res.document
-                    doc.select("a[href*='/studios/']").mapNotNull {
-                        parseData18StudioCard(it)
-                    }.distinctBy { it.url }
-                }.getOrDefault(emptyList())
+                val url = if (page <= 1) "$mainUrl/studios" else "$mainUrl/studios/page/$page"
+                val d18Doc = getData18Doc(url)
+                val d18List = d18Doc?.select("a[href*='/studios/']")?.mapNotNull {
+                    parseData18StudioCard(it)
+                }?.distinctBy { it.url }.orEmpty()
 
                 if (d18List.isNotEmpty()) {
                     d18List
                 } else {
                     // Fallback to PornPics Channels
                     runCatching {
-                        val url = if (page <= 1) "$pornpicsUrl/channels/" else "$pornpicsUrl/channels/?page=$page"
-                        val doc = app.get(url, headers = pornpicsHeaders).document
+                        val ppUrl = if (page <= 1) "$pornpicsUrl/channels/" else "$pornpicsUrl/channels/?page=$page"
+                        val doc = app.get(ppUrl, headers = pornpicsHeaders).document
                         doc.select("li.thumb-block:has(a[href*='/channels/']), li:has(a[href*='/channels/']), a[href*='/channels/']").mapNotNull {
                             parsePornPicsStudioCard(it)
                         }.distinctBy { it.url }
@@ -296,22 +348,11 @@ class Himeros : MainAPI() {
 
             // Row 5: Showcase from Data18 (with SpeedPorn fallback and on-screen debug card)
             "d18_showcases", "latest_releases" -> {
-                val d18List = runCatching {
-                    val url = if (page <= 1) "$mainUrl/movies/showcases" else "$mainUrl/movies/showcases/page/$page"
-                    val res = app.get(url, headers = data18Headers)
-                    if (res.code != 200) {
-                        lastData18Error = "HTTP ${res.code} ${if (res.code == 403 || res.code == 503) "(Cloudflare Block)" else ""}"
-                    } else if (res.text.contains("cf-turnstile") || res.text.contains("Checking your browser") || res.text.contains("Just a moment")) {
-                        lastData18Error = "Cloudflare Captcha Triggered"
-                    }
-                    val doc = res.document
-                    doc.select("a[href*='/movies/']:not([href*='#']), div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
-                        parseData18ShowcaseCard(it)
-                    }.distinctBy { it.url }
-                }.getOrElse { ex ->
-                    lastData18Error = "${ex.javaClass.simpleName}: ${ex.message?.take(30)}"
-                    emptyList()
-                }
+                val url = if (page <= 1) "$mainUrl/movies/showcases" else "$mainUrl/movies/showcases/page/$page"
+                val d18Doc = getData18Doc(url)
+                val d18List = d18Doc?.select("a[href*='/movies/']:not([href*='#']), div.boxep1, div.relative, div[id^='mitem']")?.mapNotNull {
+                    parseData18ShowcaseCard(it)
+                }?.distinctBy { it.url }.orEmpty()
 
                 val finalItems = mutableListOf<SearchResponse>()
                 if (d18List.isNotEmpty()) {
@@ -319,8 +360,8 @@ class Himeros : MainAPI() {
                 } else {
                     // Fallback to SpeedPorn
                     val spItems = runCatching {
-                        val url = if (page <= 1) "$speedpornUrl/tag/featured/" else "$speedpornUrl/tag/featured/page/$page/"
-                        val doc = app.get(url, headers = speedpornHeaders).document
+                        val spUrl = if (page <= 1) "$speedpornUrl/tag/featured/" else "$speedpornUrl/tag/featured/page/$page/"
+                        val doc = app.get(spUrl, headers = speedpornHeaders).document
                         doc.select(".video-block, .item, div.post").mapNotNull {
                             parseSpeedPornMovieCard(it)
                         }.distinctBy { it.url }
@@ -715,11 +756,9 @@ class Himeros : MainAPI() {
             .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
         val d18Doc = if (cleanUrl.contains("data18.com")) {
-            runCatching { app.get(cleanUrl, headers = data18Headers).document }.getOrNull()
-                ?: runCatching { app.get("$cleanUrl/movies", headers = data18Headers).document }.getOrNull()
+            getData18Doc(cleanUrl) ?: getData18Doc("$cleanUrl/movies")
         } else {
-            runCatching { app.get("$mainUrl/name/$slug/movies", headers = data18Headers).document }.getOrNull()
-                ?: runCatching { app.get("$mainUrl/name/$slug", headers = data18Headers).document }.getOrNull()
+            getData18Doc("$mainUrl/name/$slug/movies") ?: getData18Doc("$mainUrl/name/$slug")
         }
 
         var avatar = d18Doc?.selectFirst("img.yborder, img[src*='cdn.dt18.com/stars'], img[src*='cdn.dt18.com/images/names'], img[src*='cdn.dt18.com/media']")?.attr("src")
@@ -804,11 +843,9 @@ class Himeros : MainAPI() {
             .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
         val d18Doc = if (cleanUrl.contains("data18.com")) {
-            runCatching { app.get(cleanUrl, headers = data18Headers).document }.getOrNull()
-                ?: runCatching { app.get("$cleanUrl/movies", headers = data18Headers).document }.getOrNull()
+            getData18Doc(cleanUrl) ?: getData18Doc("$cleanUrl/movies")
         } else {
-            runCatching { app.get("$mainUrl/studios/$slug/movies", headers = data18Headers).document }.getOrNull()
-                ?: runCatching { app.get("$mainUrl/studios/$slug", headers = data18Headers).document }.getOrNull()
+            getData18Doc("$mainUrl/studios/$slug/movies") ?: getData18Doc("$mainUrl/studios/$slug")
         }
 
         var logo: String? = null
@@ -904,7 +941,7 @@ class Himeros : MainAPI() {
             .split(" ").filter { it.isNotBlank() }
             .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
-        val doc = runCatching { app.get(cleanUrl, headers = data18Headers).document }.getOrNull()
+        val doc = getData18Doc(cleanUrl)
         val h1Text = doc?.selectFirst("h1, .gen12 b, div.gen12, a.gen12, p.genmed b")?.text()?.trim()
         val rawTitle = if (!h1Text.isNullOrBlank() && !h1Text.equals("DATA18", ignoreCase = true)) h1Text else slugTitle
         var title = cleanData18Title(rawTitle)
@@ -1055,7 +1092,7 @@ class Himeros : MainAPI() {
             .split(" ").filter { it.isNotBlank() }
             .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
-        val doc = runCatching { app.get(cleanUrl, headers = data18Headers).document }.getOrNull()
+        val doc = getData18Doc(cleanUrl)
         val h1Text = doc?.selectFirst("h1, .gen12 b, div.gen12, a.gen12, p.genmed b")?.text()?.trim()
         val rawTitle = if (!h1Text.isNullOrBlank() && !h1Text.equals("DATA18", ignoreCase = true)) h1Text else slugTitle
         var title = cleanData18Title(rawTitle)
@@ -1697,10 +1734,10 @@ class Himeros : MainAPI() {
             val d18Deferred = async {
                 runCatching {
                     val url = "$mainUrl/movies/search?k=$encoded"
-                    val doc = app.get(url, headers = data18Headers).document
-                    doc.select("div[id^='mitem'], div.boxep1, a[href*='/movies/']").mapNotNull {
+                    val doc = getData18Doc(url)
+                    doc?.select("div[id^='mitem'], div.boxep1, a[href*='/movies/']")?.mapNotNull {
                         parseData18MovieCard(it)
-                    }
+                    }.orEmpty()
                 }.getOrDefault(emptyList())
             }
 

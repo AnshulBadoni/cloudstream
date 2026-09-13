@@ -194,14 +194,14 @@ tasks.register("makePlugin") {
         createPluginZip("TnaFlix", "com.custom.TnaFlixProvider", tnaFlixCs3)
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3)
         createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3)
-        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3)
+        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 106)
 
         val pluginsJson = """
 [
   {
     "name": "Himeros",
     "internalName": "Himeros",
-    "version": 105,
+    "version": 106,
     "apiVersion": 1,
     "description": "Master aggregator provider with Data18 movie/series/showcase catalogs, PornPics trending models & studios, IMDb/TMDb enhanced artwork, episodic scene breakdowns, and SpeedPorn/1337x/ParadiseHill streaming and torrents.",
     "authors": ["AnshulBadoni"],
