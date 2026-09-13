@@ -134,7 +134,7 @@ class Himeros : MainAPI() {
             "d18_recent" -> {
                 val url = if (page <= 1) "$mainUrl/movies" else "$mainUrl/movies/page/$page"
                 val doc = app.get(url, headers = data18Headers).document
-                doc.select("div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
+                doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
                     parseData18MovieCard(it)
                 }.distinctBy { it.url }
             }
@@ -147,7 +147,7 @@ class Himeros : MainAPI() {
                     "$pornpicsUrl/pornstars/?gender=female&orientation=straight&s=trending&page=$page"
                 }
                 val doc = app.get(url, headers = pornpicsHeaders).document
-                doc.select("li.thumb-block:has(a[href*='/pornstars/']), li:has(a[href*='/pornstars/'])").mapNotNull {
+                doc.select("li.thumb-block:has(a[href*='/pornstars/']), li:has(a[href*='/pornstars/']), a[href*='/pornstars/']").mapNotNull {
                     parsePornPicsModelCard(it)
                 }.distinctBy { it.url }
             }
@@ -156,7 +156,7 @@ class Himeros : MainAPI() {
             "d18_series" -> {
                 val url = if (page <= 1) "$mainUrl/movies/series" else "$mainUrl/movies/series/page/$page"
                 val doc = app.get(url, headers = data18Headers).document
-                doc.select("div.boxep1, div.relative, a[href*='movie-series']").mapNotNull {
+                doc.select("a[href*='movie-series'], a[href*='/series/'], div.boxep1, div.relative").mapNotNull {
                     parseData18SeriesCard(it)
                 }.distinctBy { it.url }
             }
@@ -165,7 +165,7 @@ class Himeros : MainAPI() {
             "pp_studios" -> {
                 val url = if (page <= 1) "$pornpicsUrl/channels/" else "$pornpicsUrl/channels/?page=$page"
                 val doc = app.get(url, headers = pornpicsHeaders).document
-                doc.select("li.thumb-block:has(a[href*='/channels/']), li:has(a[href*='/channels/'])").mapNotNull {
+                doc.select("li.thumb-block:has(a[href*='/channels/']), li:has(a[href*='/channels/']), a[href*='/channels/']").mapNotNull {
                     parsePornPicsStudioCard(it)
                 }.distinctBy { it.url }
             }
@@ -174,7 +174,7 @@ class Himeros : MainAPI() {
             "d18_showcases" -> {
                 val url = if (page <= 1) "$mainUrl/movies/showcases" else "$mainUrl/movies/showcases/page/$page"
                 val doc = app.get(url, headers = data18Headers).document
-                doc.select("div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
+                doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
                     parseData18ShowcaseCard(it)
                 }.distinctBy { it.url }
             }
@@ -191,21 +191,29 @@ class Himeros : MainAPI() {
     // --- CARD PARSERS ---
 
     private fun parseData18MovieCard(element: Element): SearchResponse? {
-        val linkEl = element.selectFirst("a[href*='/movies/']:not([href*='#image'])")
-            ?: element.selectFirst("a[href*='/movies/']")
-            ?: if (element.tagName() == "a") element else return null
+        val linkEl = if (element.tagName() == "a" && element.attr("href").contains("/movies/")) {
+            element
+        } else {
+            element.selectFirst("a[href*='/movies/']:not([href*='#image'])")
+                ?: element.selectFirst("a[href*='/movies/']")
+                ?: return null
+        }
 
         val rawHref = linkEl.attr("href")
         val cleanHref = rawHref.substringBefore('#').let { if (it.startsWith("http")) it else "$mainUrl$it" }
         if (!cleanHref.matches(Regex(""".*/movies/\d+.*"""))) return null
 
-        val slugTitle = cleanHref.substringAfterLast("/").replace(Regex("""^\d+-"""), "").replace("-", " ")
+        val moviePart = cleanHref.substringAfterLast("/")
+        val id = Regex("""^(\d+)""").find(moviePart)?.groupValues?.get(1) ?: ""
+        val slug = moviePart.replace(Regex("""^\d+-"""), "")
+        val slugTitle = slug.replace("-", " ")
             .split(" ").filter { it.isNotBlank() }
             .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
         val rawTitle = element.selectFirst("a.gen12, .gen12 a, div.gen12, p.genmed a, b a")?.text()?.trim()
             ?.ifBlank { null }
             ?: element.selectFirst("img")?.attr("alt")?.trim()?.ifBlank { null }
+            ?: linkEl.attr("title").trim().ifBlank { null }
             ?: slugTitle
 
         var cleanTitle = rawTitle
@@ -219,10 +227,14 @@ class Himeros : MainAPI() {
 
         if (cleanTitle.isBlank()) return null
 
-        val imgEl = element.selectFirst("img")
-        val poster = imgEl?.attr("src")?.ifBlank { null }
+        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
+        var poster = imgEl?.attr("src")?.ifBlank { null }
             ?: imgEl?.attr("data-src")?.ifBlank { null }
-            ?: imgEl?.attr("data-original")
+            ?: imgEl?.attr("data-original")?.ifBlank { null }
+
+        if (poster.isNullOrBlank() && id.isNotBlank()) {
+            poster = "https://cdn.dt18.com/covers/2/6/$id-$slug.jpg"
+        }
 
         return newMovieSearchResponse(cleanTitle, cleanHref, TvType.Movie) {
             this.posterUrl = poster
@@ -261,9 +273,17 @@ class Himeros : MainAPI() {
     }
 
     private fun parseData18SeriesCard(element: Element): SearchResponse? {
-        val linkEl = element.selectFirst("a[href*='movie-series']") ?: if (element.tagName() == "a") element else return null
+        val linkEl = if (element.tagName() == "a" && (element.attr("href").contains("movie-series") || element.attr("href").contains("/series/"))) {
+            element
+        } else {
+            element.selectFirst("a[href*='movie-series']")
+                ?: element.selectFirst("a[href*='/series/']")
+                ?: return null
+        }
+
         val href = linkEl.attr("href").let { if (it.startsWith("http")) it else "$mainUrl$it" }
-        if (href.endsWith("/movies/series") || href.endsWith("/movies/showcases") || href.endsWith("/movies/directors")) return null
+        if (href.endsWith("/movies/series") || href.endsWith("/movies/showcases") || href.endsWith("/movies/directors") ||
+            href.endsWith("/movie-series") || href.endsWith("/movie-series/") || href.endsWith("/series") || href.endsWith("/series/")) return null
         if (!href.contains("movie-series") && !href.contains("/series/")) return null
 
         val slugTitle = href.substringAfterLast("/").replace("movie-series-", "").replace("-", " ")
@@ -279,13 +299,13 @@ class Himeros : MainAPI() {
             .replace(Regex("""\d+\s+Movies"""), "")
             .trim()
 
-        if (cleanTitle.isBlank() || cleanTitle.matches(Regex("""(?i)^(#\d+|movie\s+(series|showcases|directors)|\d+|\+.*)$"""))) {
+        if (cleanTitle.isBlank() || cleanTitle == "[+]" || cleanTitle.equals("Movie Series", ignoreCase = true) || cleanTitle.matches(Regex("""(?i)^(#\d+|movie\s+(series|showcases|directors)|\d+|\+.*)$"""))) {
             cleanTitle = slugTitle
         }
 
-        if (cleanTitle.isBlank()) return null
+        if (cleanTitle.isBlank() || cleanTitle == "[+]" || cleanTitle.equals("Movie Series", ignoreCase = true)) return null
 
-        val imgEl = element.selectFirst("img")
+        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
         val poster = imgEl?.attr("src")?.ifBlank { null } ?: imgEl?.attr("data-src")
 
         return newTvSeriesSearchResponse(cleanTitle, href, TvType.TvSeries) {
@@ -300,8 +320,8 @@ class Himeros : MainAPI() {
         val cleanHref = rawHref.substringBefore('?').trimEnd('/').let { if (it.startsWith("http")) it else "$pornpicsUrl$it" }
         val slug = cleanHref.substringAfterLast('/')
 
-        val invalidSlugs = setOf("channels", "studios", "categories", "trending", "popular", "pornstars")
-        if (slug.isBlank() || invalidSlugs.contains(slug.lowercase()) || cleanHref.contains("/list/")) return null
+        val invalidSlugs = setOf("channels", "studios", "categories", "trending", "popular", "pornstars", "list")
+        if (slug.isBlank() || invalidSlugs.contains(slug.lowercase()) || cleanHref.contains("/list")) return null
 
         val slugTitle = slug.replace("-", " ").split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
         val rawTitle = element.selectFirst(".name, span.title, .title, .thumb__title, .channel-name")?.text()?.trim()
@@ -324,15 +344,22 @@ class Himeros : MainAPI() {
     }
 
     private fun parseData18ShowcaseCard(element: Element): SearchResponse? {
-        val linkEl = element.selectFirst("a[href*='/movies/']:not([href*='#image'])")
-            ?: element.selectFirst("a[href*='/movies/']")
-            ?: if (element.tagName() == "a") element else return null
+        val linkEl = if (element.tagName() == "a" && element.attr("href").contains("/movies/")) {
+            element
+        } else {
+            element.selectFirst("a[href*='/movies/']:not([href*='#image'])")
+                ?: element.selectFirst("a[href*='/movies/']")
+                ?: return null
+        }
 
         val rawHref = linkEl.attr("href")
         val cleanHref = rawHref.substringBefore('#').let { if (it.startsWith("http")) it else "$mainUrl$it" }
         if (!cleanHref.matches(Regex(""".*/movies/\d+.*"""))) return null
 
-        val slugTitle = cleanHref.substringAfterLast("/").replace(Regex("""^\d+-"""), "").replace("-", " ")
+        val moviePart = cleanHref.substringAfterLast("/")
+        val id = Regex("""^(\d+)""").find(moviePart)?.groupValues?.get(1) ?: ""
+        val slug = moviePart.replace(Regex("""^\d+-"""), "")
+        val slugTitle = slug.replace("-", " ")
             .split(" ").filter { it.isNotBlank() }
             .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
@@ -352,8 +379,12 @@ class Himeros : MainAPI() {
 
         if (cleanTitle.isBlank()) return null
 
-        val imgEl = element.selectFirst("img")
-        val poster = imgEl?.attr("src")?.ifBlank { null } ?: imgEl?.attr("data-src")
+        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
+        var poster = imgEl?.attr("src")?.ifBlank { null } ?: imgEl?.attr("data-src")
+
+        if (poster.isNullOrBlank() && id.isNotBlank()) {
+            poster = "https://cdn.dt18.com/covers/2/6/$id-$slug.jpg"
+        }
 
         return newMovieSearchResponse(cleanTitle, cleanHref, TvType.Movie) {
             this.posterUrl = poster
