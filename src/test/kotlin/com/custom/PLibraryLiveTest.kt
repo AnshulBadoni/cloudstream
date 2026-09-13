@@ -99,15 +99,15 @@ class PLibraryLiveTest {
         println("YamyHub link extraction: $ySuccess (Count: ${yamyLinks.size})")
         assertTrue(yamyLinks.isNotEmpty(), "YamyHub should extract direct MP4 links")
 
-        // 2. DaftSex Video
-        val daftSample = "https://daftsex.biz/movie/xJwEaVj1klwOZ3Pa4Oa5oKv"
-        val daftLinks = mutableListOf<ExtractorLink>()
-        val dSuccess = plibrary.loadLinks(daftSample, isCasting = false, subtitleCallback = {}) { link ->
-            daftLinks.add(link)
-            println("  [DaftSex Link] ${link.name} (Quality: ${link.quality}) -> ${link.url}")
+        // 2. Eporner Video
+        val epSample = "https://www.eporner.com/video-QhSnMM9G5gt/hot-brunette/"
+        val epLinks = mutableListOf<ExtractorLink>()
+        val epSuccess = plibrary.loadLinks(epSample, isCasting = false, subtitleCallback = {}) { link ->
+            epLinks.add(link)
+            println("  [Eporner Link] ${link.name} (Quality: ${link.quality}) -> ${link.url}")
         }
-        println("DaftSex link extraction: $dSuccess (Count: ${daftLinks.size})")
-        assertTrue(daftLinks.isNotEmpty(), "DaftSex should extract direct MP4 links")
+        println("Eporner link extraction: $epSuccess (Count: ${epLinks.size})")
+        assertTrue(epLinks.isNotEmpty(), "Eporner should extract direct MP4 links")
     }
 }
 

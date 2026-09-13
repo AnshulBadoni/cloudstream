@@ -185,6 +185,7 @@ tasks.register("makePlugin") {
         val tnaFlixCs3 = File(distDir, "TnaFlix.cs3")
         val fpoCs3 = File(distDir, "FPO.cs3")
         val plibraryCs3 = File(distDir, "PLibrary.cs3")
+        val himerosCs3 = File(distDir, "Himeros.cs3")
 
         createPluginZip("PornTrex", "com.megix.PorntrexProvider", porntrexCs3)
         createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3)
@@ -193,9 +194,25 @@ tasks.register("makePlugin") {
         createPluginZip("TnaFlix", "com.custom.TnaFlixProvider", tnaFlixCs3)
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3)
         createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3)
+        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3)
 
         val pluginsJson = """
 [
+  {
+    "name": "Himeros",
+    "internalName": "Himeros",
+    "version": 96,
+    "apiVersion": 1,
+    "description": "Master aggregator provider with Data18 movie/series/showcase catalogs, PornPics trending models & studios, IMDb/TMDb enhanced artwork, episodic scene breakdowns, and SpeedPorn/1337x/ParadiseHill streaming and torrents.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie", "TvSeries"],
+    "iconUrl": "https://www.data18.com/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/Himeros.cs3",
+    "fileSize": ${if (himerosCs3.exists()) himerosCs3.length() else 102400}
+  },
   {
     "name": "PornTrex",
     "internalName": "PornTrex",
