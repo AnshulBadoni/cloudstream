@@ -165,8 +165,12 @@ class Himeros : MainAPI() {
         return fallback
     }
 
+    companion object {
+        var lastData18Error: String = "OK"
+    }
+
     // Helper: Resilient fetch with automatic retry
-    suspend fun <T> fetchWithRetry(maxRetries: Int = 4, delayMs: Long = 1000, block: suspend () -> List<T>): List<T> {
+    suspend fun <T> fetchWithRetry(maxRetries: Int = 3, delayMs: Long = 800, block: suspend () -> List<T>): List<T> {
         for (attempt in 1..maxRetries) {
             val result = runCatching { block() }.getOrDefault(emptyList())
             if (result.isNotEmpty()) return result
@@ -177,59 +181,167 @@ class Himeros : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items: List<SearchResponse> = when (request.data) {
-            // Row 1: Recent Movies from Data18
+            // Row 1: Recent Movies from Data18 (with SpeedPorn fallback)
             "d18_recent", "recent_movies" -> {
-                fetchWithRetry(maxRetries = 4) {
+                val d18List = runCatching {
                     val url = if (page <= 1) "$mainUrl/movies" else "$mainUrl/movies?page=$page"
-                    val doc = app.get(url, headers = data18Headers).document
+                    val res = app.get(url, headers = data18Headers)
+                    if (res.code != 200) {
+                        lastData18Error = "HTTP ${res.code} ${if (res.code == 403 || res.code == 503) "(Cloudflare Block)" else ""}"
+                    } else if (res.text.contains("cf-turnstile") || res.text.contains("Checking your browser") || res.text.contains("Just a moment")) {
+                        lastData18Error = "Cloudflare Captcha Triggered"
+                    }
+                    val doc = res.document
                     doc.select("a[href*='/movies/']:not([href*='#']), div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
                         parseData18MovieCard(it)
                     }.distinctBy { it.url }
+                }.getOrElse { ex ->
+                    lastData18Error = "${ex.javaClass.simpleName}: ${ex.message?.take(30)}"
+                    emptyList()
+                }
+
+                if (d18List.isNotEmpty()) {
+                    lastData18Error = "OK"
+                    d18List
+                } else {
+                    // Fallback to SpeedPorn
+                    runCatching {
+                        val spUrl = if (page <= 1) "$speedpornUrl/" else "$speedpornUrl/page/$page/"
+                        val doc = app.get(spUrl, headers = speedpornHeaders).document
+                        doc.select(".video-block, .item, div.post").mapNotNull {
+                            parseSpeedPornMovieCard(it)
+                        }.distinctBy { it.url }
+                    }.getOrDefault(emptyList())
                 }
             }
 
-            // Row 2: Models from Data18
+            // Row 2: Models from Data18 (with PornPics fallback)
             "d18_models", "pp_models" -> {
-                fetchWithRetry(maxRetries = 4) {
+                val d18List = runCatching {
                     val url = if (page <= 1) "$mainUrl/names/pornstars" else "$mainUrl/names/pornstars/page/$page"
-                    val doc = app.get(url, headers = data18Headers).document
+                    val res = app.get(url, headers = data18Headers)
+                    val doc = res.document
                     doc.select("a[href*='/name/'], div.boxep1").mapNotNull {
                         parseData18ModelCard(it)
                     }.distinctBy { it.url }
+                }.getOrDefault(emptyList())
+
+                if (d18List.isNotEmpty()) {
+                    d18List
+                } else {
+                    // Fallback to PornPics
+                    runCatching {
+                        val url = if (page <= 1) {
+                            "$pornpicsUrl/pornstars/?gender=female&orientation=straight&s=trending"
+                        } else {
+                            "$pornpicsUrl/pornstars/?gender=female&orientation=straight&s=trending&page=$page"
+                        }
+                        val doc = app.get(url, headers = pornpicsHeaders).document
+                        doc.select("li.thumb-block:has(a[href*='/pornstars/']), li:has(a[href*='/pornstars/']), a[href*='/pornstars/']").mapNotNull {
+                            parsePornPicsModelCard(it)
+                        }.distinctBy { it.url }
+                    }.getOrDefault(emptyList())
                 }
             }
 
-            // Row 3: Recent Series from Data18
+            // Row 3: Recent Series from Data18 (with SpeedPorn fallback)
             "d18_series", "featured_series" -> {
-                fetchWithRetry(maxRetries = 4) {
+                val d18List = runCatching {
                     val url = if (page <= 1) "$mainUrl/movies/series" else "$mainUrl/movies/series/page/$page"
-                    val doc = app.get(url, headers = data18Headers).document
+                    val res = app.get(url, headers = data18Headers)
+                    val doc = res.document
                     doc.select("a[href*='movie-series'], a[href*='/series/'], div.boxep1, div.relative").mapNotNull {
                         parseData18SeriesCard(it)
                     }.distinctBy { it.url }
+                }.getOrDefault(emptyList())
+
+                if (d18List.isNotEmpty()) {
+                    d18List
+                } else {
+                    // Fallback to SpeedPorn
+                    runCatching {
+                        val url = if (page <= 1) "$speedpornUrl/genres/1-erotic-vignette/" else "$speedpornUrl/genres/1-erotic-vignette/page/$page/"
+                        val doc = app.get(url, headers = speedpornHeaders).document
+                        doc.select(".video-block, .item, div.post").mapNotNull {
+                            parseSpeedPornMovieCard(it)
+                        }.distinctBy { it.url }
+                    }.getOrDefault(emptyList())
                 }
             }
 
-            // Row 4: Studios from Data18
+            // Row 4: Studios from Data18 (with PornPics fallback)
             "d18_studios", "pp_studios" -> {
-                fetchWithRetry(maxRetries = 4) {
+                val d18List = runCatching {
                     val url = if (page <= 1) "$mainUrl/studios" else "$mainUrl/studios/page/$page"
-                    val doc = app.get(url, headers = data18Headers).document
+                    val res = app.get(url, headers = data18Headers)
+                    val doc = res.document
                     doc.select("a[href*='/studios/']").mapNotNull {
                         parseData18StudioCard(it)
                     }.distinctBy { it.url }
+                }.getOrDefault(emptyList())
+
+                if (d18List.isNotEmpty()) {
+                    d18List
+                } else {
+                    // Fallback to PornPics Channels
+                    runCatching {
+                        val url = if (page <= 1) "$pornpicsUrl/channels/" else "$pornpicsUrl/channels/?page=$page"
+                        val doc = app.get(url, headers = pornpicsHeaders).document
+                        doc.select("li.thumb-block:has(a[href*='/channels/']), li:has(a[href*='/channels/']), a[href*='/channels/']").mapNotNull {
+                            parsePornPicsStudioCard(it)
+                        }.distinctBy { it.url }
+                    }.getOrDefault(emptyList())
                 }
             }
 
-            // Row 5: Showcase from Data18
+            // Row 5: Showcase from Data18 (with SpeedPorn fallback and on-screen debug card)
             "d18_showcases", "latest_releases" -> {
-                fetchWithRetry(maxRetries = 4) {
+                val d18List = runCatching {
                     val url = if (page <= 1) "$mainUrl/movies/showcases" else "$mainUrl/movies/showcases/page/$page"
-                    val doc = app.get(url, headers = data18Headers).document
+                    val res = app.get(url, headers = data18Headers)
+                    if (res.code != 200) {
+                        lastData18Error = "HTTP ${res.code} ${if (res.code == 403 || res.code == 503) "(Cloudflare Block)" else ""}"
+                    } else if (res.text.contains("cf-turnstile") || res.text.contains("Checking your browser") || res.text.contains("Just a moment")) {
+                        lastData18Error = "Cloudflare Captcha Triggered"
+                    }
+                    val doc = res.document
                     doc.select("a[href*='/movies/']:not([href*='#']), div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
                         parseData18ShowcaseCard(it)
                     }.distinctBy { it.url }
+                }.getOrElse { ex ->
+                    lastData18Error = "${ex.javaClass.simpleName}: ${ex.message?.take(30)}"
+                    emptyList()
                 }
+
+                val finalItems = mutableListOf<SearchResponse>()
+                if (d18List.isNotEmpty()) {
+                    finalItems.addAll(d18List)
+                } else {
+                    // Fallback to SpeedPorn
+                    val spItems = runCatching {
+                        val url = if (page <= 1) "$speedpornUrl/tag/featured/" else "$speedpornUrl/tag/featured/page/$page/"
+                        val doc = app.get(url, headers = speedpornHeaders).document
+                        doc.select(".video-block, .item, div.post").mapNotNull {
+                            parseSpeedPornMovieCard(it)
+                        }.distinctBy { it.url }
+                    }.getOrDefault(emptyList())
+
+                    finalItems.addAll(spItems)
+                }
+
+                // If Data18 had an error on user's device, add debug card at the front of Showcase row
+                if (lastData18Error != "OK" && finalItems.isNotEmpty()) {
+                    val debugCard = newMovieSearchResponse(
+                        name = "[Debug] Data18: $lastData18Error",
+                        url = "$mainUrl/movies#debug_info",
+                        type = TvType.Movie
+                    ) {
+                        this.posterUrl = "https://cdn.dt18.com/covers/2/8/1214751-octavia-loves-girls-dreamscape.jpg"
+                    }
+                    finalItems.add(0, debugCard)
+                }
+
+                finalItems
             }
 
             else -> emptyList()
@@ -563,6 +675,18 @@ class Himeros : MainAPI() {
     // --- LOAD DETAIL PAGE ---
 
     override suspend fun load(url: String): LoadResponse? {
+        if (url.contains("#debug")) {
+            return newMovieLoadResponse(
+                name = "[Debug Info]",
+                url = url,
+                type = TvType.Movie,
+                dataUrl = url
+            ) {
+                this.plot = "Data18 Diagnostic Status: $lastData18Error\n\nIf Cloudflare Block / Captcha is shown, Data18 has triggered bot protection for your network IP. CloudStream is using fallback sources (SpeedPorn/PornPics) to keep all rows working."
+                this.posterUrl = "https://cdn.dt18.com/covers/2/8/1214751-octavia-loves-girls-dreamscape.jpg"
+            }
+        }
+
         return when {
             // 1. Data18 Series Page
             url.contains("/movie-series") || url.contains("/series/") -> loadData18Series(url)
