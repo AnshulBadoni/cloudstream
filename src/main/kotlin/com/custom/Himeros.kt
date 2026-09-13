@@ -41,24 +41,38 @@ class Himeros : MainAPI() {
     val epornerUrl = "https://www.eporner.com"
 
     val data18Headers = mapOf(
-        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language" to "en-US,en;q=0.9",
+        "Sec-Ch-Ua" to "\"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\", \"Not-A.Brand\";v=\"99\"",
+        "Sec-Ch-Ua-Mobile" to "?1",
+        "Sec-Ch-Ua-Platform" to "\"Android\"",
+        "Sec-Fetch-Dest" to "document",
+        "Sec-Fetch-Mode" to "navigate",
+        "Sec-Fetch-Site" to "none",
+        "Sec-Fetch-User" to "?1",
+        "Upgrade-Insecure-Requests" to "1",
         "Referer" to "https://www.data18.com/",
-        "Cookie" to "data_user_enter=UNK-en-1; data_user_captcha=1; data_user_navigation=1"
+        "Cookie" to "data_user_enter=UNK-en-1; data_user_captcha=1; data_user_navigation=1; data_user_agree=1; age_verified=1; over18=1; is18=1"
     )
 
     val pornpicsHeaders = mapOf(
-        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language" to "en-US,en;q=0.9",
         "Referer" to "$pornpicsUrl/"
     )
 
     val paradiseHeaders = mapOf(
-        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Referer" to "$paradiseUrl/",
         "Cookie" to "is18=1; _csrf-frontend=1"
     )
 
     val speedpornHeaders = mapOf(
-        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Referer" to "$speedpornUrl/"
     )
 
@@ -84,7 +98,7 @@ class Himeros : MainAPI() {
         return t.ifBlank { rawTitle.trim() }
     }
 
-    // Unified Master Movie Title Sanitizer (Removes 'Watch ...', 'by Evil Angel', '(2026)', '#11' -> '11', etc.)
+    // Unified Master Movie Title Sanitizer (Removes 'Watch ...', 'by Evil Angel', '(2026)', '#11' -> '11', 'vol. 11' -> '11', etc.)
     fun cleanMovieTitle(raw: String): String {
         var t = raw
             .replace(Regex("""(?i)^\s*watch\s+"""), "")
@@ -98,6 +112,7 @@ class Himeros : MainAPI() {
             .replace(Regex("""(?i)\s+by\s+[a-zA-Z0-9\s]+$"""), "")
             .replace(Regex("""\s*\((?:19\d\d|20\d\d)\)"""), "")
             .replace(Regex("""\s+\b(?:19\d\d|20\d\d)\b\s*$"""), "")
+            .replace(Regex("""(?i)\b(vol\.?|volume|no\.?|issue)\s*#?\s*(\d+)"""), "$2")
             .replace(Regex("""#\s*(\d+)"""), "$1")
             .replace(Regex("""\s+"""), " ")
             .trim()
@@ -151,7 +166,7 @@ class Himeros : MainAPI() {
     }
 
     // Helper: Resilient fetch with automatic retry
-    suspend fun <T> fetchWithRetry(maxRetries: Int = 3, delayMs: Long = 500, block: suspend () -> List<T>): List<T> {
+    suspend fun <T> fetchWithRetry(maxRetries: Int = 4, delayMs: Long = 1000, block: suspend () -> List<T>): List<T> {
         for (attempt in 1..maxRetries) {
             val result = runCatching { block() }.getOrDefault(emptyList())
             if (result.isNotEmpty()) return result
@@ -164,10 +179,10 @@ class Himeros : MainAPI() {
         val items: List<SearchResponse> = when (request.data) {
             // Row 1: Recent Movies from Data18
             "d18_recent", "recent_movies" -> {
-                fetchWithRetry(maxRetries = 3) {
-                    val url = if (page <= 1) "$mainUrl/movies" else "$mainUrl/movies/page/$page"
+                fetchWithRetry(maxRetries = 4) {
+                    val url = if (page <= 1) "$mainUrl/movies" else "$mainUrl/movies?page=$page"
                     val doc = app.get(url, headers = data18Headers).document
-                    doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
+                    doc.select("a[href*='/movies/']:not([href*='#']), div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
                         parseData18MovieCard(it)
                     }.distinctBy { it.url }
                 }
@@ -175,7 +190,7 @@ class Himeros : MainAPI() {
 
             // Row 2: Models from Data18
             "d18_models", "pp_models" -> {
-                fetchWithRetry(maxRetries = 3) {
+                fetchWithRetry(maxRetries = 4) {
                     val url = if (page <= 1) "$mainUrl/names/pornstars" else "$mainUrl/names/pornstars/page/$page"
                     val doc = app.get(url, headers = data18Headers).document
                     doc.select("a[href*='/name/'], div.boxep1").mapNotNull {
@@ -186,7 +201,7 @@ class Himeros : MainAPI() {
 
             // Row 3: Recent Series from Data18
             "d18_series", "featured_series" -> {
-                fetchWithRetry(maxRetries = 3) {
+                fetchWithRetry(maxRetries = 4) {
                     val url = if (page <= 1) "$mainUrl/movies/series" else "$mainUrl/movies/series/page/$page"
                     val doc = app.get(url, headers = data18Headers).document
                     doc.select("a[href*='movie-series'], a[href*='/series/'], div.boxep1, div.relative").mapNotNull {
@@ -197,7 +212,7 @@ class Himeros : MainAPI() {
 
             // Row 4: Studios from Data18
             "d18_studios", "pp_studios" -> {
-                fetchWithRetry(maxRetries = 3) {
+                fetchWithRetry(maxRetries = 4) {
                     val url = if (page <= 1) "$mainUrl/studios" else "$mainUrl/studios/page/$page"
                     val doc = app.get(url, headers = data18Headers).document
                     doc.select("a[href*='/studios/']").mapNotNull {
@@ -208,10 +223,10 @@ class Himeros : MainAPI() {
 
             // Row 5: Showcase from Data18
             "d18_showcases", "latest_releases" -> {
-                fetchWithRetry(maxRetries = 3) {
+                fetchWithRetry(maxRetries = 4) {
                     val url = if (page <= 1) "$mainUrl/movies/showcases" else "$mainUrl/movies/showcases/page/$page"
                     val doc = app.get(url, headers = data18Headers).document
-                    doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
+                    doc.select("a[href*='/movies/']:not([href*='#']), div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
                         parseData18ShowcaseCard(it)
                     }.distinctBy { it.url }
                 }
@@ -263,9 +278,10 @@ class Himeros : MainAPI() {
 
     private fun parseData18MovieCard(element: Element): SearchResponse? {
         val linkEl = if (element.tagName() == "a" && element.attr("href").contains("/movies/")) {
+            if (element.attr("href").contains("#")) return null
             element
         } else {
-            element.selectFirst("a[href*='/movies/']:not([href*='#image'])")
+            element.selectFirst("a[href*='/movies/']:not([href*='#'])")
                 ?: element.selectFirst("a[href*='/movies/']")
                 ?: return null
         }
@@ -274,17 +290,20 @@ class Himeros : MainAPI() {
         val cleanHref = rawHref.substringBefore('#').let { if (it.startsWith("http")) it else "$mainUrl$it" }
         if (!cleanHref.matches(Regex(""".*/movies/\d+.*"""))) return null
 
-        val moviePart = cleanHref.substringAfterLast("/")
+        val moviePart = cleanHref.trimEnd('/').substringAfterLast("/")
         val id = Regex("""^(\d+)""").find(moviePart)?.groupValues?.get(1) ?: ""
         val slug = moviePart.replace(Regex("""^\d+-"""), "")
         val slugTitle = slug.replace("-", " ")
             .split(" ").filter { it.isNotBlank() }
             .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
+        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
         val rawTitle = element.selectFirst("a.gen12, .gen12 a, div.gen12, p.genmed a, b a")?.text()?.trim()
             ?.ifBlank { null }
-            ?: element.selectFirst("img")?.attr("alt")?.trim()?.ifBlank { null }
+            ?: imgEl?.attr("alt")?.trim()?.ifBlank { null }
+            ?: imgEl?.attr("title")?.trim()?.ifBlank { null }
             ?: linkEl.attr("title").trim().ifBlank { null }
+            ?: linkEl.text().trim().ifBlank { null }
             ?: slugTitle
 
         var cleanTitle = cleanData18Title(rawTitle)
@@ -294,7 +313,6 @@ class Himeros : MainAPI() {
 
         if (cleanTitle.isBlank()) return null
 
-        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
         var poster = imgEl?.attr("src")?.ifBlank { null }
             ?: imgEl?.attr("data-src")?.ifBlank { null }
             ?: imgEl?.attr("data-original")?.ifBlank { null }
@@ -496,9 +514,10 @@ class Himeros : MainAPI() {
 
     private fun parseData18ShowcaseCard(element: Element): SearchResponse? {
         val linkEl = if (element.tagName() == "a" && element.attr("href").contains("/movies/")) {
+            if (element.attr("href").contains("#")) return null
             element
         } else {
-            element.selectFirst("a[href*='/movies/']:not([href*='#image'])")
+            element.selectFirst("a[href*='/movies/']:not([href*='#'])")
                 ?: element.selectFirst("a[href*='/movies/']")
                 ?: return null
         }
@@ -507,16 +526,20 @@ class Himeros : MainAPI() {
         val cleanHref = rawHref.substringBefore('#').let { if (it.startsWith("http")) it else "$mainUrl$it" }
         if (!cleanHref.matches(Regex(""".*/movies/\d+.*"""))) return null
 
-        val moviePart = cleanHref.substringAfterLast("/")
+        val moviePart = cleanHref.trimEnd('/').substringAfterLast("/")
         val id = Regex("""^(\d+)""").find(moviePart)?.groupValues?.get(1) ?: ""
         val slug = moviePart.replace(Regex("""^\d+-"""), "")
         val slugTitle = slug.replace("-", " ")
             .split(" ").filter { it.isNotBlank() }
             .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
+        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
         val rawTitle = element.selectFirst("a.gen12, .gen12 a, div.gen12, p.genmed a, b a")?.text()?.trim()
             ?.ifBlank { null }
-            ?: element.selectFirst("img")?.attr("alt")?.trim()?.ifBlank { null }
+            ?: imgEl?.attr("alt")?.trim()?.ifBlank { null }
+            ?: imgEl?.attr("title")?.trim()?.ifBlank { null }
+            ?: linkEl.attr("title").trim().ifBlank { null }
+            ?: linkEl.text().trim().ifBlank { null }
             ?: slugTitle
 
         var cleanTitle = cleanData18Title(rawTitle)
@@ -526,7 +549,6 @@ class Himeros : MainAPI() {
 
         if (cleanTitle.isBlank()) return null
 
-        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
         var poster = imgEl?.attr("src")?.ifBlank { null } ?: imgEl?.attr("data-src")
 
         if (poster.isNullOrBlank() && id.isNotBlank()) {
@@ -750,27 +772,42 @@ class Himeros : MainAPI() {
     }
 
     private suspend fun loadData18Movie(url: String): LoadResponse? {
-        val doc = app.get(url, headers = data18Headers).document
-        val rawTitle = doc.selectFirst("h1, .gen12 b, title")?.text() ?: "Movie"
-        val title = cleanData18Title(rawTitle)
+        val cleanUrl = url.substringBefore('?').substringBefore('#')
+        val moviePart = cleanUrl.trimEnd('/').substringAfterLast('/')
+        val slug = moviePart.replace(Regex("""^\d+-"""), "")
+        val id = Regex("""^(\d+)""").find(moviePart)?.groupValues?.get(1) ?: ""
+        val slugTitle = slug.replace("-", " ")
+            .split(" ").filter { it.isNotBlank() }
+            .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
-        val posterEl = doc.selectFirst("img.yborder, div.boxep1 img, img[src*='cdn.dt18.com/covers']")
-        val rawPoster = posterEl?.attr("src")?.ifBlank { null } ?: posterEl?.attr("data-src")
+        val doc = runCatching { app.get(cleanUrl, headers = data18Headers).document }.getOrNull()
+        val h1Text = doc?.selectFirst("h1, .gen12 b, div.gen12, a.gen12, p.genmed b")?.text()?.trim()
+        val rawTitle = if (!h1Text.isNullOrBlank() && !h1Text.equals("DATA18", ignoreCase = true)) h1Text else slugTitle
+        var title = cleanData18Title(rawTitle)
+        if (title.isBlank() || title.equals("Movie", ignoreCase = true) || title.contains("pictures/videostills") || title.matches(Regex("""(?i)^(#\d+|movie\s+(series|showcases|directors)|\d+)$"""))) {
+            title = slugTitle
+        }
+
+        val posterEl = doc?.selectFirst("img.yborder, div.boxep1 img, img[src*='cdn.dt18.com/covers']")
+        var rawPoster = posterEl?.attr("src")?.ifBlank { null } ?: posterEl?.attr("data-src")
+        if (rawPoster.isNullOrBlank() && id.isNotBlank()) {
+            rawPoster = "https://cdn.dt18.com/covers/2/8/$id-$slug.jpg"
+        }
         val enhancedPoster = fetchEnhancedPoster(title, rawPoster)
 
-        val description = doc.selectFirst("div:contains(Story:), div:contains(Description:), p.genmed")?.text()?.trim()
-        val year = doc.selectFirst("p:contains(Release Date:), p:contains(Year:), span.gen11")?.text()?.let {
+        val description = doc?.selectFirst("div:contains(Story:), div:contains(Description:), p.genmed")?.text()?.trim()
+        val year = doc?.selectFirst("p:contains(Release Date:), p:contains(Year:), span.gen11")?.text()?.let {
             Regex("""\b(19\d\d|20\d\d)\b""").find(it)?.groupValues?.get(1)?.toIntOrNull()
         }
-        val actors = doc.select("a[href*='/name/']").mapNotNull {
+        val actors = doc?.select("a[href*='/name/']")?.mapNotNull {
             val name = it.text().trim()
             if (name.isNotBlank() && !name.contains("All Movies", ignoreCase = true) && !name.contains("[") && !name.contains("]")) {
                 val avatar = it.selectFirst("img")?.attr("src")
                 ActorData(Actor(name, avatar))
             } else null
-        }.distinctBy { it.actor.name }
+        }?.distinctBy { it.actor.name }.orEmpty()
 
-        val tags = doc.select("a[href*='/categories/'], a[href*='/tags/']").map { it.text().trim() }.filter { it.isNotBlank() }
+        val tags = doc?.select("a[href*='/categories/'], a[href*='/tags/']")?.map { it.text().trim() }?.filter { it.isNotBlank() }.orEmpty()
 
         // Build Episodic list:
         // Episode 1: "Full Movie"
@@ -801,7 +838,7 @@ class Himeros : MainAPI() {
                     )
                 )
             }
-        } else {
+        } else if (doc != null) {
             // Check Data18 scenes (filter out store / promotional "Buy this scene" links)
             val sceneEls = doc.select("a[href*='/scenes/']").filter { el ->
                 val href = el.attr("href")
@@ -887,17 +924,28 @@ class Himeros : MainAPI() {
     }
 
     private suspend fun loadData18Series(url: String): LoadResponse? {
-        val cleanUrl = url.substringBefore('?')
-        val doc = app.get(cleanUrl, headers = data18Headers).document
-        val rawTitle = doc.selectFirst("h1, title")?.text() ?: "Series"
-        val title = cleanData18Title(rawTitle)
-        val posterEl = doc.selectFirst("img.yborder, div.boxep1 img, img")
+        val cleanUrl = url.substringBefore('?').substringBefore('#')
+        val seriesPart = cleanUrl.trimEnd('/').substringAfterLast('/')
+        val slug = seriesPart.replace(Regex("""^(?:movie-)?series-"""), "")
+        val slugTitle = slug.replace("-", " ")
+            .split(" ").filter { it.isNotBlank() }
+            .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+
+        val doc = runCatching { app.get(cleanUrl, headers = data18Headers).document }.getOrNull()
+        val h1Text = doc?.selectFirst("h1, .gen12 b, div.gen12, a.gen12, p.genmed b")?.text()?.trim()
+        val rawTitle = if (!h1Text.isNullOrBlank() && !h1Text.equals("DATA18", ignoreCase = true)) h1Text else slugTitle
+        var title = cleanData18Title(rawTitle)
+        if (title.isBlank() || title.equals("Series", ignoreCase = true) || title.contains("pictures/videostills") || title.matches(Regex("""(?i)^(#\d+|movie\s+(series|showcases|directors)|\d+)$"""))) {
+            title = slugTitle
+        }
+
+        val posterEl = doc?.selectFirst("img.yborder, div.boxep1 img, img")
         val rawPoster = posterEl?.attr("src")?.ifBlank { null } ?: posterEl?.attr("data-src")
         val enhancedPoster = fetchEnhancedPoster(title, rawPoster)
 
-        val movieLinks = doc.select("a[href*='/movies/']:not([href*='#image'])").filter { el ->
+        val movieLinks = doc?.select("a[href*='/movies/']:not([href*='#image'])")?.filter { el ->
             el.attr("href").matches(Regex(""".*/movies/\d+.*"""))
-        }.distinctBy { el -> el.attr("href").substringBefore('#') }
+        }?.distinctBy { el -> el.attr("href").substringBefore('#') }.orEmpty()
 
         val episodes = mutableListOf<Episode>()
         movieLinks.forEachIndexed { index, el ->
@@ -905,17 +953,17 @@ class Himeros : MainAPI() {
             val moviePart = href.substringAfterLast("/")
             val id = Regex("""^(\d+)""").find(moviePart)?.groupValues?.get(1) ?: ""
             val mSlug = moviePart.replace(Regex("""^\d+-"""), "")
-            val slugTitle = mSlug.replace("-", " ").split(" ").filter { it.isNotBlank() }
+            val sSlugTitle = mSlug.replace("-", " ").split(" ").filter { it.isNotBlank() }
                 .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
             val rawEpTitle = el.selectFirst("img")?.attr("alt")?.trim()?.ifBlank { null }
                 ?: el.attr("title").trim().ifBlank { null }
                 ?: el.text().trim().ifBlank { null }
-                ?: slugTitle
+                ?: sSlugTitle
 
             var cleanEpTitle = cleanData18Title(rawEpTitle)
             if (cleanEpTitle.isBlank() || cleanEpTitle.contains("pictures/videostills") || cleanEpTitle.matches(Regex("""(?i)^(#\d+|movie\s+(series|showcases|directors)|\d+)$"""))) {
-                cleanEpTitle = slugTitle
+                cleanEpTitle = sSlugTitle
             }
 
             var poster = el.selectFirst("img")?.attr("src")?.ifBlank { null }
