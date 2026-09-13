@@ -91,12 +91,15 @@ class HimerosLiveTest {
     @Test
     fun testSearch() = runBlocking {
         println("=== 4. TESTING SEARCH ===")
-        val results = himeros.search("pirates")
-        println("Search results for 'pirates': ${results.size}")
+        val results = himeros.search("facial fantasy 4")
+        println("Search results for 'facial fantasy 4': ${results.size}")
         assertTrue(results.isNotEmpty(), "Search results should not be empty")
-        results.take(3).forEach {
+        results.take(5).forEach {
             println("  - [Result] ${it.name} -> ${it.url}")
+            assertFalse(it.name.contains("hrs", ignoreCase = true) || it.name.contains("min", ignoreCase = true), "Search result title should not be duration string: ${it.name}")
         }
+        val match = results.find { it.name.equals("Facial Fantasy 4", ignoreCase = true) }
+        assertNotNull(match, "Should find 'Facial Fantasy 4' search result")
     }
 
     @Test
@@ -137,11 +140,35 @@ class HimerosLiveTest {
 
         val c6 = himeros.cleanData18Title("Facial Fantasy, by Evil Angel")
         assertEquals("Facial Fantasy", c6)
+
+        val c7 = himeros.cleanMovieTitle("Watch Facial Fantasy 4 2026 by Evil Angel Porn Movie Online Free - SpeedPorn")
+        assertEquals("Facial Fantasy 4", c7)
+
+        val c8 = himeros.cleanMovieTitle("Watch facial fantasy 4 Porn Free - Page 1 of 1 - SpeedPorn")
+        assertEquals("facial fantasy 4", c8)
+    }
+
+    @Test
+    fun testSpeedPornMovieLoad() = runBlocking {
+        println("=== 6. TESTING SPEEDPORN MOVIE LOAD ===")
+        val spUrl = "https://speedporn.net/facial-fantasy-4/"
+        val res = himeros.load(spUrl) as? TvSeriesLoadResponse
+        assertNotNull(res, "SpeedPorn load response should not be null")
+        println("SpeedPorn Movie Title: ${res?.name}")
+        assertEquals("Facial Fantasy 4", res?.name)
+        println("SpeedPorn Poster: ${res?.posterUrl}")
+        println("Actors: ${res?.actors?.map { it.actor.name }}")
+        println("Episodes count: ${res?.episodes?.size}")
+        res?.episodes?.forEach { ep ->
+            println("  - Ep ${ep.episode}: ${ep.name} (Data: ${ep.data})")
+        }
+        assertTrue(res?.episodes?.isNotEmpty() == true, "Episodes should not be empty")
+        assertEquals("Full Movie", res?.episodes?.first()?.name)
     }
 
     @Test
     fun testNoBuyThisSceneEpisodes() = runBlocking {
-        println("=== 6. TESTING NO PROMOTIONAL 'BUY THIS SCENE' EPISODES ===")
+        println("=== 7. TESTING NO PROMOTIONAL 'BUY THIS SCENE' EPISODES ===")
         val movieUrl = "https://www.data18.com/movies/1128696-lesbian-love-stories-11"
         val res = himeros.load(movieUrl) as? TvSeriesLoadResponse
         assertNotNull(res, "Load response should not be null")
@@ -157,7 +184,7 @@ class HimerosLiveTest {
 
     @Test
     fun testStudioDetailLoad() = runBlocking {
-        println("=== 7. TESTING STUDIO DETAIL LOAD (CHANNEL LOGO) ===")
+        println("=== 8. TESTING STUDIO DETAIL LOAD (CHANNEL LOGO) ===")
         val onlyfansUrl = "https://www.pornpics.de/channels/onlyfans"
         val res = himeros.load(onlyfansUrl) as? TvSeriesLoadResponse
         assertNotNull(res, "Studio load response should not be null")
@@ -168,10 +195,10 @@ class HimerosLiveTest {
 
     @Test
     fun testLoadLinks() = runBlocking {
-        println("=== 8. TESTING LOAD LINKS (STREAM & DOWNLOAD RESOLVER) ===")
+        println("=== 9. TESTING LOAD LINKS (STREAM & DOWNLOAD RESOLVER) ===")
         val links = mutableListOf<ExtractorLink>()
         val success = himeros.loadLinks(
-            data = "full_movie|Full Movie|Facial Fantasy 4|",
+            data = "full_movie|Full Movie|Facial Fantasy 4|https://speedporn.net/facial-fantasy-4/|Adriana Chechik",
             isCasting = false,
             subtitleCallback = {},
             callback = { link ->
