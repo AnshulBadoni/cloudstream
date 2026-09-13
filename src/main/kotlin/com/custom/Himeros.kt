@@ -1,7 +1,5 @@
 package com.custom
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import kotlinx.coroutines.*
@@ -64,10 +62,6 @@ class Himeros : MainAPI() {
         "Referer" to "$speedpornUrl/"
     )
 
-    private val jsonMapper = jacksonObjectMapper().apply {
-        configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-    }
-
     // 1. HOME PAGE CATALOG DEFINITIONS
     override val mainPage = mainPageOf(
         "d18_recent" to "Recent",
@@ -75,39 +69,6 @@ class Himeros : MainAPI() {
         "d18_series" to "Recent Series",
         "pp_studios" to "Studios",
         "d18_showcases" to "Showcase"
-    )
-
-    // Data models for IMDb / TMDb / Paradise JSON
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    data class ImdbImage(val imageUrl: String? = null)
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    data class ImdbItem(val id: String? = null, val l: String? = null, val y: Int? = null, val i: ImdbImage? = null)
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    data class ImdbSuggestionResponse(val d: List<ImdbItem>? = null)
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    data class TmdbMovieItem(val title: String? = null, val poster_path: String? = null, val release_date: String? = null)
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    data class TmdbSearchResponse(val results: List<TmdbMovieItem>? = null)
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    data class VideoSource(val src: String? = null, val type: String? = null)
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    data class VideoListItem(val sources: List<VideoSource>? = null)
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    data class HimerosEpisodePayload(
-        val type: String = "full_movie", // "full_movie", "paradise_part", "d18_scene", "d18_movie_ep"
-        val title: String = "",
-        val movieTitle: String? = null,
-        val streamUrl: String? = null,
-        val sceneUrl: String? = null,
-        val partIndex: Int? = null,
-        val performers: List<String>? = null
     )
 
     // Title Normalization Helper: Handles "Ignite Vol. 10" -> "Ignite 10", "Anal Icons Vol #5" -> "Anal Icons 5"
@@ -151,8 +112,8 @@ class Himeros : MainAPI() {
             val encoded = URLEncoder.encode(cleanTitle, "UTF-8").replace("+", "%20")
             val url = "https://v3.sg.media-imdb.com/suggestion/x/$encoded.json"
             val text = app.get(url, headers = mapOf("User-Agent" to "Mozilla/5.0")).text
-            val res = jsonMapper.readValue(text, ImdbSuggestionResponse::class.java)
-            res.d?.firstOrNull { !it.i?.imageUrl.isNullOrBlank() }?.i?.imageUrl
+            val imgMatch = Regex("""["']imageUrl["']\s*:\s*["']([^"']+)["']""").find(text)?.groupValues?.get(1)
+            imgMatch?.takeIf { it.isNotBlank() }
         }.getOrNull()
 
         if (!imdbPoster.isNullOrBlank()) return imdbPoster
@@ -162,9 +123,8 @@ class Himeros : MainAPI() {
             val encoded = URLEncoder.encode(cleanTitle, "UTF-8")
             val url = "https://api.themoviedb.org/3/search/movie?api_key=b058a5e30536f903e1c2cb1e360e2fd4&query=$encoded"
             val text = app.get(url).text
-            val res = jsonMapper.readValue(text, TmdbSearchResponse::class.java)
-            val path = res.results?.firstOrNull { !it.poster_path.isNullOrBlank() }?.poster_path
-            if (path != null) "https://image.tmdb.org/t/p/w500$path" else null
+            val pathMatch = Regex("""["']poster_path["']\s*:\s*["']([^"']+)["']""").find(text)?.groupValues?.get(1)
+            if (!pathMatch.isNullOrBlank()) "https://image.tmdb.org/t/p/w500$pathMatch" else null
         }.getOrNull()
 
         if (!tmdbPoster.isNullOrBlank()) return tmdbPoster
@@ -389,7 +349,6 @@ class Himeros : MainAPI() {
         val year = doc.selectFirst("p:contains(Release Date:), p:contains(Year:), span.gen11")?.text()?.let {
             Regex("""\b(19\d\d|20\d\d)\b""").find(it)?.groupValues?.get(1)?.toIntOrNull()
         }
-        val studio = doc.selectFirst("p:has(b:contains(Studio)) a, a[href*='/studios/']")?.text()?.trim()
         val actors = doc.select("a[href*='/name/']").mapNotNull {
             val name = it.text().trim()
             if (name.isNotBlank()) {
@@ -403,14 +362,10 @@ class Himeros : MainAPI() {
         // Build Episodic list:
         // Episode 1: "Full Movie"
         val episodes = mutableListOf<Episode>()
+        val performersStr = actors.joinToString(",") { it.actor.name }
         episodes.add(
             Episode(
-                data = jsonMapper.writeValueAsString(HimerosEpisodePayload(
-                    type = "full_movie",
-                    title = "Full Movie",
-                    movieTitle = title,
-                    performers = actors.map { it.actor.name }
-                )),
+                data = "full_movie|Full Movie|$title|$performersStr",
                 name = "Full Movie",
                 season = 1,
                 episode = 1,
@@ -425,13 +380,7 @@ class Himeros : MainAPI() {
                 val epNum = index + 2
                 episodes.add(
                     Episode(
-                        data = jsonMapper.writeValueAsString(HimerosEpisodePayload(
-                            type = "paradise_part",
-                            title = "Part ${index + 1}",
-                            movieTitle = title,
-                            streamUrl = partStream,
-                            partIndex = index + 1
-                        )),
+                        data = "paradise_part|Part ${index + 1}|$title|$partStream|${index + 1}",
                         name = "Part ${index + 1}",
                         season = 1,
                         episode = epNum,
@@ -449,14 +398,7 @@ class Himeros : MainAPI() {
                 val epNum = sceneIdx + 1
                 episodes.add(
                     Episode(
-                        data = jsonMapper.writeValueAsString(HimerosEpisodePayload(
-                            type = "d18_scene",
-                            title = sceneTitle,
-                            movieTitle = title,
-                            sceneUrl = sceneLink,
-                            partIndex = sceneIdx,
-                            performers = actors.map { it.actor.name }
-                        )),
+                        data = "d18_scene|$sceneTitle|$title|$sceneLink|$sceneIdx|$performersStr",
                         name = sceneTitle,
                         season = 1,
                         episode = epNum,
@@ -513,8 +455,9 @@ class Himeros : MainAPI() {
                     val filmHtml = app.get(fullFilmUrl, headers = paradiseHeaders).text
                     val videoListMatch = Regex("""var\s+videoList\s*=\s*(\[.*?\]);""", RegexOption.DOT_MATCHES_ALL).find(filmHtml)?.groupValues?.get(1)
                     if (videoListMatch != null) {
-                        val list = jsonMapper.readValue(videoListMatch, Array<VideoListItem>::class.java)
-                        val urls = list.flatMap { item -> item.sources?.mapNotNull { it.src } ?: emptyList() }
+                        val urls = Regex("""["']src["']\s*:\s*["']([^"']+\.mp4[^"']*)["']""").findAll(videoListMatch)
+                            .map { it.groupValues[1].replace("\\/", "/") }
+                            .toList()
                         if (urls.isNotEmpty()) return@runCatching urls
                     }
                 }
@@ -538,12 +481,7 @@ class Himeros : MainAPI() {
             val href = el.attr("href").let { if (it.startsWith("http")) it else "$mainUrl$it" }
             val epTitle = el.text().trim().ifBlank { "Volume #${index + 1}" }
             Episode(
-                data = jsonMapper.writeValueAsString(HimerosEpisodePayload(
-                    type = "d18_movie_ep",
-                    title = epTitle,
-                    movieTitle = epTitle,
-                    sceneUrl = href
-                )),
+                data = "d18_movie_ep|$epTitle|$epTitle|$href",
                 name = epTitle,
                 season = 1,
                 episode = index + 1,
@@ -576,13 +514,7 @@ class Himeros : MainAPI() {
             if (epTitle.isNotBlank() && epHref.isNotBlank()) {
                 episodes.add(
                     Episode(
-                        data = jsonMapper.writeValueAsString(HimerosEpisodePayload(
-                            type = "full_movie",
-                            title = epTitle,
-                            movieTitle = epTitle,
-                            streamUrl = epHref,
-                            performers = listOf(name)
-                        )),
+                        data = "full_movie|$epTitle|$epTitle|$name",
                         name = epTitle,
                         season = 1,
                         episode = idx + 1,
@@ -617,12 +549,7 @@ class Himeros : MainAPI() {
             if (epTitle.isNotBlank() && epHref.isNotBlank()) {
                 episodes.add(
                     Episode(
-                        data = jsonMapper.writeValueAsString(HimerosEpisodePayload(
-                            type = "full_movie",
-                            title = epTitle,
-                            movieTitle = epTitle,
-                            streamUrl = epHref
-                        )),
+                        data = "full_movie|$epTitle|$epTitle|",
                         name = epTitle,
                         season = 1,
                         episode = idx + 1,
@@ -655,11 +582,7 @@ class Himeros : MainAPI() {
         // Episode 1: Full Movie
         episodes.add(
             Episode(
-                data = jsonMapper.writeValueAsString(HimerosEpisodePayload(
-                    type = "full_movie",
-                    title = "Full Movie",
-                    movieTitle = title
-                )),
+                data = "full_movie|Full Movie|$title|",
                 name = "Full Movie",
                 season = 1,
                 episode = 1,
@@ -668,18 +591,13 @@ class Himeros : MainAPI() {
         )
 
         if (videoListMatch != null) {
-            val list = jsonMapper.readValue(videoListMatch, Array<VideoListItem>::class.java)
-            val urls = list.flatMap { item -> item.sources?.mapNotNull { it.src } ?: emptyList() }
+            val urls = Regex("""["']src["']\s*:\s*["']([^"']+\.mp4[^"']*)["']""").findAll(videoListMatch)
+                .map { it.groupValues[1].replace("\\/", "/") }
+                .toList()
             urls.forEachIndexed { index, partUrl ->
                 episodes.add(
                     Episode(
-                        data = jsonMapper.writeValueAsString(HimerosEpisodePayload(
-                            type = "paradise_part",
-                            title = "Part ${index + 1}",
-                            movieTitle = title,
-                            streamUrl = partUrl,
-                            partIndex = index + 1
-                        )),
+                        data = "paradise_part|Part ${index + 1}|$title|$partUrl|${index + 1}",
                         name = "Part ${index + 1}",
                         season = 1,
                         episode = index + 2,
@@ -707,15 +625,17 @@ class Himeros : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val payload = runCatching {
-            jsonMapper.readValue(data, HimerosEpisodePayload::class.java)
-        }.getOrNull() ?: return false
+        val parts = data.split("|")
+        val type = parts.getOrNull(0) ?: return false
 
         coroutineScope {
-            when (payload.type) {
+            when (type) {
                 // 1. Full Movie: Resolve via SpeedPorn + 1337x Torrents + Scrapers
                 "full_movie" -> {
-                    val searchTitle = payload.movieTitle ?: payload.title
+                    val title = parts.getOrNull(1) ?: "Movie"
+                    val movieTitle = parts.getOrNull(2) ?: title
+                    val performers = parts.getOrNull(3)?.split(",")?.filter { it.isNotBlank() }
+                    val searchTitle = if (movieTitle.isNotBlank()) movieTitle else title
 
                     // Launch SpeedPorn Resolver
                     launch {
@@ -729,18 +649,19 @@ class Himeros : MainAPI() {
 
                     // Launch Scraper Network Search (Eporner / PornTrex fallback)
                     launch {
-                        resolveScraperNetworkStreams(searchTitle, payload.performers, callback)
+                        resolveScraperNetworkStreams(searchTitle, performers, callback)
                     }
                 }
 
                 // 2. ParadiseHill Part: Direct MP4 stream
                 "paradise_part" -> {
-                    val src = payload.streamUrl
+                    val title = parts.getOrNull(1) ?: "Part"
+                    val src = parts.getOrNull(3)
                     if (!src.isNullOrBlank()) {
                         callback(
                             ExtractorLink(
                                 source = "ParadiseHill",
-                                name = "ParadiseHill - ${payload.title} (Direct MP4)",
+                                name = "ParadiseHill - $title (Direct MP4)",
                                 url = src,
                                 referer = "$paradiseUrl/",
                                 quality = Qualities.P1080.value,
@@ -753,25 +674,29 @@ class Himeros : MainAPI() {
 
                 // 3. Data18 Scene: Match scene clips across Eporner & PornTrex
                 "d18_scene" -> {
+                    val sceneTitle = parts.getOrNull(1) ?: "Scene"
+                    val movieTitle = parts.getOrNull(2) ?: ""
+                    val performers = parts.getOrNull(5)?.split(",")?.filter { it.isNotBlank() }
+
                     val searchTerms = mutableListOf<String>()
-                    payload.performers?.firstOrNull()?.let { searchTerms.add("$it ${payload.movieTitle ?: ""}") }
-                    searchTerms.add(payload.title)
+                    performers?.firstOrNull()?.let { searchTerms.add("$it $movieTitle") }
+                    searchTerms.add(sceneTitle)
 
                     searchTerms.forEach { term ->
                         launch {
-                            resolveScraperNetworkStreams(term, payload.performers, callback)
+                            resolveScraperNetworkStreams(term, performers, callback)
                         }
                     }
                 }
 
                 // 4. Data18 Movie Episode in Series
                 "d18_movie_ep" -> {
-                    val searchTitle = payload.movieTitle ?: payload.title
+                    val movieTitle = parts.getOrNull(2) ?: parts.getOrNull(1) ?: "Movie"
                     launch {
-                        resolveSpeedPornStreams(searchTitle, callback)
+                        resolveSpeedPornStreams(movieTitle, callback)
                     }
                     launch {
-                        resolve1337xTorrents(searchTitle, callback)
+                        resolve1337xTorrents(movieTitle, callback)
                     }
                 }
 
