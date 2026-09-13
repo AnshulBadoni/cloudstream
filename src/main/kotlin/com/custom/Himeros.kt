@@ -73,7 +73,7 @@ class Himeros : MainAPI() {
 
     // Title Normalization Helper: Handles "Ignite Vol. 10" -> "Ignite 10", "Anal Icons Vol #5" -> "Anal Icons 5"
     fun normalizeTitle(rawTitle: String): String {
-        var t = rawTitle
+        var t = cleanData18Title(rawTitle)
             .replace(Regex("""\((?:19\d\d|20\d\d)\)"""), "") // Strip release years
             .replace(Regex("""(?i)\b(vol\.?|volume|no\.?|issue)\s*#?\s*(\d+)"""), "$2") // Vol. 10 -> 10, Vol #5 -> 5
             .replace(Regex("""#\s*(\d+)"""), "$1") // #10 -> 10
@@ -82,6 +82,19 @@ class Himeros : MainAPI() {
             .replace(Regex("""\s+"""), " ")
             .trim()
         return t.ifBlank { rawTitle.trim() }
+    }
+
+    // Title Sanitizer for Data18 Noise (Removes '(2026) Showcase Porn Movies | DATA18', 'Movie Series: ...', etc.)
+    fun cleanData18Title(raw: String): String {
+        var t = raw
+            .replace(Regex("""(?i)\s*\|\s*data18.*"""), "")
+            .replace(Regex("""(?i)\s*-\s*data18.*"""), "")
+            .replace(Regex("""(?i)^\s*movie\s+series\s*[:\-]\s*"""), "")
+            .replace(Regex("""(?i)\s*(?:showcase\s+porn\s+movies?|porn\s+movies?|showcases?|scene\s+compilations?)\b.*"""), "")
+            .replace(Regex("""\s*\((?:19\d\d|20\d\d)\)"""), "")
+            .replace(Regex("""^#\d+\s*"""), "")
+            .trim()
+        return t.ifBlank { raw.trim() }
     }
 
     // Token-based Fuzzy Matching Score
@@ -448,10 +461,7 @@ class Himeros : MainAPI() {
                 ?: el.text().trim().ifBlank { null }
                 ?: slugTitle
 
-            var movieTitle = rawTitle
-                .replace(Regex("""^#\d+\s*"""), "")
-                .replace(Regex("""(?i)\s*-\s*data18.*"""), "")
-                .trim()
+            var movieTitle = cleanData18Title(rawTitle)
 
             if (movieTitle.isBlank() || movieTitle.contains("pictures/videostills") || movieTitle.matches(Regex("""(?i)^(#\d+|movie\s+(series|showcases|directors)|\d+)$"""))) {
                 movieTitle = slugTitle
@@ -512,10 +522,7 @@ class Himeros : MainAPI() {
                 ?: el.text().trim().ifBlank { null }
                 ?: slugTitle
 
-            var movieTitle = rawTitle
-                .replace(Regex("""^#\d+\s*"""), "")
-                .replace(Regex("""(?i)\s*-\s*data18.*"""), "")
-                .trim()
+            var movieTitle = cleanData18Title(rawTitle)
 
             if (movieTitle.isBlank() || movieTitle.contains("pictures/videostills") || movieTitle.matches(Regex("""(?i)^(#\d+|movie\s+(series|showcases|directors)|\d+)$"""))) {
                 movieTitle = slugTitle
@@ -545,9 +552,8 @@ class Himeros : MainAPI() {
 
     private suspend fun loadData18Movie(url: String): LoadResponse? {
         val doc = app.get(url, headers = data18Headers).document
-        val title = doc.selectFirst("h1, .gen12 b, title")?.text()
-            ?.replace(Regex("""(?i)\s*-\s*data18.*"""), "")
-            ?.trim() ?: "Movie"
+        val rawTitle = doc.selectFirst("h1, .gen12 b, title")?.text() ?: "Movie"
+        val title = cleanData18Title(rawTitle)
 
         val posterEl = doc.selectFirst("img.yborder, div.boxep1 img, img[src*='cdn.dt18.com/covers']")
         val rawPoster = posterEl?.attr("src")?.ifBlank { null } ?: posterEl?.attr("data-src")
@@ -671,7 +677,8 @@ class Himeros : MainAPI() {
 
     private suspend fun loadData18Series(url: String): LoadResponse? {
         val doc = app.get(url, headers = data18Headers).document
-        val title = doc.selectFirst("h1, title")?.text()?.replace(Regex("""(?i)\s*-\s*data18.*"""), "")?.trim() ?: "Series"
+        val rawTitle = doc.selectFirst("h1, title")?.text() ?: "Series"
+        val title = cleanData18Title(rawTitle)
         val posterEl = doc.selectFirst("img.yborder, div.boxep1 img, img")
         val rawPoster = posterEl?.attr("src")?.ifBlank { null } ?: posterEl?.attr("data-src")
         val enhancedPoster = fetchEnhancedPoster(title, rawPoster)
@@ -683,9 +690,10 @@ class Himeros : MainAPI() {
         val episodes = movieLinks.mapIndexed { index, el ->
             val href = el.attr("href").let { if (it.startsWith("http")) it else "$mainUrl$it" }
             val epTitle = el.text().trim().ifBlank { "Volume #${index + 1}" }
+            val cleanEpTitle = cleanData18Title(epTitle)
             Episode(
-                data = "d18_movie_ep|$epTitle|$epTitle|$href",
-                name = epTitle,
+                data = "d18_movie_ep|$cleanEpTitle|$cleanEpTitle|$href",
+                name = cleanEpTitle,
                 season = 1,
                 episode = index + 1,
                 posterUrl = enhancedPoster
@@ -753,12 +761,29 @@ class Himeros : MainAPI() {
 
         coroutineScope {
             when (type) {
-                // 1. Full Movie: Resolve via SpeedPorn + 1337x Torrents + Scrapers
+                // 1. Full Movie: Resolve via ParadiseHill Parts + SpeedPorn + 1337x Torrents + Scrapers
                 "full_movie" -> {
                     val title = parts.getOrNull(1) ?: "Movie"
                     val movieTitle = parts.getOrNull(2) ?: title
                     val performers = parts.getOrNull(3)?.split(",")?.filter { it.isNotBlank() }
-                    val searchTitle = if (movieTitle.isNotBlank()) movieTitle else title
+                    val searchTitle = cleanData18Title(if (movieTitle.isNotBlank()) movieTitle else title)
+
+                    // Check ParadiseHill direct MP4 parts
+                    launch {
+                        val partsList = fetchParadiseHillMovieParts(searchTitle)
+                        partsList.forEachIndexed { idx, partUrl ->
+                            callback(
+                                ExtractorLink(
+                                    source = "ParadiseHill",
+                                    name = "ParadiseHill - Part ${idx + 1} (Direct 1080p MP4)",
+                                    url = partUrl,
+                                    referer = "$paradiseUrl/",
+                                    quality = Qualities.P1080.value,
+                                    isM3u8 = false
+                                )
+                            )
+                        }
+                    }
 
                     // Launch SpeedPorn Resolver
                     launch {
@@ -784,7 +809,7 @@ class Himeros : MainAPI() {
                         callback(
                             ExtractorLink(
                                 source = "ParadiseHill",
-                                name = "ParadiseHill - $title (Direct MP4)",
+                                name = "ParadiseHill - $title (Direct 1080p MP4)",
                                 url = src,
                                 referer = "$paradiseUrl/",
                                 quality = Qualities.P1080.value,
@@ -798,7 +823,7 @@ class Himeros : MainAPI() {
                 // 3. Data18 Scene: Stream via Scene Resolver
                 "d18_scene" -> {
                     val sceneTitle = parts.getOrNull(1) ?: "Scene"
-                    val movieTitle = parts.getOrNull(2) ?: ""
+                    val movieTitle = cleanData18Title(parts.getOrNull(2) ?: "")
                     val sceneUrl = parts.getOrNull(3) ?: ""
                     val sceneIdx = parts.getOrNull(4)?.toIntOrNull() ?: 1
                     val performers = parts.getOrNull(5)?.split(",")?.filter { it.isNotBlank() }
@@ -812,15 +837,31 @@ class Himeros : MainAPI() {
                 "d18_movie_ep" -> {
                     val epTitle = parts.getOrNull(1) ?: "Movie"
                     val movieTitle = parts.getOrNull(2) ?: epTitle
+                    val searchTitle = cleanData18Title(movieTitle)
 
                     launch {
-                        resolveSpeedPornStreams(movieTitle, callback)
+                        val partsList = fetchParadiseHillMovieParts(searchTitle)
+                        partsList.forEachIndexed { idx, partUrl ->
+                            callback(
+                                ExtractorLink(
+                                    source = "ParadiseHill",
+                                    name = "ParadiseHill - Part ${idx + 1} (Direct 1080p MP4)",
+                                    url = partUrl,
+                                    referer = "$paradiseUrl/",
+                                    quality = Qualities.P1080.value,
+                                    isM3u8 = false
+                                )
+                            )
+                        }
                     }
                     launch {
-                        resolve1337xTorrents(movieTitle, callback)
+                        resolveSpeedPornStreams(searchTitle, callback)
                     }
                     launch {
-                        resolveScraperNetworkStreams(movieTitle, null, callback)
+                        resolve1337xTorrents(searchTitle, callback)
+                    }
+                    launch {
+                        resolveScraperNetworkStreams(searchTitle, null, callback)
                     }
                 }
 

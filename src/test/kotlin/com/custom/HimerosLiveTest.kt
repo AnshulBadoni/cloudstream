@@ -118,5 +118,33 @@ class HimerosLiveTest {
         val score2 = himeros.fuzzyMatchScore("Ignite Vol. 10", "Ignite 9")
         println("Score for 'Ignite Vol. 10' vs 'Ignite 9': $score2")
         assertEquals(0.0, score2, "Should reject different volume numbers")
+
+        // Test Data18 clean title
+        val c1 = himeros.cleanData18Title("Summer Secrets (2026) Showcase Porn Movies | DATA18")
+        assertEquals("Summer Secrets", c1)
+
+        val c2 = himeros.cleanData18Title("Movie Series: Lesbian Love Stories | DATA18")
+        assertEquals("Lesbian Love Stories", c2)
+
+        val c3 = himeros.cleanData18Title("Facial Fantasy 4 (2023) Porn Movie | DATA18")
+        assertEquals("Facial Fantasy 4", c3)
+    }
+
+    @Test
+    fun testLoadLinks() = runBlocking {
+        println("=== 6. TESTING LOAD LINKS (STREAM & DOWNLOAD RESOLVER) ===")
+        val links = mutableListOf<ExtractorLink>()
+        val success = himeros.loadLinks(
+            data = "full_movie|Full Movie|Facial Fantasy 4|",
+            isCasting = false,
+            subtitleCallback = {},
+            callback = { link ->
+                links.add(link)
+                println("  -> Emitted Link: ${link.name} | URL: ${link.url}")
+            }
+        )
+        assertTrue(success, "loadLinks should return true")
+        println("Total links emitted for 'Facial Fantasy 4': ${links.size}")
+        assertTrue(links.isNotEmpty(), "Should emit at least one stream/download link for Facial Fantasy 4")
     }
 }
