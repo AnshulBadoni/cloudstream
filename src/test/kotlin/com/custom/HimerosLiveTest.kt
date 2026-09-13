@@ -22,8 +22,8 @@ class HimerosLiveTest {
             println("  - [Recent] ${it.name} -> ${it.url} (Poster: ${it.posterUrl})")
         }
 
-        // 2. Models (PornPics)
-        val models = himeros.getMainPage(1, MainPageRequest("Models", "pp_models"))
+        // 2. Models (Data18)
+        val models = himeros.getMainPage(1, MainPageRequest("Models", "d18_models"))
         val modelsList = models.items.firstOrNull()?.list.orEmpty()
         println("Models count: ${modelsList.size}")
         assertTrue(modelsList.isNotEmpty(), "Models catalog should not be empty")
@@ -40,8 +40,8 @@ class HimerosLiveTest {
             println("  - [Series] ${it.name} -> ${it.url} (Poster: ${it.posterUrl})")
         }
 
-        // 4. Studios (PornPics)
-        val studios = himeros.getMainPage(1, MainPageRequest("Studios", "pp_studios"))
+        // 4. Studios (Data18)
+        val studios = himeros.getMainPage(1, MainPageRequest("Studios", "d18_studios"))
         val studiosList = studios.items.firstOrNull()?.list.orEmpty()
         println("Studios count: ${studiosList.size}")
         assertTrue(studiosList.isNotEmpty(), "Studios catalog should not be empty")
@@ -86,6 +86,51 @@ class HimerosLiveTest {
             println("  - Ep ${ep.episode}: ${ep.name} (Data length: ${ep.data.length})")
         }
         assertTrue(res?.episodes?.isNotEmpty() == true, "Episodes list should not be empty")
+    }
+
+    @Test
+    fun testStudioLoad() = runBlocking {
+        println("=== 3b. TESTING STUDIO LOAD (BLACKED) ===")
+        val studioUrl = "https://www.data18.com/studios/blacked"
+        val res = himeros.load(studioUrl) as? TvSeriesLoadResponse
+        assertNotNull(res, "Load response should be TvSeriesLoadResponse")
+        println("Studio Name: ${res?.name}")
+        println("Logo: ${res?.posterUrl}")
+        println("Episodes / Movies count: ${res?.episodes?.size}")
+        res?.episodes?.take(5)?.forEach { ep ->
+            println("  - Ep ${ep.episode}: ${ep.name} -> Poster: ${ep.posterUrl}")
+        }
+        assertTrue(res?.episodes?.isNotEmpty() == true, "Studio episodes should not be empty")
+    }
+
+    @Test
+    fun testPerformerLoad() = runBlocking {
+        println("=== 3c. TESTING PERFORMER LOAD (KAYDEN KROSS) ===")
+        val performerUrl = "https://www.data18.com/name/kayden-kross"
+        val res = himeros.load(performerUrl) as? TvSeriesLoadResponse
+        assertNotNull(res, "Load response should be TvSeriesLoadResponse")
+        println("Performer Name: ${res?.name}")
+        println("Avatar: ${res?.posterUrl}")
+        println("Episodes / Movies count: ${res?.episodes?.size}")
+        res?.episodes?.take(5)?.forEach { ep ->
+            println("  - Ep ${ep.episode}: ${ep.name} -> Poster: ${ep.posterUrl}")
+        }
+        assertTrue(res?.episodes?.isNotEmpty() == true, "Performer episodes should not be empty")
+    }
+
+    @Test
+    fun testSeriesLoad() = runBlocking {
+        println("=== 3d. TESTING SERIES LOAD (LESBIAN LOVE STORIES) ===")
+        val seriesUrl = "https://www.data18.com/studios/girlfriends-films/movie-series-lesbian-love-stories"
+        val res = himeros.load(seriesUrl) as? TvSeriesLoadResponse
+        assertNotNull(res, "Load response should be TvSeriesLoadResponse")
+        println("Series Name: ${res?.name}")
+        println("Poster: ${res?.posterUrl}")
+        println("Episodes / Volumes count: ${res?.episodes?.size}")
+        res?.episodes?.take(5)?.forEach { ep ->
+            println("  - Ep ${ep.episode}: ${ep.name} -> Poster: ${ep.posterUrl}")
+        }
+        assertTrue(res?.episodes?.isNotEmpty() == true, "Series episodes should not be empty")
     }
 
     @Test
