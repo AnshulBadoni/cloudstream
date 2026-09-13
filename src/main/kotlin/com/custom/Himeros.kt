@@ -64,11 +64,11 @@ class Himeros : MainAPI() {
 
     // 1. HOME PAGE CATALOG DEFINITIONS
     override val mainPage = mainPageOf(
-        "d18_recent" to "Recent",
+        "recent_movies" to "Recent Movies",
         "pp_models" to "Models",
-        "d18_series" to "Recent Series",
+        "featured_series" to "Featured Series",
         "pp_studios" to "Studios",
-        "d18_showcases" to "Showcase"
+        "latest_releases" to "Latest Releases"
     )
 
     // Title Normalization Helper: Handles "Ignite Vol. 10" -> "Ignite 10", "Anal Icons Vol #5" -> "Anal Icons 5"
@@ -152,13 +152,27 @@ class Himeros : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items: List<SearchResponse> = when (request.data) {
-            // Row 1: Recent Movies from Data18
-            "d18_recent" -> {
-                val url = if (page <= 1) "$mainUrl/movies" else "$mainUrl/movies/page/$page"
-                val doc = app.get(url, headers = data18Headers).document
-                doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
-                    parseData18MovieCard(it)
-                }.distinctBy { it.url }
+            // Row 1: Recent Full Movies (SpeedPorn with Data18 fallback)
+            "recent_movies", "d18_recent" -> {
+                val spItems = runCatching {
+                    val url = if (page <= 1) "$speedpornUrl/" else "$speedpornUrl/page/$page/"
+                    val doc = app.get(url, headers = speedpornHeaders).document
+                    doc.select(".video-block, .item, div.post").mapNotNull {
+                        parseSpeedPornMovieCard(it)
+                    }.distinctBy { it.url }
+                }.getOrDefault(emptyList())
+
+                if (spItems.isNotEmpty()) {
+                    spItems
+                } else {
+                    runCatching {
+                        val url = if (page <= 1) "$mainUrl/movies" else "$mainUrl/movies/page/$page"
+                        val doc = app.get(url, headers = data18Headers).document
+                        doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
+                            parseData18MovieCard(it)
+                        }.distinctBy { it.url }
+                    }.getOrDefault(emptyList())
+                }
             }
 
             // Row 2: Trending Models from PornPics
@@ -174,13 +188,27 @@ class Himeros : MainAPI() {
                 }.distinctBy { it.url }
             }
 
-            // Row 3: Recent Series from Data18
-            "d18_series" -> {
-                val url = if (page <= 1) "$mainUrl/movies/series" else "$mainUrl/movies/series/page/$page"
-                val doc = app.get(url, headers = data18Headers).document
-                doc.select("a[href*='movie-series'], a[href*='/series/'], div.boxep1, div.relative").mapNotNull {
-                    parseData18SeriesCard(it)
-                }.distinctBy { it.url }
+            // Row 3: Featured Series from Data18 (with SpeedPorn category fallback)
+            "featured_series", "d18_series" -> {
+                val d18Items = runCatching {
+                    val url = if (page <= 1) "$mainUrl/movies/series" else "$mainUrl/movies/series/page/$page"
+                    val doc = app.get(url, headers = data18Headers).document
+                    doc.select("a[href*='movie-series'], a[href*='/series/'], div.boxep1, div.relative").mapNotNull {
+                        parseData18SeriesCard(it)
+                    }.distinctBy { it.url }
+                }.getOrDefault(emptyList())
+
+                if (d18Items.isNotEmpty()) {
+                    d18Items
+                } else {
+                    runCatching {
+                        val url = if (page <= 1) "$speedpornUrl/genres/1-erotic-vignette/" else "$speedpornUrl/genres/1-erotic-vignette/page/$page/"
+                        val doc = app.get(url, headers = speedpornHeaders).document
+                        doc.select(".video-block, .item, div.post").mapNotNull {
+                            parseSpeedPornMovieCard(it)
+                        }.distinctBy { it.url }
+                    }.getOrDefault(emptyList())
+                }
             }
 
             // Row 4: Studios from PornPics
@@ -192,13 +220,27 @@ class Himeros : MainAPI() {
                 }.distinctBy { it.url }
             }
 
-            // Row 5: Showcases from Data18
-            "d18_showcases" -> {
-                val url = if (page <= 1) "$mainUrl/movies/showcases" else "$mainUrl/movies/showcases/page/$page"
-                val doc = app.get(url, headers = data18Headers).document
-                doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
-                    parseData18ShowcaseCard(it)
-                }.distinctBy { it.url }
+            // Row 5: Latest Releases (SpeedPorn 2026/2025 releases with Data18 Showcases fallback)
+            "latest_releases", "d18_showcases" -> {
+                val spReleases = runCatching {
+                    val url = if (page <= 1) "$speedpornUrl/release-year/2026/" else "$speedpornUrl/release-year/2026/page/$page/"
+                    val doc = app.get(url, headers = speedpornHeaders).document
+                    doc.select(".video-block, .item, div.post").mapNotNull {
+                        parseSpeedPornMovieCard(it)
+                    }.distinctBy { it.url }
+                }.getOrDefault(emptyList())
+
+                if (spReleases.isNotEmpty()) {
+                    spReleases
+                } else {
+                    runCatching {
+                        val url = if (page <= 1) "$mainUrl/movies/showcases" else "$mainUrl/movies/showcases/page/$page"
+                        val doc = app.get(url, headers = data18Headers).document
+                        doc.select("a[href*='/movies/'], div.boxep1, div.relative, div[id^='mitem']").mapNotNull {
+                            parseData18ShowcaseCard(it)
+                        }.distinctBy { it.url }
+                    }.getOrDefault(emptyList())
+                }
             }
 
             else -> emptyList()
@@ -208,6 +250,41 @@ class Himeros : MainAPI() {
             listOf(HomePageList(request.name, items, isHorizontalImages = false)),
             hasNext = items.isNotEmpty()
         )
+    }
+
+    // --- CARD PARSERS ---
+
+    private fun parseSpeedPornMovieCard(element: Element): SearchResponse? {
+        val aInfos = element.selectFirst("a.infos, a:not(.thumb)[href*='speedporn.net/']")
+        val aThumb = element.selectFirst("a.thumb")
+        val linkEl = aInfos ?: aThumb ?: element.selectFirst("a[href*='speedporn.net/']") ?: if (element.tagName() == "a") element else return null
+        val rawHref = linkEl.attr("href").substringBefore('?')
+        val href = if (rawHref.startsWith("http")) rawHref else "$speedpornUrl$rawHref"
+        if (href.isBlank() || href.contains("/tag/") || href.contains("/category/") || href.contains("/genres/") || href.contains("/release-year/") || href.contains("/page/")) return null
+
+        val slugTitle = href.trimEnd('/').substringAfterLast('/').replace("-", " ")
+            .split(" ").filter { it.isNotBlank() }
+            .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+
+        val rawTitle = element.selectFirst("span.title, .title, .video-title, h2, h3")?.text()?.trim()?.ifBlank { null }
+            ?: aInfos?.attr("title")?.trim()?.ifBlank { null }
+            ?: aThumb?.selectFirst("img")?.attr("alt")?.trim()?.ifBlank { null }
+            ?: linkEl.attr("title").trim().ifBlank { null }
+            ?: slugTitle
+
+        var title = cleanMovieTitle(rawTitle)
+        if (title.isBlank() || title.contains("hrs", ignoreCase = true) || title.contains("min", ignoreCase = true) || title.matches(Regex("""^[\d\s,.]+$"""))) {
+            title = cleanMovieTitle(slugTitle)
+        }
+
+        val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
+        val poster = imgEl?.attr("src")?.ifBlank { null }
+            ?: imgEl?.attr("data-src")?.ifBlank { null }
+            ?: imgEl?.attr("data-original")
+
+        return newMovieSearchResponse(title, href, TvType.Movie) {
+            this.posterUrl = poster
+        }
     }
 
     // --- CARD PARSERS ---

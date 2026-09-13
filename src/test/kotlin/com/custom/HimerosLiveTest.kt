@@ -13,13 +13,13 @@ class HimerosLiveTest {
     fun testCatalogs() = runBlocking {
         println("=== 1. TESTING HIMEROS MAIN PAGE CATALOGS ===")
 
-        // 1. Recent (Data18)
-        val recent = himeros.getMainPage(1, MainPageRequest("Recent", "d18_recent"))
+        // 1. Recent Movies
+        val recent = himeros.getMainPage(1, MainPageRequest("Recent Movies", "recent_movies"))
         val recentList = recent.items.firstOrNull()?.list.orEmpty()
-        println("Recent count: ${recentList.size}")
-        assertTrue(recentList.isNotEmpty(), "Recent catalog should not be empty")
+        println("Recent Movies count: ${recentList.size}")
+        assertTrue(recentList.isNotEmpty(), "Recent Movies catalog should not be empty")
         recentList.take(2).forEach {
-            println("  - [Recent] ${it.name} -> ${it.url} (Poster: ${it.posterUrl})")
+            println("  - [Recent Movie] ${it.name} -> ${it.url} (Poster: ${it.posterUrl})")
         }
 
         // 2. Models (PornPics)
@@ -31,11 +31,11 @@ class HimerosLiveTest {
             println("  - [Model] ${it.name} -> ${it.url} (Poster: ${it.posterUrl})")
         }
 
-        // 3. Recent Series (Data18)
-        val series = himeros.getMainPage(1, MainPageRequest("Recent Series", "d18_series"))
+        // 3. Featured Series
+        val series = himeros.getMainPage(1, MainPageRequest("Featured Series", "featured_series"))
         val seriesList = series.items.firstOrNull()?.list.orEmpty()
-        println("Recent Series count: ${seriesList.size}")
-        assertTrue(seriesList.isNotEmpty(), "Recent Series catalog should not be empty")
+        println("Featured Series count: ${seriesList.size}")
+        assertTrue(seriesList.isNotEmpty(), "Featured Series catalog should not be empty")
         seriesList.take(2).forEach {
             println("  - [Series] ${it.name} -> ${it.url} (Poster: ${it.posterUrl})")
         }
@@ -49,13 +49,13 @@ class HimerosLiveTest {
             println("  - [Studio] ${it.name} -> ${it.url} (Poster: ${it.posterUrl})")
         }
 
-        // 5. Showcase (Data18)
-        val showcase = himeros.getMainPage(1, MainPageRequest("Showcase", "d18_showcases"))
-        val showcaseList = showcase.items.firstOrNull()?.list.orEmpty()
-        println("Showcase count: ${showcaseList.size}")
-        assertTrue(showcaseList.isNotEmpty(), "Showcase catalog should not be empty")
-        showcaseList.take(2).forEach {
-            println("  - [Showcase] ${it.name} -> ${it.url}")
+        // 5. Latest Releases
+        val releases = himeros.getMainPage(1, MainPageRequest("Latest Releases", "latest_releases"))
+        val releasesList = releases.items.firstOrNull()?.list.orEmpty()
+        println("Latest Releases count: ${releasesList.size}")
+        assertTrue(releasesList.isNotEmpty(), "Latest Releases catalog should not be empty")
+        releasesList.take(2).forEach {
+            println("  - [Release] ${it.name} -> ${it.url} (Poster: ${it.posterUrl})")
         }
     }
 

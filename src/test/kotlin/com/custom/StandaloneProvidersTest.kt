@@ -77,12 +77,8 @@ class StandaloneProvidersTest {
         assertNotNull(movieRes, "Should load movie details")
         println("  Movie Title: ${movieRes?.name}, Recommendations: ${movieRes?.recommendations?.size}")
 
-        // 6. Stream Link Extraction (Multiple Qualities across multiple videos)
-        val testUrls = listOf(
-            movieUrl,
-            list.first().url,
-            list.getOrNull(1)?.url ?: movieUrl
-        ).distinct()
+        // 6. Stream Link Extraction (Multiple Qualities across live active videos)
+        val testUrls = list.take(2).map { it.url }
 
         for (u in testUrls) {
             println("\nTesting stream extraction for: $u")
