@@ -128,11 +128,25 @@ class HimerosLiveTest {
 
         val c3 = himeros.cleanData18Title("Facial Fantasy 4 (2023) Porn Movie | DATA18")
         assertEquals("Facial Fantasy 4", c3)
+
+        val c4 = himeros.cleanData18Title("Lesbian Love Stories #11")
+        assertEquals("Lesbian Love Stories", c4)
+    }
+
+    @Test
+    fun testStudioDetailLoad() = runBlocking {
+        println("=== 6. TESTING STUDIO DETAIL LOAD (CHANNEL LOGO) ===")
+        val onlyfansUrl = "https://www.pornpics.de/channels/onlyfans"
+        val res = himeros.load(onlyfansUrl) as? TvSeriesLoadResponse
+        assertNotNull(res, "Studio load response should not be null")
+        println("Studio Name: ${res?.name}")
+        println("Studio Logo: ${res?.posterUrl}")
+        assertTrue(res?.posterUrl?.contains("hfma.pornpics.de") == true || res?.posterUrl?.contains("16014") == true, "Studio logo should be authentic high-res channel logo")
     }
 
     @Test
     fun testLoadLinks() = runBlocking {
-        println("=== 6. TESTING LOAD LINKS (STREAM & DOWNLOAD RESOLVER) ===")
+        println("=== 7. TESTING LOAD LINKS (STREAM & DOWNLOAD RESOLVER) ===")
         val links = mutableListOf<ExtractorLink>()
         val success = himeros.loadLinks(
             data = "full_movie|Full Movie|Facial Fantasy 4|",

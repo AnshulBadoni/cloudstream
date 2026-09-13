@@ -73,7 +73,7 @@ class Himeros : MainAPI() {
 
     // Title Normalization Helper: Handles "Ignite Vol. 10" -> "Ignite 10", "Anal Icons Vol #5" -> "Anal Icons 5"
     fun normalizeTitle(rawTitle: String): String {
-        var t = cleanData18Title(rawTitle)
+        var t = rawTitle
             .replace(Regex("""\((?:19\d\d|20\d\d)\)"""), "") // Strip release years
             .replace(Regex("""(?i)\b(vol\.?|volume|no\.?|issue)\s*#?\s*(\d+)"""), "$2") // Vol. 10 -> 10, Vol #5 -> 5
             .replace(Regex("""#\s*(\d+)"""), "$1") // #10 -> 10
@@ -84,7 +84,7 @@ class Himeros : MainAPI() {
         return t.ifBlank { rawTitle.trim() }
     }
 
-    // Title Sanitizer for Data18 Noise (Removes '(2026) Showcase Porn Movies | DATA18', 'Movie Series: ...', etc.)
+    // Title Sanitizer for Data18 Noise (Removes '(2026) Showcase Porn Movies | DATA18', 'Movie Series: ...', '#11', etc.)
     fun cleanData18Title(raw: String): String {
         var t = raw
             .replace(Regex("""(?i)\s*\|\s*data18.*"""), "")
@@ -92,6 +92,7 @@ class Himeros : MainAPI() {
             .replace(Regex("""(?i)^\s*movie\s+series\s*[:\-]\s*"""), "")
             .replace(Regex("""(?i)\s*(?:showcase\s+porn\s+movies?|porn\s+movies?|showcases?|scene\s+compilations?)\b.*"""), "")
             .replace(Regex("""\s*\((?:19\d\d|20\d\d)\)"""), "")
+            .replace(Regex("""\s*#\s*\d+\b"""), "")
             .replace(Regex("""^#\d+\s*"""), "")
             .trim()
         return t.ifBlank { raw.trim() }
@@ -343,8 +344,18 @@ class Himeros : MainAPI() {
             ?: element.selectFirst("img")?.attr("alt")?.trim()?.ifBlank { null }
             ?: slugTitle
 
+        val dataMid = element.selectFirst("a[data-mid]")?.attr("data-mid")
+            ?: linkEl.attr("data-mid").ifBlank { null }
+        val avatarImg = element.selectFirst(".entity-card-avatar img, img[src*='hfma.pornpics.de']")?.attr("src")
+        val channelLogo = when {
+            !avatarImg.isNullOrBlank() -> avatarImg
+            !dataMid.isNullOrBlank() -> "https://hfma.pornpics.de/${dataMid}_556x556.png"
+            else -> null
+        }
+
         val imgEl = element.selectFirst("img")
-        val poster = imgEl?.attr("data-src")?.ifBlank { null }
+        val poster = channelLogo
+            ?: imgEl?.attr("data-src")?.ifBlank { null }
             ?: imgEl?.attr("data-original")?.ifBlank { null }
             ?: imgEl?.attr("src")?.ifBlank { null }
 
@@ -498,10 +509,19 @@ class Himeros : MainAPI() {
         val d18Doc = runCatching { app.get(d18Url, headers = data18Headers).document }.getOrNull()
             ?: runCatching { app.get("$mainUrl/studios/$slug", headers = data18Headers).document }.getOrNull()
 
-        var logo = d18Doc?.selectFirst("img.yborder, img[src*='cdn.dt18.com/studios'], img[src*='cdn.dt18.com/media']")?.attr("src")
-        if (logo.isNullOrBlank() && url.contains("pornpics.de")) {
+        var logo: String? = null
+        if (url.contains("pornpics.de")) {
             val ppDoc = runCatching { app.get(url, headers = pornpicsHeaders).document }.getOrNull()
-            logo = ppDoc?.selectFirst(".channel-avatar img, .entity-card-avatar img, img")?.attr("src")
+            val dataMid = ppDoc?.selectFirst("a[data-mid]")?.attr("data-mid")
+            val avatarImg = ppDoc?.selectFirst(".entity-card-avatar img, img[src*='hfma.pornpics.de'], .channel-avatar img")?.attr("src")
+            logo = when {
+                !avatarImg.isNullOrBlank() -> avatarImg
+                !dataMid.isNullOrBlank() -> "https://hfma.pornpics.de/${dataMid}_556x556.png"
+                else -> null
+            }
+        }
+        if (logo.isNullOrBlank()) {
+            logo = d18Doc?.selectFirst("img.yborder, img[src*='cdn.dt18.com/studios'], img[src*='cdn.dt18.com/media']")?.attr("src")
         }
 
         val movieElements = d18Doc?.select("a[href*='/movies/']")?.filter { el ->
