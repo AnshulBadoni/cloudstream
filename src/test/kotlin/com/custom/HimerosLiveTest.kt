@@ -130,12 +130,34 @@ class HimerosLiveTest {
         assertEquals("Facial Fantasy 4", c3)
 
         val c4 = himeros.cleanData18Title("Lesbian Love Stories #11")
-        assertEquals("Lesbian Love Stories", c4)
+        assertEquals("Lesbian Love Stories 11", c4)
+
+        val c5 = himeros.cleanData18Title("Hot Horny Cheerleaders #4 (2024) Porn Movie | DATA18")
+        assertEquals("Hot Horny Cheerleaders 4", c5)
+
+        val c6 = himeros.cleanData18Title("Facial Fantasy, by Evil Angel")
+        assertEquals("Facial Fantasy", c6)
+    }
+
+    @Test
+    fun testNoBuyThisSceneEpisodes() = runBlocking {
+        println("=== 6. TESTING NO PROMOTIONAL 'BUY THIS SCENE' EPISODES ===")
+        val movieUrl = "https://www.data18.com/movies/1128696-lesbian-love-stories-11"
+        val res = himeros.load(movieUrl) as? TvSeriesLoadResponse
+        assertNotNull(res, "Load response should not be null")
+        println("Movie Title: ${res?.name}")
+        assertEquals("Lesbian Love Stories 11", res?.name)
+        res?.episodes?.forEach { ep ->
+            println("  - Ep ${ep.episode}: ${ep.name}")
+            assertFalse(ep.name?.contains("Buy this scene", ignoreCase = true) == true, "Episode name should not contain 'Buy this scene'")
+        }
+        val epNames = res?.episodes?.map { it.name }.orEmpty()
+        assertEquals(epNames.distinct().size, epNames.size, "Episodes should have no duplicates")
     }
 
     @Test
     fun testStudioDetailLoad() = runBlocking {
-        println("=== 6. TESTING STUDIO DETAIL LOAD (CHANNEL LOGO) ===")
+        println("=== 7. TESTING STUDIO DETAIL LOAD (CHANNEL LOGO) ===")
         val onlyfansUrl = "https://www.pornpics.de/channels/onlyfans"
         val res = himeros.load(onlyfansUrl) as? TvSeriesLoadResponse
         assertNotNull(res, "Studio load response should not be null")
@@ -146,7 +168,7 @@ class HimerosLiveTest {
 
     @Test
     fun testLoadLinks() = runBlocking {
-        println("=== 7. TESTING LOAD LINKS (STREAM & DOWNLOAD RESOLVER) ===")
+        println("=== 8. TESTING LOAD LINKS (STREAM & DOWNLOAD RESOLVER) ===")
         val links = mutableListOf<ExtractorLink>()
         val success = himeros.loadLinks(
             data = "full_movie|Full Movie|Facial Fantasy 4|",

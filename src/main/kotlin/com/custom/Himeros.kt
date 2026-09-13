@@ -84,16 +84,17 @@ class Himeros : MainAPI() {
         return t.ifBlank { rawTitle.trim() }
     }
 
-    // Title Sanitizer for Data18 Noise (Removes '(2026) Showcase Porn Movies | DATA18', 'Movie Series: ...', '#11', etc.)
+    // Title Sanitizer for Data18 Noise (Converts '#11' -> '11', removes '(2026) Showcase Porn Movies | DATA18', 'by Evil Angel', etc.)
     fun cleanData18Title(raw: String): String {
         var t = raw
             .replace(Regex("""(?i)\s*\|\s*data18.*"""), "")
             .replace(Regex("""(?i)\s*-\s*data18.*"""), "")
             .replace(Regex("""(?i)^\s*movie\s+series\s*[:\-]\s*"""), "")
+            .replace(Regex("""(?i),\s*by\s+[a-zA-Z0-9\s]+$"""), "")
+            .replace(Regex("""(?i)\s+by\s+[a-zA-Z0-9\s]+$"""), "")
             .replace(Regex("""(?i)\s*(?:showcase\s+porn\s+movies?|porn\s+movies?|showcases?|scene\s+compilations?)\b.*"""), "")
             .replace(Regex("""\s*\((?:19\d\d|20\d\d)\)"""), "")
-            .replace(Regex("""\s*#\s*\d+\b"""), "")
-            .replace(Regex("""^#\d+\s*"""), "")
+            .replace(Regex("""#\s*(\d+)"""), "$1")
             .trim()
         return t.ifBlank { raw.trim() }
     }
@@ -623,12 +624,24 @@ class Himeros : MainAPI() {
                 )
             }
         } else {
-            // Check Data18 scenes
-            val sceneEls = doc.select("a[href*='/scenes/'], div[id^='scene_']")
+            // Check Data18 scenes (filter out store / promotional "Buy this scene" links)
+            val sceneEls = doc.select("a[href*='/scenes/']").filter { el ->
+                val href = el.attr("href")
+                val text = el.text().trim()
+                href.matches(Regex(""".*/scenes/\d+.*""")) &&
+                !href.contains("/store/") &&
+                !href.contains("#image") &&
+                !text.contains("Buy this scene", ignoreCase = true) &&
+                !text.matches(Regex("""^\d+$"""))
+            }.distinctBy { it.attr("href").substringBefore('#').substringBefore('?') }
+
             var sceneIdx = 1
             sceneEls.forEach { el ->
                 val sceneLink = el.attr("href").let { if (it.startsWith("http")) it else "$mainUrl$it" }
-                val sceneTitle = el.text().trim().ifBlank { "Scene $sceneIdx" }
+                var sceneTitle = el.text().trim()
+                if (sceneTitle.isBlank() || sceneTitle.contains("Buy this scene", ignoreCase = true) || sceneTitle.matches(Regex("""^\d+$"""))) {
+                    sceneTitle = "Scene $sceneIdx"
+                }
                 val epNum = sceneIdx + 1
                 episodes.add(
                     Episode(
