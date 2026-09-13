@@ -98,4 +98,25 @@ class HimerosLiveTest {
             println("  - [Result] ${it.name} -> ${it.url}")
         }
     }
+
+    @Test
+    fun testTitleNormalizationAndFuzzyMatching() {
+        println("=== 5. TESTING TITLE NORMALIZATION & FUZZY MATCHING ===")
+        val t1 = himeros.normalizeTitle("Ignite Vol. 10 (2023) [4K]")
+        assertEquals("Ignite 10", t1)
+
+        val t2 = himeros.normalizeTitle("Anal Icons Vol. #5")
+        assertEquals("Anal Icons 5", t2)
+
+        val t3 = himeros.normalizeTitle("Equilibrium #1 (2026)")
+        assertEquals("Equilibrium 1", t3)
+
+        val score1 = himeros.fuzzyMatchScore("Ignite Vol. 10", "Ignite 10 - Full Movie HD")
+        println("Score for 'Ignite Vol. 10' vs 'Ignite 10': $score1")
+        assertTrue(score1 >= 0.8, "Should match same volume")
+
+        val score2 = himeros.fuzzyMatchScore("Ignite Vol. 10", "Ignite 9")
+        println("Score for 'Ignite Vol. 10' vs 'Ignite 9': $score2")
+        assertEquals(0.0, score2, "Should reject different volume numbers")
+    }
 }

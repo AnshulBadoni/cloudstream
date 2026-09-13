@@ -110,14 +110,41 @@ class Himeros : MainAPI() {
         val performers: List<String>? = null
     )
 
+    // Title Normalization Helper: Handles "Ignite Vol. 10" -> "Ignite 10", "Anal Icons Vol #5" -> "Anal Icons 5"
+    fun normalizeTitle(rawTitle: String): String {
+        var t = rawTitle
+            .replace(Regex("""\((?:19\d\d|20\d\d)\)"""), "") // Strip release years
+            .replace(Regex("""(?i)\b(vol\.?|volume|no\.?|issue)\s*#?\s*(\d+)"""), "$2") // Vol. 10 -> 10, Vol #5 -> 5
+            .replace(Regex("""#\s*(\d+)"""), "$1") // #10 -> 10
+            .replace(Regex("""(?i)\b(4k|1080p|720p|xxx|full\s+movie|hd|scene)\b"""), "")
+            .replace(Regex("""[^\w\s]"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+        return t.ifBlank { rawTitle.trim() }
+    }
+
+    // Token-based Fuzzy Matching Score
+    fun fuzzyMatchScore(expected: String, candidate: String): Double {
+        val expTokens = normalizeTitle(expected).lowercase().split(Regex("""\s+""")).filter { it.isNotBlank() }
+        val candTokens = normalizeTitle(candidate).lowercase().split(Regex("""\s+""")).filter { it.isNotBlank() }.toSet()
+        if (expTokens.isEmpty()) return 0.0
+
+        val expNumbers = expTokens.filter { it.all { c -> c.isDigit() } }
+        val candNumbers = candTokens.filter { it.all { c -> c.isDigit() } }
+
+        // If expected title has a volume number (e.g. "10"), candidate must match it
+        if (expNumbers.isNotEmpty() && !candNumbers.containsAll(expNumbers)) {
+            return 0.0
+        }
+
+        val matches = expTokens.count { candTokens.contains(it) }
+        return matches.toDouble() / expTokens.size.toDouble()
+    }
+
     // Helper: Enhance Poster via IMDb -> TMDb -> Fallback
     suspend fun fetchEnhancedPoster(title: String, fallback: String?): String? {
         if (title.isBlank()) return fallback
-        val cleanTitle = title
-            .replace(Regex("""(?i)\b(vol\.?|volume|scene|part|xxx|4k|1080p|full\s+movie)\b.*"""), "")
-            .replace(Regex("""[^\w\s]"""), " ")
-            .trim()
-            .ifBlank { title.trim() }
+        val cleanTitle = normalizeTitle(title)
 
         // 1. IMDb Suggestion API
         val imdbPoster = runCatching {
@@ -237,8 +264,8 @@ class Himeros : MainAPI() {
     private fun parsePornPicsModelCard(element: Element): SearchResponse? {
         val linkEl = element.selectFirst("a[href*='/pornstars/']") ?: return null
         val href = linkEl.attr("href").let { if (it.startsWith("http")) it else "$pornpicsUrl$it" }
-        val slug = href.trimEnd('/').substringAfterLast('/')
-        if (slug.isBlank() || slug == "pornstars" || href.contains("/list/")) return null
+        val slug = href.substringBefore('?').trimEnd('/').substringAfterLast('/')
+        if (slug.isBlank() || slug == "pornstars" || slug.contains("=") || href.contains("/list/")) return null
 
         val title = element.selectFirst(".name, span.title, .title, .thumb__title, .actor-name")?.text()?.trim()
             ?.ifBlank { null }
@@ -284,8 +311,8 @@ class Himeros : MainAPI() {
     private fun parsePornPicsStudioCard(element: Element): SearchResponse? {
         val linkEl = element.selectFirst("a[href*='/channels/']") ?: return null
         val href = linkEl.attr("href").let { if (it.startsWith("http")) it else "$pornpicsUrl$it" }
-        val slug = href.trimEnd('/').substringAfterLast('/')
-        if (slug.isBlank() || slug == "channels") return null
+        val slug = href.substringBefore('?').trimEnd('/').substringAfterLast('/')
+        if (slug.isBlank() || slug == "channels" || slug.contains("=") || href.contains("/list/")) return null
 
         val title = element.selectFirst(".name, span.title, .title, .thumb__title, .channel-name")?.text()?.trim()
             ?.ifBlank { null }
@@ -456,23 +483,40 @@ class Himeros : MainAPI() {
 
     private suspend fun fetchParadiseHillMovieParts(title: String): List<String> {
         return runCatching {
-            val cleanTitle = title.replace(Regex("""(?i)\b(vol\.?|volume|4k|1080p)\b.*"""), "").trim()
-            val encoded = URLEncoder.encode(cleanTitle, "UTF-8")
-            val searchUrl = "$paradiseUrl/search/?pattern=$encoded&what=1"
-            val html = app.get(searchUrl, headers = paradiseHeaders).text
+            val normalized = normalizeTitle(title)
+            val baseTitle = normalized.replace(Regex("""\b\d+\b.*"""), "").trim()
+            val searchQueries = listOf(normalized, baseTitle).filter { it.isNotBlank() }.distinct()
 
-            val filmHref = Regex("""href=['"](/[^'"\s]+-[0-9a-f]+/?|/[a-zA-Z0-9_\-]+/)['"]""").findAll(html)
-                .map { it.groupValues[1] }
-                .firstOrNull { !it.contains("/search") && !it.contains("/page") && !it.contains("/actor") && !it.contains("/studio") }
+            for (query in searchQueries) {
+                val encoded = URLEncoder.encode(query, "UTF-8")
+                val searchUrl = "$paradiseUrl/search/?pattern=$encoded&what=1"
+                val html = app.get(searchUrl, headers = paradiseHeaders).text
+                val doc = Jsoup.parse(html)
 
-            if (filmHref != null) {
-                val fullFilmUrl = if (filmHref.startsWith("http")) filmHref else "$paradiseUrl$filmHref"
-                val filmHtml = app.get(fullFilmUrl, headers = paradiseHeaders).text
-                val videoListMatch = Regex("""var\s+videoList\s*=\s*(\[.*?\]);""", RegexOption.DOT_MATCHES_ALL).find(filmHtml)?.groupValues?.get(1)
-                if (videoListMatch != null) {
-                    val list = jsonMapper.readValue(videoListMatch, Array<VideoListItem>::class.java)
-                    val urls = list.flatMap { item -> item.sources?.mapNotNull { it.src } ?: emptyList() }
-                    if (urls.isNotEmpty()) return@runCatching urls
+                val candidates = doc.select("a[href]").mapNotNull { el ->
+                    val href = el.attr("href")
+                    val cardTitle = el.text().trim()
+                    if (href.matches(Regex("""^/(?:[a-zA-Z0-9_\-]+-[0-9a-f]+/?|[a-zA-Z0-9_\-]+/|[0-9a-f]{10,}/?)$""")) &&
+                        !href.contains("/search") && !href.contains("/page") && !href.contains("/actor") && !href.contains("/studio") && !href.contains("/category")
+                    ) {
+                        href to cardTitle
+                    } else null
+                }.distinctBy { it.first }
+
+                val bestCandidate = candidates
+                    .map { it.first to fuzzyMatchScore(normalized, it.second.ifBlank { it.first }) }
+                    .filter { it.second >= 0.5 }
+                    .maxByOrNull { it.second }?.first ?: candidates.firstOrNull()?.first
+
+                if (bestCandidate != null) {
+                    val fullFilmUrl = if (bestCandidate.startsWith("http")) bestCandidate else "$paradiseUrl$bestCandidate"
+                    val filmHtml = app.get(fullFilmUrl, headers = paradiseHeaders).text
+                    val videoListMatch = Regex("""var\s+videoList\s*=\s*(\[.*?\]);""", RegexOption.DOT_MATCHES_ALL).find(filmHtml)?.groupValues?.get(1)
+                    if (videoListMatch != null) {
+                        val list = jsonMapper.readValue(videoListMatch, Array<VideoListItem>::class.java)
+                        val urls = list.flatMap { item -> item.sources?.mapNotNull { it.src } ?: emptyList() }
+                        if (urls.isNotEmpty()) return@runCatching urls
+                    }
                 }
             }
             emptyList<String>()
@@ -742,32 +786,51 @@ class Himeros : MainAPI() {
 
     private suspend fun resolveSpeedPornStreams(title: String, callback: (ExtractorLink) -> Unit) {
         runCatching {
-            val clean = title.replace(Regex("""(?i)\b(vol\.?|volume|4k|1080p)\b.*"""), "").trim()
-            val encoded = URLEncoder.encode(clean, "UTF-8")
-            val searchUrl = "$speedpornUrl/?s=$encoded"
-            val doc = app.get(searchUrl, headers = speedpornHeaders).document
+            val normalized = normalizeTitle(title)
+            val baseTitle = normalized.replace(Regex("""\b\d+\b.*"""), "").trim()
+            val searchQueries = listOf(normalized, baseTitle).filter { it.isNotBlank() }.distinct()
 
-            val firstMatch = doc.selectFirst(".video-block a.thumb, a[href*='speedporn.net/']")?.attr("href")
-            if (!firstMatch.isNullOrBlank()) {
-                val videoDoc = app.get(firstMatch, headers = speedpornHeaders).document
-                val iframeSrc = videoDoc.selectFirst("iframe[src*='voe.sx'], iframe[src*='streamtape'], iframe[src*='dood'], iframe[src*='vtube']")?.attr("src")
-                if (!iframeSrc.isNullOrBlank()) {
-                    loadExtractor(iframeSrc, firstMatch, subtitleCallback = {}, callback = callback)
-                }
+            for (query in searchQueries) {
+                val encoded = URLEncoder.encode(query, "UTF-8")
+                val searchUrl = "$speedpornUrl/?s=$encoded"
+                val doc = app.get(searchUrl, headers = speedpornHeaders).document
 
-                val html = videoDoc.html()
-                val mp4Match = Regex("""https?://[^\s"'<>]+\.mp4[^\s"'<>]*""").find(html)?.value
-                if (!mp4Match.isNullOrBlank()) {
-                    callback(
-                        ExtractorLink(
-                            source = "SpeedPorn",
-                            name = "SpeedPorn - Full Movie (1080p)",
-                            url = mp4Match,
-                            referer = "$speedpornUrl/",
-                            quality = Qualities.P1080.value,
-                            isM3u8 = false
+                val candidateCards = doc.select(".video-block, a.thumb, a[href*='speedporn.net/']").mapNotNull { el ->
+                    val linkEl = el.selectFirst("a[href*='speedporn.net/']") ?: if (el.tagName() == "a") el else null
+                    val href = linkEl?.attr("href")
+                    val cardTitle = linkEl?.attr("title")?.ifBlank { null } ?: el.text().trim()
+                    if (!href.isNullOrBlank() && href != "$speedpornUrl/") {
+                        href to cardTitle
+                    } else null
+                }.distinctBy { it.first }
+
+                val bestHref = candidateCards
+                    .map { it.first to fuzzyMatchScore(normalized, it.second) }
+                    .filter { it.second >= 0.5 }
+                    .maxByOrNull { it.second }?.first ?: candidateCards.firstOrNull()?.first
+
+                if (!bestHref.isNullOrBlank()) {
+                    val videoDoc = app.get(bestHref, headers = speedpornHeaders).document
+                    val iframeSrc = videoDoc.selectFirst("iframe[src*='voe.sx'], iframe[src*='streamtape'], iframe[src*='dood'], iframe[src*='vtube']")?.attr("src")
+                    if (!iframeSrc.isNullOrBlank()) {
+                        loadExtractor(iframeSrc, bestHref, subtitleCallback = {}, callback = callback)
+                    }
+
+                    val html = videoDoc.html()
+                    val mp4Match = Regex("""https?://[^\s"'<>]+\.mp4[^\s"'<>]*""").find(html)?.value
+                    if (!mp4Match.isNullOrBlank()) {
+                        callback(
+                            ExtractorLink(
+                                source = "SpeedPorn",
+                                name = "SpeedPorn - Full Movie (1080p)",
+                                url = mp4Match,
+                                referer = "$speedpornUrl/",
+                                quality = Qualities.P1080.value,
+                                isM3u8 = false
+                            )
                         )
-                    )
+                        return@runCatching
+                    }
                 }
             }
         }
