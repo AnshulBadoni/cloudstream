@@ -182,28 +182,30 @@ tasks.register("makePlugin") {
         val multiSourceCs3 = File(distDir, "MultiSource.cs3")
         val yamyHubCs3 = File(distDir, "YamyHub.cs3")
         val epornerCs3 = File(distDir, "Eporner.cs3")
-        val tnaFlixCs3 = File(distDir, "TnaFlix.cs3")
         val fpoCs3 = File(distDir, "FPO.cs3")
         val plibraryCs3 = File(distDir, "PLibrary.cs3")
         val himerosCs3 = File(distDir, "Himeros.cs3")
+        val pornoTorrentCs3 = File(distDir, "PornoTorrent.cs3")
+        val limeTorrentsCs3 = File(distDir, "LimeTorrents.cs3")
 
         createPluginZip("PornTrex", "com.megix.PorntrexProvider", porntrexCs3)
         createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3)
         createPluginZip("YamyHub", "com.custom.YamyHubProvider", yamyHubCs3)
         createPluginZip("Eporner", "com.custom.EpornerProvider", epornerCs3)
-        createPluginZip("TnaFlix", "com.custom.TnaFlixProvider", tnaFlixCs3)
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3)
         createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3)
-        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 107)
+        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 108)
+        createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 101)
+        createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 101)
 
         val pluginsJson = """
 [
   {
     "name": "Himeros",
     "internalName": "Himeros",
-    "version": 107,
+    "version": 108,
     "apiVersion": 1,
-    "description": "Master aggregator provider with Data18 movie/series/showcase catalogs, PornPics trending models & studios, IMDb/TMDb enhanced artwork, episodic scene breakdowns, and SpeedPorn/1337x/ParadiseHill streaming and torrents.",
+    "description": "Master aggregator provider with Data18 movie/series/showcase catalogs, PornPics trending models & studios, IMDb/TMDb enhanced artwork, episodic scene breakdowns, SpeedPorn full movies & multi-source torrents (PornoTorrent, LimeTorrents, 1337x).",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,
@@ -212,6 +214,36 @@ tasks.register("makePlugin") {
     "iconUrl": "https://www.data18.com/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/Himeros.cs3",
     "fileSize": ${if (himerosCs3.exists()) himerosCs3.length() else 102400}
+  },
+  {
+    "name": "PornoTorrent",
+    "internalName": "PornoTorrent",
+    "version": 101,
+    "apiVersion": 1,
+    "description": "High-speed direct torrent provider indexing top studio releases and movies from pornotorrent.com.br.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie"],
+    "iconUrl": "https://pornotorrent.com.br/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/PornoTorrent.cs3",
+    "fileSize": ${if (pornoTorrentCs3.exists()) pornoTorrentCs3.length() else 102400}
+  },
+  {
+    "name": "LimeTorrents",
+    "internalName": "LimeTorrents",
+    "version": 101,
+    "apiVersion": 1,
+    "description": "Direct torrent indexer and search provider from limetorrents.lol.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie"],
+    "iconUrl": "https://www.limetorrents.lol/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/LimeTorrents.cs3",
+    "fileSize": ${if (limeTorrentsCs3.exists()) limeTorrentsCs3.length() else 102400}
   },
   {
     "name": "PornTrex",
@@ -259,21 +291,6 @@ tasks.register("makePlugin") {
     "fileSize": ${if (epornerCs3.exists()) epornerCs3.length() else 102400}
   },
   {
-    "name": "TnaFlix",
-    "internalName": "TnaFlix",
-    "version": 104,
-    "apiVersion": 1,
-    "description": "Extensive video catalog with trending scenes, categories, performer channels, and multi-resolution stream extraction.",
-    "authors": ["AnshulBadoni"],
-    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
-    "status": 1,
-    "language": "en",
-    "tvTypes": ["NSFW", "Movie", "TvSeries"],
-    "iconUrl": "https://www.tnaflix.com/favicon.ico",
-    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/TnaFlix.cs3",
-    "fileSize": ${if (tnaFlixCs3.exists()) tnaFlixCs3.length() else 102400}
-  },
-  {
     "name": "FPO",
     "internalName": "FPO",
     "version": 104,
@@ -308,7 +325,7 @@ tasks.register("makePlugin") {
     "internalName": "PLibrary",
     "version": 104,
     "apiVersion": 1,
-    "description": "Multi-source aggregated collection with 4 seasons per performer across YamyHub, Eporner, TnaFlix, and FPO.",
+    "description": "Multi-source aggregated collection with 4 seasons per performer across YamyHub, Eporner, and FPO.",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,

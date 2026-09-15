@@ -176,16 +176,14 @@ class EpornerProvider : Plugin() {
 }
 
 /**
- * Dedicated Plugin for TnaFlix
+ * Dedicated Plugin for TnaFlix (Disabled)
  */
-@CloudstreamPlugin
-class TnaFlixProvider : Plugin() {
-    override fun load(context: Context) {
-        registerMainAPI(TnaFlix())
-        ProviderSettingsHelper.initSettings(context)
-        this.openSettings = { ctx -> ProviderSettingsHelper.openSettingsDialog(ctx) }
-    }
-}
+// @CloudstreamPlugin
+// class TnaFlixProvider : Plugin() {
+//     override fun load(context: Context) {
+//         registerMainAPI(TnaFlix())
+//     }
+// }
 
 /**
  * Dedicated Plugin for FPO
@@ -234,5 +232,26 @@ class HimerosProvider : Plugin() {
         this.openSettings = { ctx -> ProviderSettingsHelper.openSettingsDialog(ctx) }
     }
 }
+
+/**
+ * Dedicated Plugin for PornoTorrent
+ */
+@CloudstreamPlugin
+class PornoTorrentProvider : Plugin() {
+    override fun load(context: Context) {
+        registerMainAPI(PornoTorrent())
+    }
+}
+
+/**
+ * Dedicated Plugin for LimeTorrents
+ */
+@CloudstreamPlugin
+class LimeTorrentsProvider : Plugin() {
+    override fun load(context: Context) {
+        registerMainAPI(LimeTorrents())
+    }
+}
+
 
 

@@ -94,9 +94,29 @@ class Himeros : MainAPI() {
         "d18_showcases" to "Showcase"
     )
 
+    private fun parseRoman(s: String): Int? {
+        val roman = s.uppercase()
+        val values = mapOf('I' to 1, 'V' to 5, 'X' to 10, 'L' to 50, 'C' to 100, 'D' to 500, 'M' to 1000)
+        var total = 0
+        var prev = 0
+        for (i in roman.length - 1 downTo 0) {
+            val curr = values[roman[i]] ?: return null
+            if (curr < prev) total -= curr else total += curr
+            prev = curr
+        }
+        return if (total > 0) total else null
+    }
+
+    private fun convertRomanNumerals(input: String): String {
+        return input.replace(Regex("""(?i)\b([MDCLXVI]+)\b""")) { m ->
+            val num = parseRoman(m.groupValues[1])
+            if (num != null) num.toString() else m.value
+        }
+    }
+
     // Title Normalization Helper: Handles "Ignite Vol. 10" -> "Ignite 10", "Anal Icons Vol #5" -> "Anal Icons 5"
     fun normalizeTitle(rawTitle: String): String {
-        var t = rawTitle
+        var t = convertRomanNumerals(rawTitle)
             .replace(Regex("""\((?:19\d\d|20\d\d)\)"""), "") // Strip release years
             .replace(Regex("""(?i)\b(vol\.?|volume|no\.?|issue)\s*#?\s*(\d+)"""), "$2") // Vol. 10 -> 10, Vol #5 -> 5
             .replace(Regex("""#\s*(\d+)"""), "$1") // #10 -> 10
@@ -109,7 +129,7 @@ class Himeros : MainAPI() {
 
     // Unified Master Movie Title Sanitizer (Removes 'Watch ...', 'by Evil Angel', '(2026)', '#11' -> '11', 'vol. 11' -> '11', etc.)
     fun cleanMovieTitle(raw: String): String {
-        var t = raw
+        var t = convertRomanNumerals(raw)
             .replace(Regex("""(?i)^\s*watch\s+"""), "")
             .replace(Regex("""(?i)\s*\|\s*data18.*"""), "")
             .replace(Regex("""(?i)\s*-\s*data18.*"""), "")
@@ -1363,9 +1383,15 @@ class Himeros : MainAPI() {
                         resolveSpeedPornStreams(searchTitle, subtitleCallback, callback)
                     }
 
-                    // Launch 1337x Torrent Resolver
+                    // Launch Torrent Resolvers (1337x, PornoTorrent, LimeTorrents)
                     launch {
                         resolve1337xTorrents(searchTitle, callback)
+                    }
+                    launch {
+                        resolvePornoTorrent(searchTitle, callback)
+                    }
+                    launch {
+                        resolveLimeTorrents(searchTitle, callback)
                     }
 
                     // Launch Scraper Network Search (Eporner / PornTrex fallback)
@@ -1482,8 +1508,37 @@ class Himeros : MainAPI() {
     private fun isSupportedEmbedHost(url: String): Boolean {
         val lower = url.lowercase()
         return lower.contains("voe.sx") || lower.contains("playmogo.com") || lower.contains("dood") ||
+                lower.contains("ds2play") || lower.contains("d0000d") ||
                 lower.contains("mixdrop") || lower.contains("streamtape") || lower.contains("filelions") ||
-                lower.contains("dropload") || lower.contains("streamwish") || lower.contains("vidguard")
+                lower.contains("dropload") || lower.contains("streamwish") || lower.contains("vidguard") ||
+                lower.contains("lulustream")
+    }
+
+    private fun normalizeEmbedUrl(url: String): String {
+        var u = url.trim()
+        val lower = u.lowercase()
+        // DoodStream / Playmogo mirrors
+        if (lower.contains("playmogo.com") || lower.contains("dood") || lower.contains("ds2play") || lower.contains("d0000d")) {
+            val id = Regex("""/(?:e|d|f)/([a-zA-Z0-9]+)""").find(u)?.groupValues?.get(1)
+            if (id != null) {
+                return "https://d0000d.com/e/$id"
+            }
+        }
+        // MixDrop mirrors
+        if (lower.contains("mixdrop")) {
+            val id = Regex("""/(?:e|f)/([a-zA-Z0-9]+)""").find(u)?.groupValues?.get(1)
+            if (id != null) {
+                return "https://mixdrop.ag/e/$id"
+            }
+        }
+        // Streamwish / Filelions
+        if (lower.contains("streamwish") || lower.contains("filelions")) {
+            val id = Regex("""/(?:e|f|v)/([a-zA-Z0-9]+)""").find(u)?.groupValues?.get(1)
+            if (id != null) {
+                return "https://streamwish.to/e/$id"
+            }
+        }
+        return u
     }
 
     private suspend fun resolveSpeedPornPage(
@@ -1495,13 +1550,21 @@ class Himeros : MainAPI() {
             val filmDoc = app.get(pageUrl, headers = speedpornHeaders).document
             val filmHtml = filmDoc.html()
 
-            // 1. Extract standard embed links (voe, dood, mixdrop, playmogo, etc.)
             val embedUrls = mutableSetOf<String>()
 
+            // 1. Extract standard embed links (voe, dood, mixdrop, playmogo, etc.)
             filmDoc.select("a[href]").forEach { a ->
                 val href = a.attr("href")
                 if (href.startsWith("http") && isSupportedEmbedHost(href)) {
-                    embedUrls.add(href)
+                    embedUrls.add(normalizeEmbedUrl(href))
+                }
+            }
+
+            // 2. Extract data-url attributes
+            filmDoc.select("[data-url], [data-src], [data-href]").forEach { el ->
+                val u = el.attr("data-url").ifEmpty { el.attr("data-src").ifEmpty { el.attr("data-href") } }
+                if (u.startsWith("http") && isSupportedEmbedHost(u)) {
+                    embedUrls.add(normalizeEmbedUrl(u))
                 }
             }
 
@@ -1509,17 +1572,17 @@ class Himeros : MainAPI() {
             dataUrlRegex.findAll(filmHtml).forEach { m ->
                 val u = m.groupValues[1]
                 if (isSupportedEmbedHost(u)) {
-                    embedUrls.add(u)
+                    embedUrls.add(normalizeEmbedUrl(u))
                 }
             }
 
-            // Extract iframe sources
+            // 3. Extract iframe sources
             filmDoc.select("iframe[src]").forEach { iframe ->
                 val src = iframe.attr("src")
                 val fullSrc = if (src.startsWith("http")) src else if (src.startsWith("//")) "https:$src" else ""
                 if (fullSrc.isNotBlank()) {
                     if (isSupportedEmbedHost(fullSrc)) {
-                        embedUrls.add(fullSrc)
+                        embedUrls.add(normalizeEmbedUrl(fullSrc))
                     } else {
                         runCatching {
                             val playerHtml = app.get(fullSrc, headers = mapOf("Referer" to pageUrl)).text
@@ -1543,14 +1606,14 @@ class Himeros : MainAPI() {
                 }
             }
 
-            // Resolve embed URLs via CloudStream extractors
+            // 4. Resolve normalized embed URLs via CloudStream extractors
             embedUrls.forEach { embedUrl ->
                 runCatching {
                     loadExtractor(embedUrl, subtitleCallback, callback)
                 }
             }
 
-            // Direct download links
+            // 5. Direct download links
             val downloadLinks = filmDoc.select("a[href*='download'], a.btn-download, a[href*='.mp4']")
             downloadLinks.forEach { dLink ->
                 val dHref = dLink.attr("href")
@@ -1578,11 +1641,11 @@ class Himeros : MainAPI() {
         runCatching {
             val cleanTitle = cleanMovieTitle(movieTitle)
             val normalizedTitle = normalizeTitle(cleanTitle)
-            val query = URLEncoder.encode(cleanTitle, "UTF-8")
+            val query = URLEncoder.encode(cleanTitle.replace(":", " ").replace("-", " ").replace(Regex("""\s+"""), " ").trim(), "UTF-8")
             val searchUrl = "$speedpornUrl/?s=$query"
             val doc = app.get(searchUrl, headers = speedpornHeaders).document
 
-            val links = doc.select(".video-block, .item, div.post").mapNotNull { el ->
+            val links = doc.select(".video-block, .item, div.post, article.thumb-block, div.thumb-block, div.no-thumb").mapNotNull { el ->
                 val aInfos = el.selectFirst("a.infos, a:not(.thumb)[href*='speedporn.net/']")
                 val aThumb = el.selectFirst("a.thumb")
                 val linkEl = aInfos ?: aThumb ?: el.selectFirst("a[href*='speedporn.net/']") ?: if (el.tagName() == "a") el else null
@@ -1648,6 +1711,119 @@ class Himeros : MainAPI() {
                 } else false
             }.getOrDefault(false)
             if (success) break
+        }
+    }
+
+    private suspend fun resolvePornoTorrent(
+        movieTitle: String,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        runCatching {
+            val cleanTitle = cleanMovieTitle(movieTitle)
+            val normalizedTitle = normalizeTitle(cleanTitle)
+            val query = URLEncoder.encode(cleanTitle.replace(":", " ").replace("-", " ").replace(Regex("""\s+"""), " ").trim(), "UTF-8")
+            val url = "https://pornotorrent.com.br/en/?s=$query"
+            val headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Referer" to "https://pornotorrent.com.br/"
+            )
+            val doc = app.get(url, headers = headers).document
+            val cards = doc.select("article, .post, div.item").mapNotNull { el ->
+                val titleEl = el.selectFirst("h2 a, h3 a, h1 a, a[title], .entry-title a") ?: return@mapNotNull null
+                val title = titleEl.attr("title").ifEmpty { titleEl.text().trim() }
+                val href = titleEl.attr("href")
+                if (title.isNotBlank() && href.isNotBlank()) href to cleanMovieTitle(title) else null
+            }
+            val best = cards.map { it.first to fuzzyMatchScore(normalizedTitle, it.second) }
+                .filter { it.second >= 0.5 }
+                .maxByOrNull { it.second }?.first ?: cards.firstOrNull()?.first
+
+            if (best != null) {
+                val detailDoc = app.get(best, headers = headers).document
+                for (a in detailDoc.select("a[href]")) {
+                    val href = a.attr("href")
+                    var magnet: String? = null
+                    if (href.startsWith("magnet:")) {
+                        magnet = href
+                    } else if (href.contains("/download/?m=")) {
+                        val encoded = href.substringAfter("/download/?m=")
+                        magnet = try { java.net.URLDecoder.decode(encoded, "UTF-8") } catch (e: Exception) { encoded }
+                    }
+                    if (!magnet.isNullOrBlank()) {
+                        val quality = when {
+                            magnet.contains("2160p", true) || magnet.contains("4K", true) -> Qualities.P2160.value
+                            magnet.contains("1080p", true) -> Qualities.P1080.value
+                            magnet.contains("720p", true) -> Qualities.P720.value
+                            magnet.contains("480p", true) -> Qualities.P480.value
+                            else -> Qualities.P1080.value
+                        }
+                        callback(
+                            ExtractorLink(
+                                source = "PornoTorrent",
+                                name = "PornoTorrent [Magnet]",
+                                url = magnet,
+                                referer = "https://pornotorrent.com.br/",
+                                quality = quality,
+                                isM3u8 = false
+                            )
+                        )
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun resolveLimeTorrents(
+        movieTitle: String,
+        callback: (ExtractorLink) -> Unit
+    ) {
+        runCatching {
+            val cleanTitle = cleanMovieTitle(movieTitle)
+            val normalizedTitle = normalizeTitle(cleanTitle)
+            val cleanQuery = cleanTitle.trim().replace(Regex("""[^a-zA-Z0-9]+"""), "-")
+            val url = "https://www.limetorrents.lol/search/all/$cleanQuery/"
+            val headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Referer" to "https://www.limetorrents.lol/"
+            )
+            val doc = app.get(url, headers = headers).document
+            val rows = doc.select("table.table2 tr, tr").mapNotNull { r ->
+                val link = r.selectFirst("div.tt-name a:last-child, a[href*='-torrent-']") ?: return@mapNotNull null
+                val title = link.text().trim()
+                val href = link.attr("href")
+                if (title.isNotBlank() && href.isNotBlank() && !title.contains("Torrent Download", true)) {
+                    val fullHref = if (href.startsWith("http")) href else "https://www.limetorrents.lol$href"
+                    fullHref to cleanMovieTitle(title)
+                } else null
+            }
+            val best = rows.map { it.first to fuzzyMatchScore(normalizedTitle, it.second) }
+                .filter { it.second >= 0.5 }
+                .maxByOrNull { it.second }?.first ?: rows.firstOrNull()?.first
+
+            if (best != null) {
+                val detailDoc = app.get(best, headers = headers).document
+                val magnet = detailDoc.selectFirst("a[href^='magnet:']")?.attr("href")
+                if (!magnet.isNullOrBlank()) {
+                    val quality = when {
+                        magnet.contains("2160p", true) || magnet.contains("4K", true) -> Qualities.P2160.value
+                        magnet.contains("1080p", true) -> Qualities.P1080.value
+                        magnet.contains("720p", true) -> Qualities.P720.value
+                        magnet.contains("480p", true) -> Qualities.P480.value
+                        else -> Qualities.P1080.value
+                    }
+                    callback(
+                        ExtractorLink(
+                            source = "LimeTorrents",
+                            name = "LimeTorrents [Magnet]",
+                            url = magnet,
+                            referer = "https://www.limetorrents.lol/",
+                            quality = quality,
+                            isM3u8 = false
+                        )
+                    )
+                }
+            }
         }
     }
 
