@@ -361,10 +361,10 @@ class Himeros : MainAPI() {
                             source = name,
                             name = "SpeedPorn [MixDrop 1080p]",
                             url = fullUrl,
-                            referer = mirror,
+                            referer = "https://mixdrop.ag/",
                             quality = Qualities.P1080.value,
                             isM3u8 = false,
-                            headers = mapOf("Referer" to mirror, "User-Agent" to speedpornHeaders["User-Agent"]!!)
+                            headers = mapOf("Referer" to "https://mixdrop.ag/", "User-Agent" to speedpornHeaders["User-Agent"]!!)
                         )
                     )
                     break

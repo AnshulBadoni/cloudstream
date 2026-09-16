@@ -189,12 +189,12 @@ tasks.register("makePlugin") {
         val limeTorrentsCs3 = File(distDir, "LimeTorrents.cs3")
 
         createPluginZip("PornTrex", "com.megix.PorntrexProvider", porntrexCs3, version = 104)
-        createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3, version = 105)
+        createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3, version = 106)
         createPluginZip("YamyHub", "com.custom.YamyHubProvider", yamyHubCs3, version = 104)
         createPluginZip("Eporner", "com.custom.EpornerProvider", epornerCs3, version = 104)
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3, version = 104)
         createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3, version = 104)
-        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 116)
+        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 117)
         createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 104)
         createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 103)
 
@@ -203,7 +203,7 @@ tasks.register("makePlugin") {
   {
     "name": "Himeros",
     "internalName": "Himeros",
-    "version": 116,
+    "version": 117,
     "apiVersion": 1,
     "description": "Master aggregator provider with Data18 movie/series/showcase catalogs, PornPics trending models & studios, IMDb/TMDb enhanced artwork, episodic scene breakdowns, SpeedPorn full movies & multi-source torrents (PornoTorrent, LimeTorrents, 1337x).",
     "authors": ["AnshulBadoni"],
@@ -308,7 +308,7 @@ tasks.register("makePlugin") {
   {
     "name": "MultiSource",
     "internalName": "MultiSource",
-    "version": 105,
+    "version": 106,
     "apiVersion": 1,
     "description": "Multi-source aggregator with SpeedPorn and ParadiseHill: deep search, MP4/VOE stream resolvers, multi-part CD episodes, and actor catalogs.",
     "authors": ["AnshulBadoni"],

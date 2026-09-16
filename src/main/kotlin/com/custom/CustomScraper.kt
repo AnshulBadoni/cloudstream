@@ -653,9 +653,10 @@ class CustomScraper : MainAPI() {
                                             source = name,
                                             name = "$name [MixDrop 1080p]",
                                             url = fullUrl,
-                                            referer = mirror,
+                                            referer = "https://mixdrop.ag/",
                                             quality = Qualities.P1080.value,
-                                            isM3u8 = fullUrl.contains(".m3u8")
+                                            isM3u8 = fullUrl.contains(".m3u8"),
+                                            headers = mapOf("Referer" to "https://mixdrop.ag/", "User-Agent" to speedpornHeaders["user-agent"]!!)
                                         )
                                     )
                                     count++
