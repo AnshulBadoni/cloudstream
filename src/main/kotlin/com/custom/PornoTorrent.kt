@@ -48,9 +48,30 @@ class PornoTorrent : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val url = "$mainUrl/en/?s=${query.replace(" ", "+")}"
-        val document = app.get(url, headers = headers).document
-        return document.select("article, .post, div.item").mapNotNull { it.toSearchResult() }
+        val numMatch = Regex("""\b(\d+)\b""").find(query)?.groupValues?.get(1)
+        val baseName = query.replace(Regex("""(?i)\b(?:Vol\.?|Volume|Episode|Ep\.?|Part|No\.?|#)?\s*\d+"""), "")
+            .replace(Regex("""[-:_/]+"""), " ")
+            .trim()
+
+        val queries = mutableListOf<String>()
+        if (numMatch != null && baseName.isNotEmpty()) {
+            queries.add("$baseName #$numMatch")
+            queries.add("$baseName $numMatch")
+        }
+        queries.add(query)
+        if (baseName.isNotEmpty() && !queries.contains(baseName)) {
+            queries.add(baseName)
+        }
+
+        val results = mutableListOf<SearchResponse>()
+        for (q in queries.distinct()) {
+            val url = "$mainUrl/?s=${java.net.URLEncoder.encode(q, "UTF-8")}"
+            val document = try { app.get(url, headers = headers).document } catch (_: Exception) { continue }
+            val items = document.select("article, .post, div.item").mapNotNull { it.toSearchResult() }
+            results.addAll(items)
+            if (results.isNotEmpty()) break
+        }
+        return results.distinctBy { it.url }
     }
 
     override suspend fun load(url: String): LoadResponse {
