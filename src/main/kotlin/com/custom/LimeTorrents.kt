@@ -6,13 +6,20 @@ import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import org.jsoup.nodes.Element
 
 class LimeTorrents : MainAPI() {
-    override var mainUrl = "https://www.limetorrents.lol"
+    override var mainUrl = "https://www.limetorrents.fun"
     override var name = "LimeTorrents"
     override val hasMainPage = true
     override var lang = "en"
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.NSFW, TvType.Movie)
     override val vpnStatus = VPNStatus.MightBeNeeded
+
+    private val mirrors = listOf(
+        "https://www.limetorrents.fun",
+        "https://www.limetorrents.lol",
+        "https://www.limetorrents.li",
+        "https://www.limetorrents.cc"
+    )
 
     private val headers = mapOf(
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -41,16 +48,24 @@ class LimeTorrents : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val cleanQuery = query.trim().replace(Regex("""[^a-zA-Z0-9]+"""), "-")
-        val url = "$mainUrl/search/all/$cleanQuery/"
-        val document = app.get(url, headers = headers).document
-        return document.select("table.table2 tr, tr").mapNotNull { it.toSearchResult() }
+        val cleanQuery = query.trim().replace(Regex("""[^a-zA-Z0-9]+"""), "-").trim('-')
+        for (mirror in mirrors) {
+            val url = "$mirror/search/all/$cleanQuery/"
+            val document = try { app.get(url, headers = headers).document } catch (_: Exception) { continue }
+            val results = document.select("table.table2 tr, tr").mapNotNull { it.toSearchResult() }
+            if (results.isNotEmpty()) return results
+        }
+        return emptyList()
     }
 
     override suspend fun load(url: String): LoadResponse {
         val document = app.get(url, headers = headers).document
         val title = document.selectFirst("h1")?.text()?.trim() ?: "LimeTorrents"
-        val magnetUrl = document.selectFirst("a[href^='magnet:']")?.attr("href") ?: ""
+        var magnetUrl = document.selectFirst("a[href^='magnet:']")?.attr("href") ?: ""
+        if (magnetUrl.isEmpty()) {
+            val raw = document.html()
+            magnetUrl = Regex("""magnet:\?[^\s"'<>]+""").find(raw)?.value ?: ""
+        }
         return newMovieLoadResponse(title, url, TvType.NSFW, magnetUrl.ifEmpty { url })
     }
 
@@ -63,7 +78,9 @@ class LimeTorrents : MainAPI() {
         var magnet = data
         if (!magnet.startsWith("magnet:")) {
             val document = app.get(data, headers = headers).document
-            magnet = document.selectFirst("a[href^='magnet:']")?.attr("href") ?: ""
+            magnet = document.selectFirst("a[href^='magnet:']")?.attr("href")
+                ?: Regex("""magnet:\?[^\s"'<>]+""").find(document.html())?.value
+                ?: ""
         }
 
         if (magnet.startsWith("magnet:")) {

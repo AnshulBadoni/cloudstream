@@ -575,11 +575,11 @@ class Himeros : MainAPI() {
                 val doc = try {
                     app.get(url, headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
                 } catch (_: Exception) { continue }
-                val articles = doc.select("article, .post, div.item")
+                val articles = doc.select("article, .post, div.item, .cp-card")
 
                 for (article in articles) {
-                    val linkEl = article.selectFirst("h2 a, h3 a, h1 a, a[title], .entry-title a") ?: continue
-                    val postTitle = linkEl.attr("title").ifEmpty { linkEl.text().trim() }
+                    val linkEl = article.selectFirst("h2 a, h3 a, h1 a, a[title], .entry-title a, .cp-card__title a, a.cp-card__link") ?: continue
+                    val postTitle = linkEl.attr("title").ifEmpty { linkEl.attr("aria-label") }.ifEmpty { linkEl.text().trim() }
                     val postHref = fixUrl(linkEl.attr("href"))
                     if (postHref.isEmpty() || postTitle.isEmpty()) continue
 
@@ -601,6 +601,12 @@ class Himeros : MainAPI() {
                                 val enc = href.substringAfter("/download/?m=")
                                 magnet = try { URLDecoder.decode(enc, "UTF-8") } catch (_: Exception) { enc }
                                 break
+                            }
+                        }
+                        if (magnet.isEmpty()) {
+                            val m = Regex("""magnet:\?[^\s"'<>]+""").find(postDoc.html())?.value
+                            if (m != null) {
+                                magnet = try { URLDecoder.decode(m, "UTF-8") } catch (_: Exception) { m }
                             }
                         }
 
@@ -634,43 +640,54 @@ class Himeros : MainAPI() {
                 .filter { it.isNotBlank() && it != "vol" && it != "volume" }
                 .toSet()
 
+            val mirrors = listOf(
+                "https://www.limetorrents.fun",
+                "https://www.limetorrents.lol",
+                "https://www.limetorrents.li"
+            )
+
             var found = false
             for (cleanTitle in variants) {
                 if (found) break
                 val cleanQuery = cleanTitle.replace(Regex("""[^a-zA-Z0-9]+"""), "-").trim('-')
-                val url = "https://www.limetorrents.lol/search/all/$cleanQuery/"
-                val doc = try {
-                    app.get(url, headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
-                } catch (_: Exception) { continue }
+                for (mirror in mirrors) {
+                    if (found) break
+                    val url = "$mirror/search/all/$cleanQuery/"
+                    val doc = try {
+                        app.get(url, headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
+                    } catch (_: Exception) { continue }
 
-                val rows = doc.select("div.tt-name a:last-child, a[href*='-torrent-']")
-                for (row in rows) {
-                    val torrentTitle = row.text().trim()
-                    val torrentHref = fixUrl(row.attr("href"))
-                    if (torrentHref.isEmpty() || torrentTitle.isEmpty()) continue
+                    val rows = doc.select("div.tt-name a:last-child, a[href*='-torrent-']")
+                    for (row in rows) {
+                        val torrentTitle = row.text().trim()
+                        val torrentHref = row.attr("href").let { if (it.startsWith("/")) "$mirror$it" else it }
+                        if (torrentHref.isEmpty() || torrentTitle.isEmpty()) continue
 
-                    val candTokens = torrentTitle.lowercase()
-                        .replace(Regex("""[^a-z0-9]"""), " ")
-                        .split(" ")
-                        .filter { it.isNotBlank() }
-                        .toSet()
+                        val candTokens = torrentTitle.lowercase()
+                            .replace(Regex("""[^a-z0-9]"""), " ")
+                            .split(" ")
+                            .filter { it.isNotBlank() }
+                            .toSet()
 
-                    if (wantedTokens.isNotEmpty() && wantedTokens.all { candTokens.contains(it) }) {
-                        val torrentDoc = app.get(torrentHref, headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
-                        val magnet = torrentDoc.selectFirst("a[href^='magnet:']")?.attr("href") ?: ""
-                        if (magnet.startsWith("magnet:")) {
-                            callback.invoke(
-                                ExtractorLink(
-                                    source = "LimeTorrents",
-                                    name = "LimeTorrents [$torrentTitle]",
-                                    url = magnet,
-                                    referer = "https://www.limetorrents.lol/",
-                                    quality = if (torrentTitle.contains("1080", true)) Qualities.P1080.value else Qualities.P720.value,
-                                    isM3u8 = false
-                                ).apply { type = ExtractorLinkType.TORRENT }
-                            )
-                            found = true
-                            break
+                        if (wantedTokens.isNotEmpty() && wantedTokens.all { candTokens.contains(it) }) {
+                            val torrentDoc = app.get(torrentHref, headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
+                            val magnet = torrentDoc.selectFirst("a[href^='magnet:']")?.attr("href")
+                                ?: Regex("""magnet:\?[^\s"'<>]+""").find(torrentDoc.html())?.value
+                                ?: ""
+                            if (magnet.startsWith("magnet:")) {
+                                callback.invoke(
+                                    ExtractorLink(
+                                        source = "LimeTorrents",
+                                        name = "LimeTorrents [$torrentTitle]",
+                                        url = magnet,
+                                        referer = "$mirror/",
+                                        quality = if (torrentTitle.contains("1080", true)) Qualities.P1080.value else Qualities.P720.value,
+                                        isM3u8 = false
+                                    ).apply { type = ExtractorLinkType.TORRENT }
+                                )
+                                found = true
+                                break
+                            }
                         }
                     }
                 }

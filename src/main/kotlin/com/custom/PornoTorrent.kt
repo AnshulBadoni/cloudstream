@@ -36,12 +36,14 @@ class PornoTorrent : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
-        val titleElement = selectFirst("h2 a, h3 a, h1 a, a[title], .entry-title a") ?: return null
-        val title = titleElement.attr("title").ifEmpty { titleElement.text().trim() }
+        val titleElement = selectFirst("h2 a, h3 a, h1 a, a[title], .entry-title a, .cp-card__title a, a.cp-card__link") ?: return null
+        val title = titleElement.attr("title").ifEmpty { titleElement.attr("aria-label") }.ifEmpty { titleElement.text().trim() }
         if (title.isEmpty()) return null
         val href = fixUrl(titleElement.attr("href"))
         val posterUrl = selectFirst("img")?.let {
             it.attr("data-src").ifEmpty { it.attr("src") }
+        } ?: selectFirst(".cp-card__cover, [style*='background']")?.attr("style")?.let { style ->
+            Regex("""url\(['"]?(.*?)['"]?\)""").find(style)?.groupValues?.get(1)
         }
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
@@ -68,7 +70,7 @@ class PornoTorrent : MainAPI() {
         for (q in queries.distinct()) {
             val url = "$mainUrl/?s=${java.net.URLEncoder.encode(q, "UTF-8")}"
             val document = try { app.get(url, headers = headers).document } catch (_: Exception) { continue }
-            val items = document.select("article, .post, div.item").mapNotNull { it.toSearchResult() }
+            val items = document.select("article, .post, div.item, .cp-card").mapNotNull { it.toSearchResult() }
             results.addAll(items)
             if (results.isNotEmpty()) break
         }
@@ -80,6 +82,8 @@ class PornoTorrent : MainAPI() {
         val title = document.selectFirst("h1.entry-title, h1")?.text()?.trim() ?: "PornoTorrent"
         val poster = document.selectFirst("article img, div.entry-content img, img")?.let {
             it.attr("data-src").ifEmpty { it.attr("src") }
+        } ?: document.selectFirst(".cp-card__cover, [style*='background']")?.attr("style")?.let { style ->
+            Regex("""url\(['"]?(.*?)['"]?\)""").find(style)?.groupValues?.get(1)
         }
         val description = document.selectFirst("div.entry-content p, div.synopsis, p")?.text()?.trim()
         val actors = document.select("a[href*='/tag/']").map {
@@ -96,6 +100,13 @@ class PornoTorrent : MainAPI() {
                 val encoded = href.substringAfter("/download/?m=")
                 magnetUrl = try { URLDecoder.decode(encoded, "UTF-8") } catch (e: Exception) { encoded }
                 break
+            }
+        }
+        if (magnetUrl.isEmpty()) {
+            val raw = document.html()
+            val m = Regex("""magnet:\?[^\s"'<>]+""").find(raw)?.value
+            if (m != null) {
+                magnetUrl = try { URLDecoder.decode(m, "UTF-8") } catch (e: Exception) { m }
             }
         }
 
@@ -124,6 +135,13 @@ class PornoTorrent : MainAPI() {
                     val encoded = href.substringAfter("/download/?m=")
                     magnet = try { URLDecoder.decode(encoded, "UTF-8") } catch (e: Exception) { encoded }
                     break
+                }
+            }
+            if (!magnet.startsWith("magnet:")) {
+                val raw = document.html()
+                val m = Regex("""magnet:\?[^\s"'<>]+""").find(raw)?.value
+                if (m != null) {
+                    magnet = try { URLDecoder.decode(m, "UTF-8") } catch (e: Exception) { m }
                 }
             }
         }
