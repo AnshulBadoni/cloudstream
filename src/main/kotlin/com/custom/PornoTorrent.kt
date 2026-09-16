@@ -47,6 +47,7 @@ class PornoTorrent : MainAPI() {
         }
         return newMovieSearchResponse(title, href, TvType.NSFW) {
             this.posterUrl = posterUrl
+            this.posterHeaders = headers
         }
     }
 
@@ -112,6 +113,7 @@ class PornoTorrent : MainAPI() {
 
         return newMovieLoadResponse(title, url, TvType.NSFW, magnetUrl.ifEmpty { url }) {
             this.posterUrl = poster
+            this.posterHeaders = headers
             this.plot = description
             this.actors = actors
         }

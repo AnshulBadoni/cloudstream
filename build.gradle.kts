@@ -195,7 +195,7 @@ tasks.register("makePlugin") {
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3, version = 104)
         createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3, version = 104)
         createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 117)
-        createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 104)
+        createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 105)
         createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 103)
 
         val pluginsJson = """
@@ -218,7 +218,7 @@ tasks.register("makePlugin") {
   {
     "name": "PornoTorrent",
     "internalName": "PornoTorrent",
-    "version": 104,
+    "version": 105,
     "apiVersion": 1,
     "description": "High-speed direct torrent provider indexing top studio releases and movies from pornotorrent.com.br.",
     "authors": ["AnshulBadoni"],
