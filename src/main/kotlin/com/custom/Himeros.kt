@@ -288,7 +288,7 @@ class Himeros : MainAPI() {
         }
     }
 
-    // 6. DIRECT EMBED RESOLVER (Luluvid / StreamWish / FileLions)
+    // 6. DIRECT EMBED RESOLVERS (Luluvid / StreamWish / FileLions / MixDrop)
     private suspend fun resolveLuluvidStreamWish(embedUrl: String, callback: (ExtractorLink) -> Unit) {
         try {
             val responseText = app.get(embedUrl, headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to speedpornHeaders["User-Agent"]!!)).text
@@ -305,7 +305,34 @@ class Himeros : MainAPI() {
                         url = streamMatch,
                         referer = embedUrl,
                         quality = Qualities.P1080.value,
-                        isM3u8 = streamMatch.contains(".m3u8")
+                        isM3u8 = streamMatch.contains(".m3u8"),
+                        headers = mapOf("Referer" to embedUrl, "User-Agent" to speedpornHeaders["User-Agent"]!!)
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+    }
+
+    private suspend fun resolveMixDrop(embedUrl: String, callback: (ExtractorLink) -> Unit) {
+        try {
+            val responseText = app.get(embedUrl, headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to speedpornHeaders["User-Agent"]!!)).text
+            val unpacked = unpackPacker(responseText)
+            val wurlRegex = Regex("""(?:MDCore\.wurl|wurl)\s*=\s*"([^"]+)"""")
+            val wurlMatch = wurlRegex.find(unpacked)?.groupValues?.get(1) 
+                ?: wurlRegex.find(responseText)?.groupValues?.get(1)
+
+            if (!wurlMatch.isNullOrBlank() && wurlMatch.trim().isNotEmpty()) {
+                val fullUrl = if (wurlMatch.startsWith("//")) "https:$wurlMatch" else wurlMatch
+                val host = embedUrl.substringAfter("://").substringBefore("/")
+                callback.invoke(
+                    ExtractorLink(
+                        source = name,
+                        name = "SpeedPorn [MixDrop 1080p]",
+                        url = fullUrl,
+                        referer = embedUrl,
+                        quality = Qualities.P1080.value,
+                        isM3u8 = false,
+                        headers = mapOf("Referer" to embedUrl, "User-Agent" to speedpornHeaders["User-Agent"]!!)
                     )
                 )
             }
@@ -433,7 +460,14 @@ class Himeros : MainAPI() {
                 async { resolveLuluvidStreamWish(embedUrl, callback) }
             }
 
-            // F. Default CloudStream extractors for others
+            // F. Direct custom unpackers for MixDrop
+            val mixdropJobs = validOriginalUrls.filter {
+                it.contains("mixdrop")
+            }.map { embedUrl ->
+                async { resolveMixDrop(embedUrl, callback) }
+            }
+
+            // G. Default CloudStream extractors for others
             val extractorJobs = validOriginalUrls.map { normalizeEmbedUrl(it) }.distinct().map { embedUrl ->
                 async {
                     try {
@@ -442,7 +476,7 @@ class Himeros : MainAPI() {
                 }
             }
 
-            // G. Look for direct MP4 / M3U8 video streams in page scripts
+            // H. Look for direct MP4 / M3U8 video streams in page scripts
             val directStreamRegex = Regex("""(https?://[^\s"'<>]+\.(?:mp4|m3u8)(?:\?[^\s"'<>]*)?)""", RegexOption.IGNORE_CASE)
             directStreamRegex.findAll(rawHtml).forEach { m ->
                 val streamUrl = m.value
@@ -454,17 +488,19 @@ class Himeros : MainAPI() {
                             url = streamUrl,
                             referer = "$mainUrl/",
                             quality = Qualities.P1080.value,
-                            isM3u8 = streamUrl.contains(".m3u8")
+                            isM3u8 = streamUrl.contains(".m3u8"),
+                            headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to speedpornHeaders["User-Agent"]!!)
                         )
                     )
                 }
             }
 
-            // H. Parallel Torrent Resolution (PornoTorrent & LimeTorrents)
+            // I. Parallel Torrent Resolution (PornoTorrent & LimeTorrents)
             val pTorrent = if (movieTitle.isNotEmpty()) async { resolvePornoTorrent(movieTitle, callback) } else null
             val lTorrent = if (movieTitle.isNotEmpty()) async { resolveLimeTorrents(movieTitle, callback) } else null
 
             luluJobs.awaitAll()
+            mixdropJobs.awaitAll()
             extractorJobs.awaitAll()
             pTorrent?.await()
             lTorrent?.await()
