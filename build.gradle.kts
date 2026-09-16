@@ -203,7 +203,7 @@ tasks.register("makePlugin") {
   {
     "name": "Himeros",
     "internalName": "Himeros",
-    "version": 113,
+    "version": 114,
     "apiVersion": 1,
     "description": "Master aggregator provider with Data18 movie/series/showcase catalogs, PornPics trending models & studios, IMDb/TMDb enhanced artwork, episodic scene breakdowns, SpeedPorn full movies & multi-source torrents (PornoTorrent, LimeTorrents, 1337x).",
     "authors": ["AnshulBadoni"],

@@ -291,50 +291,84 @@ class Himeros : MainAPI() {
     // 6. DIRECT EMBED RESOLVERS (Luluvid / StreamWish / FileLions / MixDrop)
     private suspend fun resolveLuluvidStreamWish(embedUrl: String, callback: (ExtractorLink) -> Unit) {
         try {
-            val responseText = app.get(embedUrl, headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to speedpornHeaders["User-Agent"]!!)).text
-            val unpacked = unpackPacker(responseText)
-            val sourceRegex = Regex("""(https?://[^\s"'<>]+\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?)""")
-            val streamMatch = sourceRegex.find(unpacked)?.value ?: sourceRegex.find(responseText)?.value
+            val code = Regex("""/(?:e|f)/([a-zA-Z0-9]+)""").find(embedUrl)?.groupValues?.get(1)
+                ?: embedUrl.substringAfterLast("/").substringBefore("?").substringBefore("&")
+            if (code.isBlank()) return
 
-            if (!streamMatch.isNullOrBlank()) {
-                val host = embedUrl.substringAfter("://").substringBefore("/")
-                callback.invoke(
-                    ExtractorLink(
-                        source = name,
-                        name = "SpeedPorn [$host 1080p]",
-                        url = streamMatch,
-                        referer = embedUrl,
-                        quality = Qualities.P1080.value,
-                        isM3u8 = streamMatch.contains(".m3u8"),
-                        headers = mapOf("Referer" to embedUrl, "User-Agent" to speedpornHeaders["User-Agent"]!!)
+            val mirrors = listOf(
+                "https://luluvdo.com/e/$code",
+                "https://filelions.to/e/$code",
+                "https://streamwish.to/e/$code",
+                "https://luluvid.com/e/$code"
+            )
+
+            for (mirror in mirrors) {
+                val responseText = try {
+                    app.get(mirror, headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to speedpornHeaders["User-Agent"]!!)).text
+                } catch (_: Exception) { continue }
+
+                if (responseText.length < 500) continue
+                val unpacked = unpackPacker(responseText)
+                val sourceRegex = Regex("""(https?://[^\s"'<>]+\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?)""")
+                val streamMatch = sourceRegex.find(unpacked)?.value ?: sourceRegex.find(responseText)?.value
+
+                if (!streamMatch.isNullOrBlank()) {
+                    callback.invoke(
+                        ExtractorLink(
+                            source = name,
+                            name = "SpeedPorn [StreamWish 1080p]",
+                            url = streamMatch,
+                            referer = mirror,
+                            quality = Qualities.P1080.value,
+                            isM3u8 = streamMatch.contains(".m3u8"),
+                            headers = mapOf("Referer" to mirror, "User-Agent" to speedpornHeaders["User-Agent"]!!)
+                        )
                     )
-                )
+                    break
+                }
             }
         } catch (_: Exception) {}
     }
 
     private suspend fun resolveMixDrop(embedUrl: String, callback: (ExtractorLink) -> Unit) {
         try {
-            val responseText = app.get(embedUrl, headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to speedpornHeaders["User-Agent"]!!)).text
-            val unpacked = unpackPacker(responseText)
-            val wurlRegex = Regex("""(?:MDCore\.wurl|wurl)\s*=\s*"([^"]+)"""")
-            val wurlMatch = wurlRegex.find(unpacked)?.groupValues?.get(1) 
-                ?: wurlRegex.find(responseText)?.groupValues?.get(1)
+            val code = Regex("""/(?:e|f)/([a-zA-Z0-9]+)""").find(embedUrl)?.groupValues?.get(1)
+                ?: embedUrl.substringAfterLast("/").substringBefore("?").substringBefore("&")
+            if (code.isBlank()) return
 
-            if (!wurlMatch.isNullOrBlank() && wurlMatch.trim().isNotEmpty()) {
-                val fullUrl = if (wurlMatch.startsWith("//")) "https:$wurlMatch" else wurlMatch
-                val host = embedUrl.substringAfter("://").substringBefore("/")
-                callback.invoke(
-                    ExtractorLink(
-                        source = name,
-                        name = "SpeedPorn [MixDrop 1080p]",
-                        url = fullUrl,
-                        referer = embedUrl,
-                        quality = Qualities.P1080.value,
-                        isM3u8 = false,
-                        headers = mapOf("Referer" to embedUrl, "User-Agent" to speedpornHeaders["User-Agent"]!!)
+            val mirrors = listOf(
+                "https://mixdrop.ag/e/$code",
+                "https://mixdrop.co/e/$code",
+                "https://mixdrop.sx/e/$code",
+                "https://mixdrop.my/e/$code"
+            )
+
+            for (mirror in mirrors) {
+                val responseText = try {
+                    app.get(mirror, headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to speedpornHeaders["User-Agent"]!!)).text
+                } catch (_: Exception) { continue }
+
+                if (responseText.length < 500) continue
+                val unpacked = unpackPacker(responseText)
+                val wurlRegex = Regex("""(?:MDCore\.wurl|wurl)\s*=\s*"([^"]+)"""")
+                val wurlMatch = wurlRegex.find(unpacked)?.groupValues?.get(1)
+                    ?: wurlRegex.find(responseText)?.groupValues?.get(1)
+
+                if (!wurlMatch.isNullOrBlank() && wurlMatch.trim().isNotEmpty()) {
+                    val fullUrl = if (wurlMatch.startsWith("//")) "https:$wurlMatch" else wurlMatch
+                    callback.invoke(
+                        ExtractorLink(
+                            source = name,
+                            name = "SpeedPorn [MixDrop 1080p]",
+                            url = fullUrl,
+                            referer = mirror,
+                            quality = Qualities.P1080.value,
+                            isM3u8 = false,
+                            headers = mapOf("Referer" to mirror, "User-Agent" to speedpornHeaders["User-Agent"]!!)
+                        )
                     )
-                )
+                    break
+                }
             }
         } catch (_: Exception) {}
     }
