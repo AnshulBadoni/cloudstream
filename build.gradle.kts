@@ -203,7 +203,7 @@ tasks.register("makePlugin") {
   {
     "name": "Himeros",
     "internalName": "Himeros",
-    "version": 114,
+    "version": 115,
     "apiVersion": 1,
     "description": "Master aggregator provider with Data18 movie/series/showcase catalogs, PornPics trending models & studios, IMDb/TMDb enhanced artwork, episodic scene breakdowns, SpeedPorn full movies & multi-source torrents (PornoTorrent, LimeTorrents, 1337x).",
     "authors": ["AnshulBadoni"],
@@ -218,7 +218,7 @@ tasks.register("makePlugin") {
   {
     "name": "PornoTorrent",
     "internalName": "PornoTorrent",
-    "version": 102,
+    "version": 103,
     "apiVersion": 1,
     "description": "High-speed direct torrent provider indexing top studio releases and movies from pornotorrent.com.br.",
     "authors": ["AnshulBadoni"],
@@ -233,7 +233,7 @@ tasks.register("makePlugin") {
   {
     "name": "LimeTorrents",
     "internalName": "LimeTorrents",
-    "version": 101,
+    "version": 102,
     "apiVersion": 1,
     "description": "Direct torrent indexer and search provider from limetorrents.lol.",
     "authors": ["AnshulBadoni"],

@@ -2,6 +2,7 @@ package com.custom
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import org.jsoup.nodes.Element
 
 class LimeTorrents : MainAPI() {
@@ -81,7 +82,7 @@ class LimeTorrents : MainAPI() {
                     referer = "$mainUrl/",
                     quality = quality,
                     isM3u8 = false
-                )
+                ).apply { type = ExtractorLinkType.TORRENT }
             )
         }
         return true

@@ -613,7 +613,7 @@ class Himeros : MainAPI() {
                                     referer = "https://pornotorrent.com.br/",
                                     quality = Qualities.P1080.value,
                                     isM3u8 = false
-                                )
+                                ).apply { type = ExtractorLinkType.TORRENT }
                             )
                             found = true
                             break
@@ -665,9 +665,9 @@ class Himeros : MainAPI() {
                                     name = "LimeTorrents [$torrentTitle]",
                                     url = magnet,
                                     referer = "https://www.limetorrents.lol/",
-                                    quality = Qualities.P1080.value,
+                                    quality = if (torrentTitle.contains("1080", true)) Qualities.P1080.value else Qualities.P720.value,
                                     isM3u8 = false
-                                )
+                                ).apply { type = ExtractorLinkType.TORRENT }
                             )
                             found = true
                             break
