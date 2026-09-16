@@ -194,7 +194,7 @@ tasks.register("makePlugin") {
         createPluginZip("Eporner", "com.custom.EpornerProvider", epornerCs3)
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3)
         createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3)
-        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 108)
+        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 109)
         createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 101)
         createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 101)
 
@@ -203,7 +203,7 @@ tasks.register("makePlugin") {
   {
     "name": "Himeros",
     "internalName": "Himeros",
-    "version": 108,
+    "version": 109,
     "apiVersion": 1,
     "description": "Master aggregator provider with Data18 movie/series/showcase catalogs, PornPics trending models & studios, IMDb/TMDb enhanced artwork, episodic scene breakdowns, SpeedPorn full movies & multi-source torrents (PornoTorrent, LimeTorrents, 1337x).",
     "authors": ["AnshulBadoni"],

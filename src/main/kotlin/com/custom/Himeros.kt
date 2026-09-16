@@ -132,7 +132,7 @@ class Himeros : MainAPI() {
         }
     }
 
-    // 2. ROMAN NUMERAL HELPERS FOR SEARCH MATCHING
+    // 2. ROMAN & NUMBER NORMALIZATION HELPERS
     private fun parseRoman(s: String): Int? {
         val roman = s.uppercase()
         val values = mapOf('I' to 1, 'V' to 5, 'X' to 10, 'L' to 50, 'C' to 100, 'D' to 500, 'M' to 1000)
@@ -153,34 +153,76 @@ class Himeros : MainAPI() {
         }
     }
 
+    private fun intToRoman(num: Int): String {
+        if (num <= 0 || num > 3999) return num.toString()
+        val vals = intArrayOf(1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1)
+        val syms = arrayOf("M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I")
+        var n = num
+        val sb = StringBuilder()
+        for (i in vals.indices) {
+            while (n >= vals[i]) {
+                n -= vals[i]
+                sb.append(syms[i])
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun convertArabicToRoman(input: String): String {
+        return input.replace(Regex("""\b(\d{1,2})\b""")) { m ->
+            val num = m.groupValues[1].toIntOrNull()
+            if (num != null && num in 1..99) intToRoman(num) else m.value
+        }
+    }
+
+    private fun normalizeSearchVariants(raw: String): List<String> {
+        val variants = mutableListOf<String>()
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return variants
+
+        // 1. Standard sanitized query (strip Vol., Volume, Ep., Episode, Part, No., #, Release Years)
+        val cleaned = trimmed
+            .replace(Regex("""(?i)\b(?:Vol\.?|Volume|Episode|Ep\.?|Part|No\.?|#)\s*(\d+)"""), "$1")
+            .replace(Regex("""(?i)\b(?:Vol\.?|Volume|Episode|Ep\.?|Part|No\.?)\s*([MDCLXVI]+)\b"""), "$1")
+            .replace(Regex("""\((?:19\d\d|20\d\d)\)"""), "")
+            .replace(Regex("""[-:_/]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+
+        variants.add(cleaned)
+
+        // 2. Roman to Arabic (e.g. Level Up IV -> Level Up 4)
+        val romanToArab = convertRomanNumerals(cleaned)
+        if (!variants.contains(romanToArab)) variants.add(romanToArab)
+
+        // 3. Arabic to Roman (e.g. Level Up 4 -> Level Up IV)
+        val arabToRoman = convertArabicToRoman(cleaned)
+        if (!variants.contains(arabToRoman)) variants.add(arabToRoman)
+
+        // 4. Raw trimmed if different
+        if (!variants.contains(trimmed)) variants.add(trimmed)
+
+        return variants
+    }
+
     // 3. SEARCH
     override suspend fun search(query: String): List<SearchResponse> {
         val results = mutableListOf<SearchResponse>()
-        val cleanQuery = query.trim()
-        val searchUrl = "$mainUrl/?s=${URLEncoder.encode(cleanQuery, "UTF-8")}"
+        val variants = normalizeSearchVariants(query)
 
-        val doc = try {
-            fetchHtml(searchUrl)
-        } catch (e: Exception) {
-            app.get(searchUrl, headers = speedpornHeaders).document
-        }
-
-        doc.select("div.video-block, div.thumb, .item, .post, article")
-            .mapNotNull { it.toSpeedPornSearchResult() }
-            .forEach { results.add(it) }
-
-        // If no results, try converting roman numerals to arabic or vice versa
-        if (results.isEmpty()) {
-            val romanConverted = convertRomanNumerals(cleanQuery)
-            if (romanConverted != cleanQuery) {
-                val altUrl = "$mainUrl/?s=${URLEncoder.encode(romanConverted, "UTF-8")}"
-                try {
-                    val altDoc = fetchHtml(altUrl)
-                    altDoc.select("div.video-block, div.thumb, .item, .post, article")
-                        .mapNotNull { it.toSpeedPornSearchResult() }
-                        .forEach { results.add(it) }
-                } catch (_: Exception) {}
+        for (v in variants) {
+            val searchUrl = "$mainUrl/?s=${URLEncoder.encode(v, "UTF-8")}"
+            val doc = try {
+                fetchHtml(searchUrl)
+            } catch (e: Exception) {
+                app.get(searchUrl, headers = speedpornHeaders).document
             }
+
+            doc.select("div.video-block, div.thumb, .item, .post, article")
+                .mapNotNull { it.toSpeedPornSearchResult() }
+                .forEach { results.add(it) }
+
+            if (results.isNotEmpty()) break
         }
 
         return results.distinctBy { it.url }
@@ -234,12 +276,16 @@ class Himeros : MainAPI() {
             val code = clean.substringAfter("/e/").substringAfter("/d/").substringBefore("?").substringBefore("&")
             return "https://d0000d.com/e/$code"
         }
-        if (clean.contains("doodstream.com/d/") || clean.contains("dood.to/d/")) {
+        if (clean.contains("doodstream.com/d/") || clean.contains("dood.to/d/") || clean.contains("dood.li/d/") || clean.contains("dood.ws/d/")) {
             val code = clean.substringAfter("/d/").substringBefore("?").substringBefore("&")
             return "https://d0000d.com/e/$code"
         }
+        if (clean.contains("doodstream.com/e/") || clean.contains("dood.to/e/") || clean.contains("dood.li/e/") || clean.contains("dood.ws/e/")) {
+            val code = clean.substringAfter("/e/").substringBefore("?").substringBefore("&")
+            return "https://d0000d.com/e/$code"
+        }
 
-        // MixDrop mirror -> mixdrop.ag
+        // MixDrop mirror -> mixdrop.ag / mixdrop.co
         if (clean.contains("mixdrop.my/e/") || clean.contains("mixdrop.co/e/") || clean.contains("mixdrop.to/e/") || clean.contains("mixdrop.sx/e/")) {
             val code = clean.substringAfter("/e/").substringBefore("?").substringBefore("&")
             return "https://mixdrop.ag/e/$code"
@@ -257,6 +303,11 @@ class Himeros : MainAPI() {
         if (clean.contains("streamwish.to/f/") || clean.contains("filelions.to/f/") || clean.contains("filelions.com/f/")) {
             val code = clean.substringAfter("/f/").substringBefore("?").substringBefore("&")
             return "https://streamwish.to/e/$code"
+        }
+
+        // StreamTape
+        if (clean.contains("streamtape.com/e/")) {
+            return clean
         }
 
         // VOE mirror
@@ -371,36 +422,40 @@ class Himeros : MainAPI() {
     // 7. PORNOTORRENT RESOLVER
     private suspend fun resolvePornoTorrent(title: String, callback: (ExtractorLink) -> Unit) {
         try {
-            val cleanTitle = title.replace(Regex("""[^a-zA-Z0-9\s]"""), " ").trim()
-            val url = "https://pornotorrent.com.br/en/?s=${URLEncoder.encode(cleanTitle, "UTF-8")}"
-            val doc = app.get(url, headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
-            val firstPost = doc.selectFirst("article a[href], .post a[href], div.item a[href]")?.attr("href") ?: return
-            val postDoc = app.get(fixUrl(firstPost), headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
+            val variants = normalizeSearchVariants(title)
+            for (cleanTitle in variants) {
+                val q = cleanTitle.replace(Regex("""[^a-zA-Z0-9\s]"""), " ").trim()
+                val url = "https://pornotorrent.com.br/en/?s=${URLEncoder.encode(q, "UTF-8")}"
+                val doc = app.get(url, headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
+                val firstPost = doc.selectFirst("article a[href], .post a[href], div.item a[href]")?.attr("href") ?: continue
+                val postDoc = app.get(fixUrl(firstPost), headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
 
-            var magnet = ""
-            for (a in postDoc.select("a[href]")) {
-                val href = a.attr("href")
-                if (href.startsWith("magnet:")) {
-                    magnet = href
-                    break
-                } else if (href.contains("/download/?m=")) {
-                    val enc = href.substringAfter("/download/?m=")
-                    magnet = try { URLDecoder.decode(enc, "UTF-8") } catch (_: Exception) { enc }
+                var magnet = ""
+                for (a in postDoc.select("a[href]")) {
+                    val href = a.attr("href")
+                    if (href.startsWith("magnet:")) {
+                        magnet = href
+                        break
+                    } else if (href.contains("/download/?m=")) {
+                        val enc = href.substringAfter("/download/?m=")
+                        magnet = try { URLDecoder.decode(enc, "UTF-8") } catch (_: Exception) { enc }
+                        break
+                    }
+                }
+
+                if (magnet.startsWith("magnet:")) {
+                    callback.invoke(
+                        ExtractorLink(
+                            source = "PornoTorrent",
+                            name = "PornoTorrent [Torrent 1080p]",
+                            url = magnet,
+                            referer = "https://pornotorrent.com.br/",
+                            quality = Qualities.P1080.value,
+                            isM3u8 = false
+                        )
+                    )
                     break
                 }
-            }
-
-            if (magnet.startsWith("magnet:")) {
-                callback.invoke(
-                    ExtractorLink(
-                        source = "PornoTorrent",
-                        name = "PornoTorrent [Torrent 1080p]",
-                        url = magnet,
-                        referer = "https://pornotorrent.com.br/",
-                        quality = Qualities.P1080.value,
-                        isM3u8 = false
-                    )
-                )
             }
         } catch (_: Exception) {}
     }
@@ -408,24 +463,28 @@ class Himeros : MainAPI() {
     // 8. LIMETORRENTS RESOLVER
     private suspend fun resolveLimeTorrents(title: String, callback: (ExtractorLink) -> Unit) {
         try {
-            val cleanQuery = title.replace(Regex("""[^a-zA-Z0-9]+"""), "-").trim('-')
-            val url = "https://www.limetorrents.lol/search/all/$cleanQuery/"
-            val doc = app.get(url, headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
-            val firstTorrent = doc.selectFirst("div.tt-name a:last-child, a[href*='-torrent-']")?.attr("href") ?: return
-            val torrentDoc = app.get(fixUrl(firstTorrent), headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
-            val magnet = torrentDoc.selectFirst("a[href^='magnet:']")?.attr("href") ?: ""
+            val variants = normalizeSearchVariants(title)
+            for (cleanTitle in variants) {
+                val cleanQuery = cleanTitle.replace(Regex("""[^a-zA-Z0-9]+"""), "-").trim('-')
+                val url = "https://www.limetorrents.lol/search/all/$cleanQuery/"
+                val doc = app.get(url, headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
+                val firstTorrent = doc.selectFirst("div.tt-name a:last-child, a[href*='-torrent-']")?.attr("href") ?: continue
+                val torrentDoc = app.get(fixUrl(firstTorrent), headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
+                val magnet = torrentDoc.selectFirst("a[href^='magnet:']")?.attr("href") ?: ""
 
-            if (magnet.startsWith("magnet:")) {
-                callback.invoke(
-                    ExtractorLink(
-                        source = "LimeTorrents",
-                        name = "LimeTorrents [Torrent]",
-                        url = magnet,
-                        referer = "https://www.limetorrents.lol/",
-                        quality = Qualities.P1080.value,
-                        isM3u8 = false
+                if (magnet.startsWith("magnet:")) {
+                    callback.invoke(
+                        ExtractorLink(
+                            source = "LimeTorrents",
+                            name = "LimeTorrents [Torrent]",
+                            url = magnet,
+                            referer = "https://www.limetorrents.lol/",
+                            quality = Qualities.P1080.value,
+                            isM3u8 = false
+                        )
                     )
-                )
+                    break
+                }
             }
         } catch (_: Exception) {}
     }
