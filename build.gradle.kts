@@ -189,7 +189,7 @@ tasks.register("makePlugin") {
         val limeTorrentsCs3 = File(distDir, "LimeTorrents.cs3")
 
         createPluginZip("PornTrex", "com.megix.PorntrexProvider", porntrexCs3, version = 104)
-        createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3, version = 104)
+        createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3, version = 105)
         createPluginZip("YamyHub", "com.custom.YamyHubProvider", yamyHubCs3, version = 104)
         createPluginZip("Eporner", "com.custom.EpornerProvider", epornerCs3, version = 104)
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3, version = 104)
@@ -308,7 +308,7 @@ tasks.register("makePlugin") {
   {
     "name": "MultiSource",
     "internalName": "MultiSource",
-    "version": 104,
+    "version": 105,
     "apiVersion": 1,
     "description": "Multi-source aggregator with SpeedPorn and ParadiseHill: deep search, MP4/VOE stream resolvers, multi-part CD episodes, and actor catalogs.",
     "authors": ["AnshulBadoni"],

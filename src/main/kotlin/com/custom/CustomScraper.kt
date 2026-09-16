@@ -598,8 +598,8 @@ class CustomScraper : MainAPI() {
                 count++
             }
 
-            // 3. Other third-party video hosts (DoodStream, MixDrop, StreamTape, Filemoon, StreamWish, VidGuard)
-            val hostLinks = Regex("""https?://[^\s"'<>\(\)]*(?:doodstream\.com|dood\.[a-z0-9]+|mixdrop\.[a-z0-9]+|streamtape\.com|filemoon\.[a-z0-9]+|streamwish\.[a-z0-9]+|vidguard\.[a-z0-9]+)[^\s"'<>\(\)]*""", RegexOption.IGNORE_CASE)
+            // 3. Multi-mirror Unpackers for StreamWish / Luluvid / FileLions / MixDrop
+            val hostLinks = Regex("""https?://[^\s"'<>\(\)]*(?:playmogo|dood|mixdrop|streamtape|voe|streamwish|filelions|luluvid|luluvdo|dropupload)[^\s"'<>\(\)]*""", RegexOption.IGNORE_CASE)
                 .findAll(response)
                 .map { it.value.replace("&amp;", "&") }
                 .distinct()
@@ -607,9 +607,68 @@ class CustomScraper : MainAPI() {
 
             for (hUrl in hostLinks) {
                 if (hUrl.contains("deleted") || hUrl.contains("/api/")) continue
-                runCatching {
-                    loadExtractor(hUrl, "$speedpornUrl/", subtitleCallback, callback)
-                    count++
+                if (hUrl.contains("luluvid") || hUrl.contains("luluvdo") || hUrl.contains("streamwish") || hUrl.contains("filelions")) {
+                    val code = Regex("""/(?:e|f)/([a-zA-Z0-9]+)""").find(hUrl)?.groupValues?.get(1)
+                        ?: hUrl.substringAfterLast("/").substringBefore("?").substringBefore("&")
+                    if (code.isNotBlank()) {
+                        for (mirror in listOf("https://luluvdo.com/e/$code", "https://filelions.to/e/$code", "https://streamwish.to/e/$code")) {
+                            try {
+                                val html = app.get(mirror, headers = mapOf("Referer" to "$speedpornUrl/")).text
+                                if (html.length < 500) continue
+                                val unpacked = unpackPacker(html)
+                                val sourceRegex = Regex("""https?://[^\s"'<>]+\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?""")
+                                val streamMatch = sourceRegex.find(unpacked)?.value ?: sourceRegex.find(html)?.value
+                                if (streamMatch != null) {
+                                    callback(
+                                        ExtractorLink(
+                                            source = name,
+                                            name = "$name [StreamWish 1080p]",
+                                            url = streamMatch,
+                                            referer = mirror,
+                                            quality = Qualities.P1080.value,
+                                            isM3u8 = streamMatch.contains(".m3u8")
+                                        )
+                                    )
+                                    count++
+                                    break
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                } else if (hUrl.contains("mixdrop")) {
+                    val code = Regex("""/(?:e|f)/([a-zA-Z0-9]+)""").find(hUrl)?.groupValues?.get(1)
+                        ?: hUrl.substringAfterLast("/").substringBefore("?").substringBefore("&")
+                    if (code.isNotBlank()) {
+                        for (mirror in listOf("https://mixdrop.ag/e/$code", "https://mixdrop.co/e/$code", "https://mixdrop.sx/e/$code")) {
+                            try {
+                                val html = app.get(mirror, headers = mapOf("Referer" to "$speedpornUrl/")).text
+                                if (html.length < 500) continue
+                                val unpacked = unpackPacker(html)
+                                val wurlRegex = Regex("""(?:MDCore\.wurl|wurl)\s*=\s*"([^"]+)"""")
+                                val wurlMatch = wurlRegex.find(unpacked)?.groupValues?.get(1) ?: wurlRegex.find(html)?.groupValues?.get(1)
+                                if (wurlMatch != null) {
+                                    val fullUrl = if (wurlMatch.startsWith("//")) "https:$wurlMatch" else wurlMatch
+                                    callback(
+                                        ExtractorLink(
+                                            source = name,
+                                            name = "$name [MixDrop 1080p]",
+                                            url = fullUrl,
+                                            referer = mirror,
+                                            quality = Qualities.P1080.value,
+                                            isM3u8 = fullUrl.contains(".m3u8")
+                                        )
+                                    )
+                                    count++
+                                    break
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                } else {
+                    runCatching {
+                        loadExtractor(hUrl, "$speedpornUrl/", subtitleCallback, callback)
+                        count++
+                    }
                 }
             }
 
@@ -706,6 +765,27 @@ class CustomScraper : MainAPI() {
         return newMovieSearchResponse(title, fixUrl(href, speedpornUrl), TvType.Movie) {
             this.posterUrl = fixUrlNull(rawPoster, speedpornUrl)
             this.posterHeaders = speedpornHeaders
+        }
+    }
+
+    private fun unpackPacker(packedJs: String): String {
+        try {
+            val regex = Regex("""eval\(function\(p,a,c,k,e,d\)\{.*?return p\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)""", RegexOption.DOT_MATCHES_ALL)
+            val match = regex.find(packedJs) ?: return ""
+            var p = match.groupValues[1]
+            val a = match.groupValues[2].toIntOrNull() ?: 10
+            var c = match.groupValues[3].toIntOrNull() ?: 0
+            val k = match.groupValues[4].split("|")
+
+            while (c-- > 0) {
+                if (c < k.size && k[c].isNotEmpty()) {
+                    val key = java.lang.Integer.toString(c, a)
+                    p = p.replace(Regex("""\b$key\b"""), java.util.regex.Matcher.quoteReplacement(k[c]))
+                }
+            }
+            return p
+        } catch (_: Exception) {
+            return ""
         }
     }
 
