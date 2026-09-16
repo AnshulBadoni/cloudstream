@@ -29,7 +29,7 @@ import javax.net.ssl.X509TrustManager
  * 6. Popular -> https://speedporn.net/search-tags/
  *
  * Resolvers:
- * - Direct Embed Locker Unpackers: VOE, MixDrop, DoodStream / Playmogo, StreamTape, StreamWish / Luluvid, FileLions.
+ * - Direct Built-in Unpackers: Luluvid, StreamWish, Luluvdo, FileLions, VOE, MixDrop, DoodStream.
  * - Torrent Resolvers (Parallel): PornoTorrent (pornotorrent.com.br), LimeTorrents (limetorrents.lol).
  */
 class Himeros : MainAPI() {
@@ -266,7 +266,49 @@ class Himeros : MainAPI() {
         }
     }
 
-    // 5. NORMALIZE EMBED URLS
+    // 5. DEAN EDWARDS PACKER UNPACKER
+    private fun unpackPacker(packedJs: String): String {
+        val regex = Regex("""eval\(function\(p,a,c,k,e,d\)\{.*?return p\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)""", RegexOption.DOT_MATCHES_ALL)
+        val match = regex.find(packedJs) ?: return ""
+        var p = match.groupValues[1]
+        val a = match.groupValues[2].toIntOrNull() ?: 10
+        var c = match.groupValues[3].toIntOrNull() ?: 0
+        val k = match.groupValues[4].split("|")
+
+        while (c-- > 0) {
+            if (c < k.size && k[c].isNotEmpty()) {
+                val key = java.lang.Integer.toString(c, a)
+                p = p.replace(Regex("""\b$key\b"""), k[c])
+            }
+        }
+        return p
+    }
+
+    // 6. DIRECT EMBED RESOLVER (Luluvid / StreamWish / FileLions)
+    private suspend fun resolveLuluvidStreamWish(embedUrl: String, callback: (ExtractorLink) -> Unit) {
+        try {
+            val responseText = app.get(embedUrl, headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to speedpornHeaders["User-Agent"]!!)).text
+            val unpacked = unpackPacker(responseText)
+            val sourceRegex = Regex("""(https?://[^\s"'<>]+\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?)""")
+            val streamMatch = sourceRegex.find(unpacked)?.value ?: sourceRegex.find(responseText)?.value
+
+            if (!streamMatch.isNullOrBlank()) {
+                val host = embedUrl.substringAfter("://").substringBefore("/")
+                callback.invoke(
+                    ExtractorLink(
+                        source = name,
+                        name = "SpeedPorn [$host 1080p]",
+                        url = streamMatch,
+                        referer = embedUrl,
+                        quality = Qualities.P1080.value,
+                        isM3u8 = streamMatch.contains(".m3u8")
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+    }
+
+    // 7. NORMALIZE EMBED URLS
     private fun normalizeEmbedUrl(url: String): String {
         var clean = url.trim()
         if (clean.startsWith("//")) clean = "https:$clean"
@@ -318,7 +360,7 @@ class Himeros : MainAPI() {
         return clean
     }
 
-    // 6. RESOLVE LINKS (SPEEDPORN EMBEDS + PARALLEL TORRENTS)
+    // 8. RESOLVE LINKS (SPEEDPORN EMBEDS + DIRECT UNPACKERS + TORRENTS)
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -362,13 +404,13 @@ class Himeros : MainAPI() {
         }
 
         // D. Regex scan the whole page HTML for host URLs
-        val lockerRegex = Regex("""(https?://[^\s"'<>]*(?:playmogo|dood|mixdrop|streamtape|voe|streamwish|filelions|wolfstream|luluvid|dropupload|rapidgator|nitroflare)[^\s"'<>]*)""", RegexOption.IGNORE_CASE)
+        val lockerRegex = Regex("""(https?://[^\s"'<>]*(?:playmogo|dood|mixdrop|streamtape|voe|streamwish|filelions|wolfstream|luluvid|luluvdo|dropupload|rapidgator|nitroflare)[^\s"'<>]*)""", RegexOption.IGNORE_CASE)
         lockerRegex.findAll(rawHtml).forEach { m ->
             rawCandidateUrls.add(m.value)
         }
 
         // Filter valid video lockers
-        val validEmbeds = rawCandidateUrls.filter { url ->
+        val validOriginalUrls = rawCandidateUrls.filter { url ->
             !url.contains("google.com") &&
             !url.contains("api.") &&
             !url.contains("deleted") &&
@@ -377,19 +419,26 @@ class Himeros : MainAPI() {
              url.contains("streamtape") || url.contains("voe.sx") || url.contains("streamwish") ||
              url.contains("filelions") || url.contains("luluvid") || url.contains("luluvdo") ||
              url.contains("wolfstream") || url.contains("dropupload"))
-        }.map { normalizeEmbedUrl(it) }.distinct()
+        }.distinct()
 
-        // Extract embed locker streams concurrently
         coroutineScope {
-            validEmbeds.map { embedUrl ->
+            // E. Direct custom unpackers for Luluvid / StreamWish / FileLions
+            val luluJobs = validOriginalUrls.filter { 
+                it.contains("luluvid") || it.contains("luluvdo") || it.contains("streamwish") || it.contains("filelions") 
+            }.map { embedUrl ->
+                async { resolveLuluvidStreamWish(embedUrl, callback) }
+            }
+
+            // F. Default CloudStream extractors for others
+            val extractorJobs = validOriginalUrls.map { normalizeEmbedUrl(it) }.distinct().map { embedUrl ->
                 async {
                     try {
                         loadExtractor(embedUrl, subtitleCallback, callback)
                     } catch (_: Exception) {}
                 }
-            }.awaitAll()
+            }
 
-            // E. Look for direct MP4 / M3U8 video streams in page scripts
+            // G. Look for direct MP4 / M3U8 video streams in page scripts
             val directStreamRegex = Regex("""(https?://[^\s"'<>]+\.(?:mp4|m3u8)(?:\?[^\s"'<>]*)?)""", RegexOption.IGNORE_CASE)
             directStreamRegex.findAll(rawHtml).forEach { m ->
                 val streamUrl = m.value
@@ -407,19 +456,20 @@ class Himeros : MainAPI() {
                 }
             }
 
-            // F. Parallel Torrent Resolution (PornoTorrent & LimeTorrents)
-            if (movieTitle.isNotEmpty()) {
-                val pTorrent = async { resolvePornoTorrent(movieTitle, callback) }
-                val lTorrent = async { resolveLimeTorrents(movieTitle, callback) }
-                pTorrent.await()
-                lTorrent.await()
-            }
+            // H. Parallel Torrent Resolution (PornoTorrent & LimeTorrents)
+            val pTorrent = if (movieTitle.isNotEmpty()) async { resolvePornoTorrent(movieTitle, callback) } else null
+            val lTorrent = if (movieTitle.isNotEmpty()) async { resolveLimeTorrents(movieTitle, callback) } else null
+
+            luluJobs.awaitAll()
+            extractorJobs.awaitAll()
+            pTorrent?.await()
+            lTorrent?.await()
         }
 
         return true
     }
 
-    // 7. PORNOTORRENT RESOLVER
+    // 9. PORNOTORRENT RESOLVER
     private suspend fun resolvePornoTorrent(title: String, callback: (ExtractorLink) -> Unit) {
         try {
             val variants = normalizeSearchVariants(title)
@@ -460,7 +510,7 @@ class Himeros : MainAPI() {
         } catch (_: Exception) {}
     }
 
-    // 8. LIMETORRENTS RESOLVER
+    // 10. LIMETORRENTS RESOLVER
     private suspend fun resolveLimeTorrents(title: String, callback: (ExtractorLink) -> Unit) {
         try {
             val variants = normalizeSearchVariants(title)
