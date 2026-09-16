@@ -108,6 +108,19 @@ class Himeros : MainAPI() {
         return newHomePageResponse(HomePageList(request.name, items), hasNext = items.isNotEmpty())
     }
 
+    private fun cleanTitle(raw: String): String {
+        var t = raw
+        t = t.replace(Regex("""\[.*?\]|\(.*?\)|<.*?>"""), " ")
+        t = t.replace(Regex("""(?i)\b(?:Blacked|Evil\s*Angel|Brazzers|Tushy|Vixen|Bang!?|Naughty\s*America|Sweet\s*Sinner|Wicked|Digital\s*Playground|Jules\s*Jordan|Reality\s*Kings|DDF|Mofos)(?:\s*\d{2,4})?\b"""), " ")
+        t = t.replace(Regex("""(?i)\b(?:\d{3,4}p|4K|2160p|1080p|720p|480p|WEB-?DL|BDRip|DVDRip|HDRip|x264|x265|HEVC|AAC|MP3|SPLITSCENES|XXX|FULL|HD|VOSTFR|FRENCH)\b"""), " ")
+        t = t.replace(Regex("""\b(?:19|20)\d{2}\b"""), " ")
+        t = t.replace(Regex("""#(\d+)"""), "$1")
+        t = t.replace(Regex("""(?i)\.torrent|\.html"""), "")
+        t = t.replace(Regex("""[-–—:_/]+"""), " ")
+        t = t.replace(Regex("""\s+"""), " ").trim()
+        return t.ifEmpty { raw.trim() }
+    }
+
     private fun Element.toSpeedPornSearchResult(): SearchResponse? {
         val linkEl = selectFirst("a.infos, a.thumb, a[title], h2 a, h3 a, a[href*='speedporn.net/']") ?: return null
         val href = fixUrl(linkEl.attr("href"))
@@ -127,7 +140,7 @@ class Himeros : MainAPI() {
             it.attr("data-src").ifEmpty { it.attr("src") }
         }
 
-        return newMovieSearchResponse(title, href, TvType.NSFW) {
+        return newMovieSearchResponse(cleanTitle(title), href, TvType.NSFW) {
             this.posterUrl = posterUrl
         }
     }
