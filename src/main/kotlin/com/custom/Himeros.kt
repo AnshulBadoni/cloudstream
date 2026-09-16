@@ -1,4 +1,4 @@
-﻿package com.custom
+package com.custom
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
@@ -268,20 +268,24 @@ class Himeros : MainAPI() {
 
     // 5. DEAN EDWARDS PACKER UNPACKER
     private fun unpackPacker(packedJs: String): String {
-        val regex = Regex("""eval\(function\(p,a,c,k,e,d\)\{.*?return p\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)""", RegexOption.DOT_MATCHES_ALL)
-        val match = regex.find(packedJs) ?: return ""
-        var p = match.groupValues[1]
-        val a = match.groupValues[2].toIntOrNull() ?: 10
-        var c = match.groupValues[3].toIntOrNull() ?: 0
-        val k = match.groupValues[4].split("|")
+        try {
+            val regex = Regex("""eval\(function\(p,a,c,k,e,d\)\{.*?return p\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)""", RegexOption.DOT_MATCHES_ALL)
+            val match = regex.find(packedJs) ?: return ""
+            var p = match.groupValues[1]
+            val a = match.groupValues[2].toIntOrNull() ?: 10
+            var c = match.groupValues[3].toIntOrNull() ?: 0
+            val k = match.groupValues[4].split("|")
 
-        while (c-- > 0) {
-            if (c < k.size && k[c].isNotEmpty()) {
-                val key = java.lang.Integer.toString(c, a)
-                p = p.replace(Regex("""\b$key\b"""), k[c])
+            while (c-- > 0) {
+                if (c < k.size && k[c].isNotEmpty()) {
+                    val key = java.lang.Integer.toString(c, a)
+                    p = p.replace(Regex("""\b$key\b"""), java.util.regex.Matcher.quoteReplacement(k[c]))
+                }
             }
+            return p
+        } catch (_: Exception) {
+            return ""
         }
-        return p
     }
 
     // 6. DIRECT EMBED RESOLVER (Luluvid / StreamWish / FileLions)
