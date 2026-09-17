@@ -25,6 +25,13 @@ object ProviderSettingsHelper {
             TnaFlix.modelPages = mPages
             FPO.searchPages = sPages
             FPO.modelPages = mPages
+            PLibrary.searchPages = sPages
+            PLibrary.yamyModelPages = mPages
+            PLibrary.daftModelPages = mPages
+            PLibrary.tnaModelPages = mPages
+            PLibrary.fpoModelPages = mPages
+            CustomScraper.searchPages = sPages
+            CustomScraper.actorPages = mPages
         } catch (_: Exception) {}
     }
 
@@ -78,6 +85,8 @@ object ProviderSettingsHelper {
                                 Eporner.maxSearchPages = pages
                                 TnaFlix.searchPages = pages
                                 FPO.searchPages = pages
+                                PLibrary.searchPages = pages
+                                CustomScraper.searchPages = pages
 
                                 val editor = prefs.javaClass.getMethod("edit").invoke(prefs)
                                 editor.javaClass.getMethod("putInt", String::class.java, Int::class.javaPrimitiveType).invoke(editor, "search_pages", pages)
@@ -120,6 +129,11 @@ object ProviderSettingsHelper {
                                 Eporner.modelPages = pages
                                 TnaFlix.modelPages = pages
                                 FPO.modelPages = pages
+                                PLibrary.yamyModelPages = pages
+                                PLibrary.daftModelPages = pages
+                                PLibrary.tnaModelPages = pages
+                                PLibrary.fpoModelPages = pages
+                                CustomScraper.actorPages = pages
 
                                 val editor = prefs.javaClass.getMethod("edit").invoke(prefs)
                                 editor.javaClass.getMethod("putInt", String::class.java, Int::class.javaPrimitiveType).invoke(editor, "model_pages", pages)
@@ -203,7 +217,10 @@ class FPOProvider : Plugin() {
 @CloudstreamPlugin
 class PLibraryProvider : Plugin() {
     override fun load(context: Context) {
-        registerMainAPI(CustomScraper())
+        // PLibrary used to register CustomScraper here. That meant installing
+        // the PLibrary plugin actually opened MultiSource/ParadiseHill, which
+        // explains its intermittent catalogue and link-load failures.
+        registerMainAPI(PLibrary())
         ProviderSettingsHelper.initSettings(context)
         this.openSettings = { ctx -> ProviderSettingsHelper.openSettingsDialog(ctx) }
     }

@@ -3,8 +3,9 @@ package com.custom
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.net.URLDecoder
+import java.net.URLEncoder
 
 class PornoTorrent : MainAPI() {
     override var mainUrl = "https://pornotorrent.com.br"
@@ -17,6 +18,7 @@ class PornoTorrent : MainAPI() {
 
     private val headers = mapOf(
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept-Language" to "en-US,en;q=0.9",
         "Referer" to "$mainUrl/"
     )
 
@@ -29,9 +31,12 @@ class PornoTorrent : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "${request.data}page/$page/"
-        val document = app.get(url, headers = headers).document
-        val items = document.select("article, .post, div.item").mapNotNull { it.toSearchResult() }
+        val url = if (page <= 1) request.data else "${request.data.trimEnd('/')}/page/$page/"
+        val document = runCatching { app.get(url, headers = headers).document }.getOrNull()
+        val items = document?.select("article, .post, div.item, .cp-card")
+            ?.mapNotNull { it.toSearchResult() }
+            ?.distinctBy { it.url }
+            .orEmpty()
         return newHomePageResponse(HomePageList(request.name, items), hasNext = items.isNotEmpty())
     }
 
@@ -52,7 +57,7 @@ class PornoTorrent : MainAPI() {
         val titleElement = selectFirst("h2 a, h3 a, h1 a, a[title], .entry-title a, .cp-card__title a, a.cp-card__link") ?: return null
         val title = titleElement.attr("title").ifEmpty { titleElement.attr("aria-label") }.ifEmpty { titleElement.text().trim() }
         if (title.isEmpty()) return null
-        val href = fixUrl(titleElement.attr("href"))
+        val href = TorrentSupport.absoluteUrl(titleElement.attr("href"), mainUrl)
         val posterUrl = selectFirst("img")?.let {
             it.attr("data-src").ifEmpty { it.attr("src") }
         } ?: selectFirst(".cp-card__cover, [style*='background']")?.attr("style")?.let { style ->
@@ -65,6 +70,7 @@ class PornoTorrent : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
+        if (query.isBlank()) return emptyList()
         val numMatch = Regex("""\b(\d+)\b""").find(query)?.groupValues?.get(1)
         val baseName = query.replace(Regex("""(?i)\b(?:Vol\.?|Volume|Episode|Ep\.?|Part|No\.?|#)?\s*\d+"""), "")
             .replace(Regex("""[-:_/]+"""), " ")
@@ -76,55 +82,39 @@ class PornoTorrent : MainAPI() {
             queries.add("$baseName $numMatch")
         }
         queries.add(query)
-        if (baseName.isNotEmpty() && !queries.contains(baseName)) {
-            queries.add(baseName)
-        }
+        if (baseName.isNotEmpty() && !queries.contains(baseName)) queries.add(baseName)
 
-        val results = mutableListOf<SearchResponse>()
         for (q in queries.distinct()) {
-            val url = "$mainUrl/?s=${java.net.URLEncoder.encode(q, "UTF-8")}"
-            val document = try { app.get(url, headers = headers).document } catch (_: Exception) { continue }
-            val items = document.select("article, .post, div.item, .cp-card").mapNotNull { it.toSearchResult() }
-            results.addAll(items)
-            if (results.isNotEmpty()) break
+            val encoded = URLEncoder.encode(q, "UTF-8")
+            // The English catalogue owns the result cards. Keep the root route
+            // as a fallback for installations that are redirected there.
+            val urls = listOf("$mainUrl/en/?s=$encoded", "$mainUrl/?s=$encoded")
+            for (url in urls) {
+                val document = runCatching { app.get(url, headers = headers).document }.getOrNull() ?: continue
+                val items = document.select("article, .post, div.item, .cp-card")
+                    .mapNotNull { it.toSearchResult() }
+                    .distinctBy { it.url }
+                if (items.isNotEmpty()) return items
+            }
         }
-        return results.distinctBy { it.url }
+        return emptyList()
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url, headers = headers).document
-        val title = document.selectFirst("h1.entry-title, h1")?.text()?.trim() ?: "PornoTorrent"
-        val poster = document.selectFirst("article img, div.entry-content img, img")?.let {
+        val document = runCatching { app.get(url, headers = headers).document }.getOrNull()
+        val title = document?.selectFirst("h1.entry-title, h1")?.text()?.trim()?.ifBlank { null } ?: "PornoTorrent"
+        val poster = document?.selectFirst("article img, div.entry-content img, img")?.let {
             it.attr("data-src").ifEmpty { it.attr("src") }
-        } ?: document.selectFirst(".cp-card__cover, [style*='background']")?.attr("style")?.let { style ->
+        } ?: document?.selectFirst(".cp-card__cover, [style*='background']")?.attr("style")?.let { style ->
             Regex("""url\(['"]?(.*?)['"]?\)""").find(style)?.groupValues?.get(1)
         }
-        val description = document.selectFirst("div.entry-content p, div.synopsis, p")?.text()?.trim()
-        val actors = document.select("a[href*='/tag/']").map {
+        val description = document?.selectFirst("div.entry-content p, div.synopsis, p")?.text()?.trim()
+        val actors = document?.select("a[href*='/tag/']")?.map {
             ActorData(Actor(it.text().trim(), null))
-        }.filter { it.actor.name.isNotEmpty() }
+        }?.filter { it.actor.name.isNotEmpty() }.orEmpty()
+        val torrent = document?.let { resolveTorrentFromDocument(it, url) }
 
-        var magnetUrl = ""
-        for (a in document.select("a[href]")) {
-            val href = a.attr("href")
-            if (href.startsWith("magnet:")) {
-                magnetUrl = href
-                break
-            } else if (href.contains("/download/?m=")) {
-                val encoded = href.substringAfter("/download/?m=")
-                magnetUrl = try { URLDecoder.decode(encoded, "UTF-8") } catch (e: Exception) { encoded }
-                break
-            }
-        }
-        if (magnetUrl.isEmpty()) {
-            val raw = document.html()
-            val m = Regex("""magnet:\?[^\s"'<>]+""").find(raw)?.value
-            if (m != null) {
-                magnetUrl = try { URLDecoder.decode(m, "UTF-8") } catch (e: Exception) { m }
-            }
-        }
-
-        return newMovieLoadResponse(title, url, TvType.NSFW, magnetUrl.ifEmpty { url }) {
+        return newMovieLoadResponse(title, url, TvType.NSFW, torrent?.url ?: url) {
             this.posterUrl = poster
             this.posterHeaders = headers
             this.plot = description
@@ -138,48 +128,50 @@ class PornoTorrent : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        var magnet = data
-        if (!magnet.startsWith("magnet:")) {
-            val document = app.get(data, headers = headers).document
-            for (a in document.select("a[href]")) {
-                val href = a.attr("href")
-                if (href.startsWith("magnet:")) {
-                    magnet = href
-                    break
-                } else if (href.contains("/download/?m=")) {
-                    val encoded = href.substringAfter("/download/?m=")
-                    magnet = try { URLDecoder.decode(encoded, "UTF-8") } catch (e: Exception) { encoded }
-                    break
-                }
-            }
-            if (!magnet.startsWith("magnet:")) {
-                val raw = document.html()
-                val m = Regex("""magnet:\?[^\s"'<>]+""").find(raw)?.value
-                if (m != null) {
-                    magnet = try { URLDecoder.decode(m, "UTF-8") } catch (e: Exception) { m }
-                }
-            }
+        val directMagnet = TorrentSupport.extractMagnet(data)
+        val directTorrent = directMagnet?.let { TorrentLink(it, isMagnet = true) }
+            ?: data.takeIf { it.contains(Regex("""(?i)\.torrent(?:[?#].*)?$""")) }?.let { TorrentLink(it, isMagnet = false) }
+        val torrent = directTorrent ?: run {
+            val document = runCatching { app.get(data, headers = headers).document }.getOrNull() ?: return false
+            resolveTorrentFromDocument(document, data) ?: return false
         }
 
-        if (magnet.startsWith("magnet:")) {
-            val quality = when {
-                magnet.contains("2160p", true) || magnet.contains("4K", true) -> Qualities.P2160.value
-                magnet.contains("1080p", true) -> Qualities.P1080.value
-                magnet.contains("720p", true) -> Qualities.P720.value
-                magnet.contains("480p", true) -> Qualities.P480.value
-                else -> Qualities.P1080.value
-            }
-            callback.invoke(
-                ExtractorLink(
-                    source = this.name,
-                    name = "${this.name} [Torrent]",
-                    url = magnet,
-                    referer = "$mainUrl/",
-                    quality = quality,
-                    isM3u8 = false
-                ).apply { type = ExtractorLinkType.TORRENT }
-            )
-        }
+        emitTorrent(torrent.url, data, callback)
         return true
+    }
+
+    private suspend fun resolveTorrentFromDocument(document: Document, sourceUrl: String): TorrentLink? {
+        TorrentSupport.extractTorrent(document)?.let { return it }
+        // Some releases expose their URL-encoded magnet from a secondary
+        // download page, just like the current LimeTorrent catalogue does.
+        for (alternateUrl in TorrentSupport.alternateTorrentDetailUrls(document, sourceUrl)) {
+            val alternateDocument = runCatching {
+                app.get(alternateUrl, headers = headers + ("Referer" to sourceUrl)).document
+            }.getOrNull() ?: continue
+            TorrentSupport.extractTorrent(alternateDocument)?.let { return it }
+        }
+        return null
+    }
+
+    private fun emitTorrent(torrentUrl: String, label: String, callback: (ExtractorLink) -> Unit) {
+        val quality = when (TorrentSupport.qualityFromText(label.ifBlank { torrentUrl })) {
+            2160 -> Qualities.P2160.value
+            1440 -> Qualities.P1440.value
+            1080 -> Qualities.P1080.value
+            720 -> Qualities.P720.value
+            480 -> Qualities.P480.value
+            360 -> Qualities.P360.value
+            else -> Qualities.Unknown.value
+        }
+        callback(
+            ExtractorLink(
+                source = name,
+                name = "$name [Torrent]",
+                url = torrentUrl,
+                referer = "$mainUrl/",
+                quality = quality,
+                isM3u8 = false
+            ).apply { type = ExtractorLinkType.TORRENT }
+        )
     }
 }
