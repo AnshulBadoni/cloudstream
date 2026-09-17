@@ -111,6 +111,7 @@ class Himeros : MainAPI() {
 
     private fun cleanTitle(raw: String): String {
         var t = raw
+        t = t.replace(Regex("""&#?\w+;"""), " ")
         t = t.replace(Regex("""\[.*?\]|\(.*?\)|<.*?>"""), " ")
         t = t.replace(
             Regex("""(?i)\b(?:Blacked|Evil\s*Angel|Brazzers|Tushy|Vixen|Bang!?|Naughty\s*America|Sweet\s*Sinner|Wicked|Digital\s*Playground|Jules\s*Jordan|Reality\s*Kings|DDF|Mofos)(?:\s*\d{2,4})?\b"""),

@@ -782,6 +782,7 @@ class CustomScraper : MainAPI() {
 
     private fun cleanTitle(raw: String): String {
         var t = raw
+        t = t.replace(Regex("""&#?\w+;"""), " ")
         t = t.replace(Regex("""\[.*?\]|\(.*?\)|<.*?>"""), " ")
         t = t.replace(Regex("""(?i)\b(?:Blacked|Evil\s*Angel|Brazzers|Tushy|Vixen|Bang!?|Naughty\s*America|Sweet\s*Sinner|Wicked|Digital\s*Playground|Jules\s*Jordan|Reality\s*Kings|DDF|Mofos)(?:\s*\d{2,4})?\b"""), " ")
         t = t.replace(Regex("""(?i)\b(?:\d{3,4}p|4K|2160p|1080p|720p|480p|WEB-?DL|BDRip|DVDRip|HDRip|x264|x265|HEVC|AAC|MP3|SPLITSCENES|XXX|FULL|HD|VOSTFR|FRENCH)\b"""), " ")
