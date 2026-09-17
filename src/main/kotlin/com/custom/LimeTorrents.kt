@@ -75,7 +75,7 @@ class LimeTorrents : MainAPI() {
         if (title.isEmpty() || title.contains(
                 "Torrent Download",
                 true
-            ) || !href.contains(Regex("""(?i)(-\d+\.html|\-torrent\-)"""))
+            ) || !href.contains(Regex("""(?i)(-\d+\.html|\-torrent\-|\/post-detail\/\d+\/)"""))
         ) {
             return null
         }

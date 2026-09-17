@@ -24,13 +24,14 @@ data class TorrentSearchEntry(
 object TorrentSupport {
     /** Current first-party LimeTorrent catalogue hosts, in preferred order. */
     val limeMirrors = listOf(
-        "https://limetorrent.net",
-        "https://www.limetorrents.org",
-        "https://limetorrent.io"
+        "https://limetorrent.in",
+        "https://www.limetorrents.fun",
+        "https://limetorrents.org",
+        "https://limetorrent.net"
     )
 
     private val mediaFilePattern = Regex("""(?i)\.torrent(?:[?#].*)?$""")
-    private val limeDetailPattern = Regex("""(?i)-\d+\.html(?:[?#].*)?$""")
+    private val limeDetailPattern = Regex("""(?i)(?:-\d+\.html|/post-detail/\d+/[^"'\s/]+/?)(?:[?#].*)?$""")
     private val encodedMagnetPattern = Regex("""(?i)(?:magnet:|magnet%3a)[^\s"'<>]+""")
     private val queryMagnetPattern = Regex(
         """(?i)(?:[?&](?:m|magnet|url|link|download)=)([^&#\s"']+)"""
@@ -39,8 +40,9 @@ object TorrentSupport {
     fun limeSearchUrls(mirror: String, query: String): List<String> {
         val encoded = java.net.URLEncoder.encode(query.trim(), "UTF-8")
         val base = mirror.trimEnd('/')
-        // Both routes are live on different LimeTorrent mirrors.
         return listOf(
+            "$base/get-posts/keywords:$encoded",
+            "$base/search/all/$encoded/",
             "$base/search/?catname=&q=$encoded",
             "$base/search.php?catname=&q=$encoded"
         )
@@ -168,11 +170,15 @@ object TorrentSupport {
     private fun directMagnet(value: String): String? {
         val index = value.indexOf("magnet:", ignoreCase = true)
         if (index < 0) return null
-        val magnet = value.substring(index)
-            .takeWhile { !it.isWhitespace() && it != '"' && it != '\'' && it != '<' && it != '>' }
+        val rawMagnet = value.substring(index)
+            .takeWhile { it != '"' && it != '\'' && it != '<' && it != '>' && it != '\n' && it != '\r' }
             .replace("&amp;", "&", ignoreCase = true)
+            .trim()
             .trimEnd(',', ';', ')', ']')
-        return magnet.takeIf { it.startsWith("magnet:?", ignoreCase = true) && it.contains("xt=urn:btih:", ignoreCase = true) }
+        if (!rawMagnet.startsWith("magnet:?", ignoreCase = true) || !rawMagnet.contains("xt=urn:btih:", ignoreCase = true)) {
+            return null
+        }
+        return rawMagnet.replace(" ", "%20")
     }
 
     private fun decode(value: String): String? = runCatching {

@@ -129,16 +129,39 @@ class PornoTorrent : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        var count = 0
         val directMagnet = TorrentSupport.extractMagnet(data)
         val directTorrent = directMagnet?.let { TorrentLink(it, isMagnet = true) }
             ?: data.takeIf { it.contains(Regex("""(?i)\.torrent(?:[?#].*)?$""")) }?.let { TorrentLink(it, isMagnet = false) }
-        val torrent = directTorrent ?: run {
-            val document = runCatching { app.get(data, headers = headers).document }.getOrNull() ?: return false
-            resolveTorrentFromDocument(document, data) ?: return false
+        
+        if (directTorrent != null) {
+            emitTorrent(directTorrent.url, data, callback)
+            count++
+        } else {
+            val document = runCatching { app.get(data, headers = headers).document }.getOrNull()
+            if (document != null) {
+                val torrent = resolveTorrentFromDocument(document, data)
+                if (torrent != null) {
+                    emitTorrent(torrent.url, document.selectFirst("h1")?.text().orEmpty().ifBlank { data }, callback)
+                    count++
+                }
+                StreamSupport.extractMediaUrls(document.html()).forEach { streamUrl ->
+                    callback(
+                        ExtractorLink(
+                            source = name,
+                            name = "$name [Direct]",
+                            url = streamUrl,
+                            referer = "$mainUrl/",
+                            quality = Qualities.P1080.value,
+                            isM3u8 = streamUrl.contains(".m3u8")
+                        )
+                    )
+                    count++
+                }
+            }
         }
 
-        emitTorrent(torrent.url, data, callback)
-        return true
+        return count > 0
     }
 
     private suspend fun resolveTorrentFromDocument(document: Document, sourceUrl: String): TorrentLink? {

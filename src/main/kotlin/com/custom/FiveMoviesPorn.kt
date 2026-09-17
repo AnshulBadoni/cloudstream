@@ -165,9 +165,29 @@ class FiveMoviesPorn : MainAPI() {
         val rawHtml = doc.html()
         var count = 0
 
-        val candidateEmbeds = mutableSetOf<String>()
+        val title = doc.selectFirst("h1")?.text()?.trim()
+            ?.let { cleanTitle(it) }
+            ?: data.trimEnd('/').substringAfterLast('/').replace('-', ' ').trim()
 
-        // 1. Extract wrapped iframes (e.g. https://primepages.sbs/play.php?host=https%3A%2F%2Fvoe.sx%2Fe%2F...)
+        // 1. Direct media URLs in page HTML
+        StreamSupport.extractMediaUrls(rawHtml).forEach { streamUrl ->
+            if (!streamUrl.contains("test-videos.co.uk") && !streamUrl.contains("sample")) {
+                callback(
+                    ExtractorLink(
+                        source = name,
+                        name = "$name Direct",
+                        url = streamUrl,
+                        referer = "$mainUrl/",
+                        quality = Qualities.P1080.value,
+                        isM3u8 = streamUrl.contains(".m3u8")
+                    )
+                )
+                count++
+            }
+        }
+
+        // 2. Extract wrapped iframes (e.g. primepages.sbs/play.php?host=...)
+        val candidateEmbeds = mutableListOf<String>()
         for (iframe in doc.select("iframe")) {
             val src = iframe.attr("src").ifEmpty { iframe.attr("data-src") }.trim()
             if (src.isNotEmpty()) {
@@ -183,7 +203,7 @@ class FiveMoviesPorn : MainAPI() {
             }
         }
 
-        // 2. Extract data-url attributes (e.g. data-url="https://playmogo.com/d/...")
+        // 3. Extract data-url attributes
         for (el in doc.select("[data-url], [data-src], [data-href], [data-embed]")) {
             val u = el.attr("data-url")
                 .ifEmpty { el.attr("data-src").ifEmpty { el.attr("data-href").ifEmpty { el.attr("data-embed") } } }
@@ -193,9 +213,9 @@ class FiveMoviesPorn : MainAPI() {
             }
         }
 
-        // 3. Scan whole HTML for known host locker patterns
+        // 4. Scan whole HTML for known host locker patterns
         val hostRegex = Regex(
-            """(https?://[^\s"'<>\\]+?(?:voe\.sx|playmogo|dood|d0000d|streamtape|streamwish|mixdrop|filelions|luluvid|luluvdo)[^\s"'<>\\]*)""",
+            """(https?://[^\s"'<>\\]+?(?:voe\.sx|playmogo|dood|d0000d|streamtape|streamwish|mixdrop|mxdrop|filelions|luluvid|luluvdo|lulustream)[^\s"'<>\\]*)""",
             RegexOption.IGNORE_CASE
         )
         hostRegex.findAll(rawHtml).forEach { m ->
@@ -206,7 +226,39 @@ class FiveMoviesPorn : MainAPI() {
             !u.contains("google.com") && !u.contains("deleted") && !u.contains("favicon")
         }.distinct()
 
-        val jobs = validHosts.map { embedUrl ->
+        // 5. Direct unpackers for LuluStream / StreamWish / FileLions
+        val luluJobs = validHosts.filter {
+            it.contains("lulustream") || it.contains("luluvid") || it.contains("luluvdo") ||
+                    it.contains("streamwish") || it.contains("filelions")
+        }.take(3).map { embedUrl ->
+            async {
+                resolveLuluvidStreamWish(embedUrl) { link ->
+                    callback(link)
+                    count++
+                }
+            }
+        }
+
+        // 6. Direct unpackers for MixDrop
+        val mixdropJobs = validHosts.filter {
+            it.contains("mixdrop") || it.contains("mxdrop")
+        }.take(2).map { embedUrl ->
+            async {
+                resolveMixDrop(embedUrl) { link ->
+                    callback(link)
+                    count++
+                }
+            }
+        }
+
+        // 7. Standard CloudStream extractors for others
+        val extractorJobs = validHosts.filter {
+            !it.contains("mixdrop") && !it.contains("mxdrop") &&
+                    !it.contains("lulustream") && !it.contains("luluvid") && !it.contains("luluvdo") &&
+                    !it.contains("streamwish") && !it.contains("filelions")
+        }.flatMap { original ->
+            listOf(original, normalizeEmbedUrl(original))
+        }.distinct().take(4).map { embedUrl ->
             async {
                 val clean = normalizeEmbedUrl(embedUrl)
                 runCatching {
@@ -218,8 +270,253 @@ class FiveMoviesPorn : MainAPI() {
             }
         }
 
-        jobs.awaitAll()
+        // 8. Torrent Fallback Resolution (PornoTorrent & LimeTorrents)
+        val pTorrent = if (title.isNotEmpty()) async {
+            resolvePornoTorrent(title) { link ->
+                callback(link)
+                count++
+            }
+        } else null
+
+        val lTorrent = if (title.isNotEmpty()) async {
+            resolveLimeTorrents(title) { link ->
+                callback(link)
+                count++
+            }
+        } else null
+
+        luluJobs.awaitAll()
+        mixdropJobs.awaitAll()
+        extractorJobs.awaitAll()
+        pTorrent?.await()
+        lTorrent?.await()
         count > 0
+    }
+
+    private fun unpackPacker(packedJs: String): String {
+        try {
+            val regex = Regex(
+                """eval\(function\(p,a,c,k,e,d\)\{.*?return p\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)""",
+                RegexOption.DOT_MATCHES_ALL
+            )
+            val match = regex.find(packedJs) ?: return ""
+            var p = match.groupValues[1]
+            val a = match.groupValues[2].toIntOrNull() ?: 10
+            var c = match.groupValues[3].toIntOrNull() ?: 0
+            val k = match.groupValues[4].split("|")
+
+            while (c-- > 0) {
+                if (c < k.size && k[c].isNotEmpty()) {
+                    val key = java.lang.Integer.toString(c, a)
+                    p = p.replace(Regex("""\b$key\b"""), java.util.regex.Matcher.quoteReplacement(k[c]))
+                }
+            }
+            return p
+        } catch (_: Exception) {
+            return ""
+        }
+    }
+
+    private suspend fun resolveLuluvidStreamWish(embedUrl: String, callback: (ExtractorLink) -> Unit) {
+        try {
+            val code = Regex("""/(?:e|f)/([a-zA-Z0-9]+)""").find(embedUrl)?.groupValues?.get(1)
+                ?: embedUrl.substringAfterLast("/").substringBefore("?").substringBefore("&")
+            if (code.isBlank()) return
+
+            val mirrors = listOf(
+                "https://lulustream.com/e/$code",
+                "https://luluvdo.com/e/$code",
+                "https://luluvid.com/e/$code",
+                embedUrl,
+                "https://filelions.to/e/$code",
+                "https://streamwish.to/e/$code"
+            ).distinct()
+
+            for (mirror in mirrors) {
+                val responseText = try {
+                    app.get(
+                        mirror,
+                        headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to headers["User-Agent"]!!)
+                    ).text
+                } catch (_: Exception) {
+                    continue
+                }
+
+                if (responseText.length < 500) continue
+                val unpacked = unpackPacker(responseText)
+                val streamMatch = StreamSupport.extractMediaUrls(unpacked).firstOrNull()
+                    ?: StreamSupport.extractMediaUrls(responseText).firstOrNull()
+                    ?: Regex("""sources\s*:\s*\[\{file\s*:\s*["']([^"']+)["']""").find(unpacked)?.groupValues?.get(1)
+
+                if (!streamMatch.isNullOrBlank()) {
+                    val isLulu = mirror.contains("lulu")
+                    callback.invoke(
+                        ExtractorLink(
+                            source = name,
+                            name = if (isLulu) "$name [LuluStream 1080p]" else "$name [StreamWish 1080p]",
+                            url = streamMatch,
+                            referer = "",
+                            quality = Qualities.P1080.value,
+                            isM3u8 = streamMatch.contains(".m3u8"),
+                            headers = mapOf("User-Agent" to headers["User-Agent"]!!)
+                        )
+                    )
+                    break
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private suspend fun resolveMixDrop(embedUrl: String, callback: (ExtractorLink) -> Unit) {
+        try {
+            val code = Regex("""/(?:e|f)/([a-zA-Z0-9]+)""").find(embedUrl)?.groupValues?.get(1)
+                ?: embedUrl.substringAfterLast("/").substringBefore("?").substringBefore("&")
+            if (code.isBlank()) return
+
+            val mirrors = listOf(
+                "https://mixdrop.ag/e/$code",
+                "https://mixdrop.my/e/$code",
+                embedUrl,
+                "https://mxdrop.top/e/$code",
+                "https://mixdrop.co/e/$code",
+                "https://mixdrop.sx/e/$code"
+            ).distinct()
+
+            for (mirror in mirrors) {
+                val responseText = try {
+                    app.get(
+                        mirror,
+                        headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to headers["User-Agent"]!!)
+                    ).text
+                } catch (_: Exception) {
+                    continue
+                }
+
+                if (responseText.length < 500) continue
+                val unpacked = unpackPacker(responseText)
+                val wurlRegex = Regex("""(?:MDCore\.wurl|wurl)\s*[:=]\s*["']([^"']+)"""")
+                val wurlMatch = wurlRegex.find(unpacked)?.groupValues?.get(1)
+                    ?: wurlRegex.find(responseText)?.groupValues?.get(1)
+
+                if (!wurlMatch.isNullOrBlank() && wurlMatch.trim().isNotEmpty()) {
+                    val fullUrl = if (wurlMatch.startsWith("//")) "https:$wurlMatch" else wurlMatch
+                    callback.invoke(
+                        ExtractorLink(
+                            source = name,
+                            name = "$name [MixDrop 1080p]",
+                            url = fullUrl,
+                            referer = "https://mixdrop.ag/",
+                            quality = Qualities.P1080.value,
+                            isM3u8 = false,
+                            headers = mapOf(
+                                "Referer" to "https://mixdrop.ag/",
+                                "User-Agent" to headers["User-Agent"]!!
+                            )
+                        )
+                    )
+                    break
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private suspend fun resolvePornoTorrent(title: String, callback: (ExtractorLink) -> Unit) {
+        try {
+            val q = URLEncoder.encode(title, "UTF-8")
+            val url = "https://pornotorrent.com.br/?s=$q"
+            val doc = try {
+                app.get(url, headers = mapOf("User-Agent" to headers["User-Agent"]!!)).document
+            } catch (_: Exception) {
+                return
+            }
+
+            val articles = doc.select("article, .post, div.item, .cp-card")
+            for (article in articles) {
+                val linkEl = article.selectFirst("h2 a, h3 a, h1 a, a[title], .entry-title a, .cp-card__title a, a.cp-card__link") ?: continue
+                val postTitle = linkEl.attr("aria-label").ifEmpty { linkEl.attr("title") }.ifEmpty { linkEl.text().trim() }
+                val postHref = fixUrl(linkEl.attr("href"))
+                if (postHref.isEmpty() || postTitle.isEmpty()) continue
+
+                val postDoc = try {
+                    app.get(postHref, headers = mapOf("User-Agent" to headers["User-Agent"]!!)).document
+                } catch (_: Exception) {
+                    continue
+                }
+
+                val torrent = TorrentSupport.extractTorrent(postDoc)
+                if (torrent != null) {
+                    callback.invoke(
+                        ExtractorLink(
+                            source = "PornoTorrent",
+                            name = "$name [PornoTorrent ${cleanTitle(postTitle)}]",
+                            url = torrent.url,
+                            referer = "https://pornotorrent.com.br/",
+                            quality = when (TorrentSupport.qualityFromText(postTitle)) {
+                                2160 -> Qualities.P2160.value
+                                1440 -> Qualities.P1440.value
+                                1080 -> Qualities.P1080.value
+                                720 -> Qualities.P720.value
+                                480 -> Qualities.P480.value
+                                else -> Qualities.Unknown.value
+                            },
+                            isM3u8 = false
+                        ).apply { this.type = ExtractorLinkType.TORRENT }
+                    )
+                    break
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private suspend fun resolveLimeTorrents(title: String, callback: (ExtractorLink) -> Unit) {
+        try {
+            for (mirror in TorrentSupport.limeMirrors) {
+                for (searchUrl in TorrentSupport.limeSearchUrls(mirror, title)) {
+                    val searchDocument = runCatching {
+                        app.get(
+                            searchUrl,
+                            headers = mapOf("User-Agent" to headers["User-Agent"]!!, "Referer" to "$mirror/")
+                        ).document
+                    }.getOrNull() ?: continue
+
+                    val matches = TorrentSupport.findLimeSearchEntries(searchDocument, searchUrl)
+                    for (entry in matches.take(2)) {
+                        val detailDoc = runCatching {
+                            app.get(
+                                entry.url,
+                                headers = mapOf("User-Agent" to headers["User-Agent"]!!, "Referer" to "$mirror/")
+                            ).document
+                        }.getOrNull() ?: continue
+
+                        val torrent = TorrentSupport.extractTorrent(detailDoc)
+                        if (torrent != null) {
+                            callback.invoke(
+                                ExtractorLink(
+                                    source = "LimeTorrents",
+                                    name = "$name [LimeTorrents ${cleanTitle(entry.title)}]",
+                                    url = torrent.url,
+                                    referer = "$mirror/",
+                                    quality = when (TorrentSupport.qualityFromText(entry.title)) {
+                                        2160 -> Qualities.P2160.value
+                                        1440 -> Qualities.P1440.value
+                                        1080 -> Qualities.P1080.value
+                                        720 -> Qualities.P720.value
+                                        480 -> Qualities.P480.value
+                                        else -> Qualities.Unknown.value
+                                    },
+                                    isM3u8 = false
+                                ).apply { this.type = ExtractorLinkType.TORRENT }
+                            )
+                            return
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
     }
 
     private fun normalizeEmbedUrl(url: String): String {

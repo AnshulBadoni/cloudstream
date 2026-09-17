@@ -315,7 +315,7 @@ class Himeros : MainAPI() {
         }
     }
 
-    // 6. DIRECT EMBED RESOLVERS (Luluvid / StreamWish / FileLions / MixDrop)
+    // 6. DIRECT EMBED RESOLVERS (Luluvid / StreamWish / FileLions / LuluStream / MixDrop)
     private suspend fun resolveLuluvidStreamWish(embedUrl: String, callback: (ExtractorLink) -> Unit) {
         try {
             val code = Regex("""/(?:e|f)/([a-zA-Z0-9]+)""").find(embedUrl)?.groupValues?.get(1)
@@ -323,9 +323,10 @@ class Himeros : MainAPI() {
             if (code.isBlank()) return
 
             val mirrors = listOf(
-                embedUrl,
+                "https://lulustream.com/e/$code",
                 "https://luluvdo.com/e/$code",
                 "https://luluvid.com/e/$code",
+                embedUrl,
                 "https://filelions.to/e/$code",
                 "https://streamwish.to/e/$code"
             ).distinct()
@@ -344,17 +345,19 @@ class Himeros : MainAPI() {
                 val unpacked = unpackPacker(responseText)
                 val streamMatch = StreamSupport.extractMediaUrls(unpacked).firstOrNull()
                     ?: StreamSupport.extractMediaUrls(responseText).firstOrNull()
+                    ?: Regex("""sources\s*:\s*\[\{file\s*:\s*["']([^"']+)["']""").find(unpacked)?.groupValues?.get(1)
 
                 if (!streamMatch.isNullOrBlank()) {
+                    val isLulu = mirror.contains("lulu")
                     callback.invoke(
                         ExtractorLink(
                             source = name,
-                            name = "SpeedPorn [StreamWish 1080p]",
+                            name = if (isLulu) "SpeedPorn [LuluStream 1080p]" else "SpeedPorn [StreamWish 1080p]",
                             url = streamMatch,
-                            referer = mirror,
+                            referer = "",
                             quality = Qualities.P1080.value,
                             isM3u8 = streamMatch.contains(".m3u8"),
-                            headers = mapOf("Referer" to mirror, "User-Agent" to speedpornHeaders["User-Agent"]!!)
+                            headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)
                         )
                     )
                     break
@@ -371,10 +374,10 @@ class Himeros : MainAPI() {
             if (code.isBlank()) return
 
             val mirrors = listOf(
+                "https://mixdrop.ag/e/$code",
+                "https://mixdrop.my/e/$code",
                 embedUrl,
                 "https://mxdrop.top/e/$code",
-                "https://mixdrop.my/e/$code",
-                "https://mixdrop.ag/e/$code",
                 "https://mixdrop.co/e/$code",
                 "https://mixdrop.sx/e/$code"
             ).distinct()
@@ -456,10 +459,10 @@ class Himeros : MainAPI() {
             return "https://mixdrop.ag/e/$code"
         }
 
-        // StreamWish / Luluvid / FileLions mirrors
-        if (clean.contains("luluvid.com/e/") || clean.contains("luluvdo.com/e/")) {
-            val code = clean.substringAfter("/e/").substringBefore("?").substringBefore("&")
-            return "https://streamwish.to/e/$code"
+        // StreamWish / Luluvid / LuluStream / FileLions mirrors
+        if (clean.contains("lulustream.com/") || clean.contains("luluvid.com/e/") || clean.contains("luluvdo.com/e/")) {
+            val code = clean.substringAfter("/e/").substringAfterLast("/").substringBefore("?").substringBefore("&")
+            return "https://lulustream.com/e/$code"
         }
         if (clean.contains("streamwish.to/f/") || clean.contains("filelions.to/f/") || clean.contains("filelions.com/f/")) {
             val code = clean.substringAfter("/f/").substringBefore("?").substringBefore("&")
@@ -505,11 +508,6 @@ class Himeros : MainAPI() {
             ?.replace(Regex("""(?i)^Watch\s+"""), "")
             ?.replace(Regex("""(?i)\s+Porn\s+Online\s+Free$"""), "")
             ?.trim() ?: ""
-        val emittedCount = AtomicInteger(0)
-        val emit: (ExtractorLink) -> Unit = { link ->
-            emittedCount.incrementAndGet()
-            callback(link)
-        }
 
         val rawCandidateUrls = mutableSetOf<String>()
 
@@ -530,16 +528,18 @@ class Himeros : MainAPI() {
         }
 
         // C. Extract custom data attributes
-        for (el in doc.select("[data-url], [data-src], [data-href], [data-embed]")) {
-            val u = el.attr("data-url")
-                .ifEmpty { el.attr("data-src").ifEmpty { el.attr("data-href").ifEmpty { el.attr("data-embed") } } }
-                .trim()
-            if (u.isNotEmpty()) rawCandidateUrls.add(u)
+        for (el in doc.select("[data-url], [data-src], [data-href], [data-embed], [data-fl-source], [data-fl-url]")) {
+            for (attr in listOf("data-fl-source", "data-fl-url", "data-url", "data-src", "data-href", "data-embed")) {
+                val u = el.attr(attr).trim()
+                if (u.isNotEmpty() && !u.contains("deleted") && !u.contains("favicon")) {
+                    rawCandidateUrls.add(u)
+                }
+            }
         }
 
         // D. Regex scan the whole page HTML for host URLs
         val lockerRegex = Regex(
-            """(https?://[^\s"'<>]*(?:playmogo|dood|d0000d|mixdrop|mxdrop|streamtape|voe|streamwish|filelions|wolfstream|luluvid|luluvdo|playmate|dropupload|rapidgator|nitroflare)[^\s"'<>]*)""",
+            """(https?://[^\s"'<>]*(?:lulustream|luluvid|luluvdo|streamwish|filelions|playmogo|dood|d0000d|mixdrop|mxdrop|streamtape|voe|wolfstream|playmate|dropupload|rapidgator|nitroflare)[^\s"'<>]*)""",
             RegexOption.IGNORE_CASE
         )
         lockerRegex.findAll(rawHtml).forEach { m ->
@@ -551,19 +551,20 @@ class Himeros : MainAPI() {
             !url.contains("google.com") &&
                     !url.contains("api.") &&
                     !url.contains("deleted") &&
+                    !url.contains("favicon") &&
                     !url.contains("theporndude") &&
-                    (url.contains("playmogo") || url.contains("dood") || url.contains("mixdrop") ||
-                            url.contains("streamtape") || url.contains("voe.sx") || url.contains("streamwish") ||
-                            url.contains("filelions") || url.contains("luluvid") || url.contains("luluvdo") ||
-                            url.contains("mixdrop") || url.contains("mxdrop") || url.contains("playmate") ||
+                    (url.contains("lulustream") || url.contains("luluvid") || url.contains("luluvdo") ||
+                            url.contains("streamwish") || url.contains("filelions") || url.contains("playmogo") ||
+                            url.contains("dood") || url.contains("mixdrop") || url.contains("mxdrop") ||
+                            url.contains("streamtape") || url.contains("voe.sx") || url.contains("playmate") ||
                             url.contains("wolfstream") || url.contains("dropupload"))
         }.distinct()
 
         coroutineScope {
-            // E. Direct custom unpackers for Luluvid / StreamWish / FileLions (take up to 2 embeds)
+            // E. Direct custom unpackers for LuluStream / Luluvid / StreamWish / FileLions (take up to 3 embeds)
             val luluJobs = validOriginalUrls.filter {
-                it.contains("luluvid") || it.contains("luluvdo") || it.contains("streamwish") || it.contains("filelions")
-            }.take(2).map { embedUrl ->
+                it.contains("lulustream") || it.contains("luluvid") || it.contains("luluvdo") || it.contains("streamwish") || it.contains("filelions")
+            }.take(3).map { embedUrl ->
                 async { resolveLuluvidStreamWish(embedUrl, reportLink) }
             }
 
@@ -577,7 +578,8 @@ class Himeros : MainAPI() {
             // G. Default CloudStream extractors for others
             val extractorJobs = validOriginalUrls.filter {
                 !it.contains("mixdrop") && !it.contains("mxdrop") &&
-                !it.contains("luluvid") && !it.contains("luluvdo") && !it.contains("streamwish") && !it.contains("filelions")
+                !it.contains("lulustream") && !it.contains("luluvid") && !it.contains("luluvdo") &&
+                !it.contains("streamwish") && !it.contains("filelions")
             }.flatMap { original ->
                 listOf(original, normalizeEmbedUrl(original))
             }.distinct().take(4).map { embedUrl ->
