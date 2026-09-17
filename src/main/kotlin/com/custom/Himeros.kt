@@ -560,24 +560,27 @@ class Himeros : MainAPI() {
         }.distinct()
 
         coroutineScope {
-            // E. Direct custom unpackers for Luluvid / StreamWish / FileLions
+            // E. Direct custom unpackers for Luluvid / StreamWish / FileLions (take up to 2 embeds)
             val luluJobs = validOriginalUrls.filter {
                 it.contains("luluvid") || it.contains("luluvdo") || it.contains("streamwish") || it.contains("filelions")
-            }.map { embedUrl ->
+            }.take(2).map { embedUrl ->
                 async { resolveLuluvidStreamWish(embedUrl, reportLink) }
             }
 
-            // F. Direct custom unpackers for MixDrop
+            // F. Direct custom unpackers for MixDrop (take up to 2 embeds)
             val mixdropJobs = validOriginalUrls.filter {
                 it.contains("mixdrop") || it.contains("mxdrop")
-            }.map { embedUrl ->
+            }.take(2).map { embedUrl ->
                 async { resolveMixDrop(embedUrl, reportLink) }
             }
 
             // G. Default CloudStream extractors for others
-            val extractorJobs = validOriginalUrls.flatMap { original ->
+            val extractorJobs = validOriginalUrls.filter {
+                !it.contains("mixdrop") && !it.contains("mxdrop") &&
+                !it.contains("luluvid") && !it.contains("luluvdo") && !it.contains("streamwish") && !it.contains("filelions")
+            }.flatMap { original ->
                 listOf(original, normalizeEmbedUrl(original))
-            }.distinct().map { embedUrl ->
+            }.distinct().take(4).map { embedUrl ->
                 async {
                     try {
                         loadExtractor(embedUrl, "$mainUrl/", subtitleCallback, reportLink)
@@ -587,7 +590,6 @@ class Himeros : MainAPI() {
             }
 
             // H. Look for direct MP4 / M3U8 video streams in page scripts.
-            // StreamSupport also understands escaped URLs and Playerjs keys.
             StreamSupport.extractMediaUrls(rawHtml).forEach { streamUrl ->
                 if (!streamUrl.contains("test-videos.co.uk") && !streamUrl.contains("sample")) {
                     reportLink.invoke(
@@ -695,7 +697,7 @@ class Himeros : MainAPI() {
                             callback.invoke(
                                 ExtractorLink(
                                     source = "PornoTorrent",
-                                    name = "PornoTorrent [$postTitle]",
+                                    name = "PornoTorrent [${cleanTitle(postTitle)}]",
                                     url = torrent.url,
                                     referer = "https://pornotorrent.com.br/",
                                     quality = when (TorrentSupport.qualityFromText(postTitle)) {
@@ -791,7 +793,7 @@ class Himeros : MainAPI() {
                             callback(
                                 ExtractorLink(
                                     source = "LimeTorrents",
-                                    name = "LimeTorrents [${entry.title}]",
+                                    name = "LimeTorrents [${cleanTitle(entry.title)}]",
                                     url = torrent.url,
                                     referer = "$mirror/",
                                     quality = quality,
