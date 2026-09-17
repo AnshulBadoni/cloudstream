@@ -189,21 +189,21 @@ tasks.register("makePlugin") {
         val limeTorrentsCs3 = File(distDir, "LimeTorrents.cs3")
 
         createPluginZip("PornTrex", "com.megix.PorntrexProvider", porntrexCs3, version = 104)
-        createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3, version = 107)
+        createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3, version = 108)
         createPluginZip("YamyHub", "com.custom.YamyHubProvider", yamyHubCs3, version = 104)
         createPluginZip("Eporner", "com.custom.EpornerProvider", epornerCs3, version = 104)
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3, version = 104)
-        createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3, version = 104)
-        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 118)
-        createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 106)
-        createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 104)
+        createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3, version = 105)
+        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 119)
+        createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 107)
+        createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 105)
 
         val pluginsJson = """
 [
   {
     "name": "Himeros",
     "internalName": "Himeros",
-    "version": 118,
+    "version": 119,
     "apiVersion": 1,
     "description": "Master aggregator provider with Data18 movie/series/showcase catalogs, PornPics trending models & studios, IMDb/TMDb enhanced artwork, episodic scene breakdowns, SpeedPorn full movies & multi-source torrents (PornoTorrent, LimeTorrents, 1337x).",
     "authors": ["AnshulBadoni"],
@@ -218,7 +218,7 @@ tasks.register("makePlugin") {
   {
     "name": "PornoTorrent",
     "internalName": "PornoTorrent",
-    "version": 106,
+    "version": 107,
     "apiVersion": 1,
     "description": "High-speed direct torrent provider indexing top studio releases and movies from pornotorrent.com.br.",
     "authors": ["AnshulBadoni"],
@@ -233,15 +233,15 @@ tasks.register("makePlugin") {
   {
     "name": "LimeTorrents",
     "internalName": "LimeTorrents",
-    "version": 104,
+    "version": 105,
     "apiVersion": 1,
-    "description": "Direct torrent indexer and search provider from limetorrents.fun.",
+    "description": "Direct torrent indexer and search provider with current LimeTorrent mirror fallback.",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,
     "language": "en",
     "tvTypes": ["NSFW", "Movie"],
-    "iconUrl": "https://www.limetorrents.fun/favicon.ico",
+    "iconUrl": "https://limetorrent.net/favicon.ico",
     "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/LimeTorrents.cs3",
     "fileSize": ${if (limeTorrentsCs3.exists()) limeTorrentsCs3.length() else 102400}
   },
@@ -308,7 +308,7 @@ tasks.register("makePlugin") {
   {
     "name": "MultiSource",
     "internalName": "MultiSource",
-    "version": 107,
+    "version": 108,
     "apiVersion": 1,
     "description": "Multi-source aggregator with SpeedPorn and ParadiseHill: deep search, MP4/VOE stream resolvers, multi-part CD episodes, and actor catalogs.",
     "authors": ["AnshulBadoni"],
@@ -323,7 +323,7 @@ tasks.register("makePlugin") {
   {
     "name": "PLibrary",
     "internalName": "PLibrary",
-    "version": 104,
+    "version": 105,
     "apiVersion": 1,
     "description": "Multi-source aggregated collection with 4 seasons per performer across YamyHub, Eporner, and FPO.",
     "authors": ["AnshulBadoni"],

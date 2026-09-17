@@ -92,10 +92,10 @@ class PLibrary : MainAPI() {
             // Trending Videos (YamyHub)
             "trending" -> {
                 val url = if (page <= 1) "$yamyUrl/" else "$yamyUrl/page/$page/"
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/video/']").mapNotNull {
+                val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+                doc?.select("a[href*='/video/']")?.mapNotNull {
                     parseYamyVideoCard(it)
-                }
+                }.orEmpty()
             }
 
             // Actors (PornPics Trending Models with YamyHub fallback)
@@ -117,10 +117,10 @@ class PLibrary : MainAPI() {
                 } else {
                     // Fallback to YamyHub Pornstars list
                     val yUrl = if (page <= 1) "$yamyUrl/pornstars/" else "$yamyUrl/pornstars/page/$page/"
-                    val doc = app.get(yUrl, headers = defaultHeaders).document
-                    doc.select("a[href*='/pornstar/']").mapNotNull {
+                    val doc = runCatching { app.get(yUrl, headers = defaultHeaders).document }.getOrNull()
+                    doc?.select("a[href*='/pornstar/']")?.mapNotNull {
                         parseYamyActorCard(it)
-                    }
+                    }.orEmpty()
                 }
             }
 
@@ -144,10 +144,10 @@ class PLibrary : MainAPI() {
             else -> {
                 val slug = request.data.trimStart('/')
                 val url = if (page <= 1) "$yamyUrl/$slug" else "$yamyUrl/${slug}page/$page/"
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/video/']").mapNotNull {
+                val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+                doc?.select("a[href*='/video/']")?.mapNotNull {
                     parseYamyVideoCard(it)
-                }
+                }.orEmpty()
             }
         }
 
@@ -439,16 +439,19 @@ class PLibrary : MainAPI() {
             }
         } else {
             // === YAMYHUB VIDEO DETAILS ===
-            val doc = app.get(url, headers = defaultHeaders).document
-            val title = doc.selectFirst("h1")?.text()?.trim()
-                ?: doc.selectFirst("meta[property='og:title']")?.attr("content")
+            // Do not fail the whole provider if this one source is blocked in
+            // the user's region. The returned page can still be retried by
+            // loadLinks when connectivity comes back.
+            val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+            val title = doc?.selectFirst("h1")?.text()?.trim()
+                ?: doc?.selectFirst("meta[property='og:title']")?.attr("content")
                 ?: "YamyHub Video"
 
-            val poster = doc.selectFirst("meta[property='og:image']")?.attr("content")
-                ?: doc.selectFirst(".player-holder img, img.thumb")?.attr("src")
+            val poster = doc?.selectFirst("meta[property='og:image']")?.attr("content")
+                ?: doc?.selectFirst(".player-holder img, img.thumb")?.attr("src")
 
-            val description = doc.selectFirst("meta[property='og:description']")?.attr("content")
-                ?: doc.selectFirst(".video-details, .description")?.text()?.trim()
+            val description = doc?.selectFirst("meta[property='og:description']")?.attr("content")
+                ?: doc?.selectFirst(".video-details, .description")?.text()?.trim()
 
             newMovieLoadResponse(title, url, TvType.Movie, url) {
                 this.posterUrl = fixUrlNull(poster, yamyUrl)
@@ -520,37 +523,38 @@ class PLibrary : MainAPI() {
 
         // 2. YamyHub Playerjs Multi-Resolution MP4 Resolver (360p to 1080p)
         if (data.contains("yamyhub.com")) {
-            val doc = app.get(data, headers = defaultHeaders).document
-            val iframeSrc = doc.selectFirst("iframe[src*='/player/']")?.attr("src")
+            val doc = runCatching { app.get(data, headers = defaultHeaders).document }.getOrNull()
+                ?: return false
+            val emitted = LinkedHashSet<String>()
+
+            // Newer posts sometimes put Playerjs directly in the post instead
+            // of an iframe, so inspect the post before attempting the player.
+            StreamSupport.extractMediaUrls(doc.html()).forEach { streamUrl ->
+                if (emitted.add(streamUrl)) {
+                    emitYamyStream(streamUrl, "$yamyUrl/", callback)
+                    count++
+                }
+            }
+
+            val iframeSrc = doc.select("iframe[src]")
+                .map { it.attr("src") }
+                .firstOrNull { source ->
+                    source.contains("player", ignoreCase = true) || source.contains("embed", ignoreCase = true)
+                }
                 ?: doc.selectFirst("meta[name='twitter:player']")?.attr("content")
                 ?: (yamyUrl + "/player/?t=" + data.trimEnd('/').substringAfterLast('/'))
 
             val playerUrl = fixUrl(iframeSrc, yamyUrl)
-            val playerRes = runCatching { app.get(playerUrl, headers = mapOf("referer" to "$yamyUrl/")).text }.getOrNull()
+            val playerRes = runCatching {
+                app.get(playerUrl, headers = mapOf("referer" to "$yamyUrl/", "user-agent" to defaultHeaders["user-agent"]!!)).text
+            }.getOrNull()
 
-            if (!playerRes.isNullOrBlank()) {
-                // Match Playerjs file string: file:"[720]https://...mp4,[360]https://...360p.mp4"
-                val filePattern = Regex("""file\s*:\s*["']([^"']+)["']""")
-                val fileStr = filePattern.find(playerRes)?.groupValues?.get(1) ?: playerRes
-
-                // Extract each [quality]url pair
-                val qualityEntries = Regex("""(?:\[(\d+)\])?(https?://[^\s,"'<>]+)""").findAll(fileStr)
-                for (entry in qualityEntries) {
-                    val qLabel = entry.groupValues[1].ifBlank { "720" }
-                    val streamUrl = entry.groupValues[2]
-
-                    callback(
-                        ExtractorLink(
-                            source = name,
-                            name = "$name YamyHub ${qLabel}p MP4",
-                            url = streamUrl,
-                            referer = "$yamyUrl/",
-                            quality = getQualityFromName("${qLabel}p"),
-                            isM3u8 = streamUrl.contains(".m3u8"),
-                            headers = mapOf("referer" to "$yamyUrl/")
-                        )
-                    )
-                    count++
+            playerRes?.let { playerHtml ->
+                StreamSupport.extractMediaUrls(playerHtml).forEach { streamUrl ->
+                    if (emitted.add(streamUrl)) {
+                        emitYamyStream(streamUrl, playerUrl, callback)
+                        count++
+                    }
                 }
             }
             return count > 0
@@ -627,6 +631,21 @@ class PLibrary : MainAPI() {
         }
 
         return false
+    }
+
+    private fun emitYamyStream(streamUrl: String, referer: String, callback: (ExtractorLink) -> Unit) {
+        val qLabel = Regex("""(?i)(2160|1440|1080|720|480|360)p?""").find(streamUrl)?.groupValues?.get(1) ?: "720"
+        callback(
+            ExtractorLink(
+                source = name,
+                name = "$name YamyHub ${qLabel}p ${if (streamUrl.contains(".m3u8", true)) "HLS" else "MP4"}",
+                url = streamUrl,
+                referer = referer,
+                quality = getQualityFromName("${qLabel}p"),
+                isM3u8 = streamUrl.contains(".m3u8", true),
+                headers = mapOf("referer" to referer, "user-agent" to defaultHeaders["user-agent"]!!)
+            )
+        )
     }
 
     // 5. HELPER CARD PARSERS
