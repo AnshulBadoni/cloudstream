@@ -81,28 +81,28 @@ class CustomScraper : MainAPI() {
                 } else {
                     "$mainUrl/actors/?sort=by_likes&page=$page"
                 }
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select("a[href*='/actor/']").mapNotNull {
+                val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+                doc?.select("a[href*='/actor/']")?.mapNotNull {
                     parseParadiseActorCard(it)
-                }
+                }.orEmpty()
             }
 
             // SpeedPorn: Recently Added Videos
             "sp_latest" -> {
                 val url = if (page <= 1) "$speedpornUrl/?filter=latest" else "$speedpornUrl/page/$page/?filter=latest"
-                val doc = app.get(url, headers = speedpornHeaders).document
-                doc.select(".video-block, a.thumb").mapNotNull {
+                val doc = runCatching { app.get(url, headers = speedpornHeaders).document }.getOrNull()
+                doc?.select(".video-block, a.thumb")?.mapNotNull {
                     parseSpeedPornCard(it)
-                }
+                }.orEmpty()
             }
 
             // SpeedPorn: Full Movies
             "sp_movies" -> {
                 val url = if (page <= 1) "$speedpornUrl/category/1-porn-movies/" else "$speedpornUrl/category/1-porn-movies/page/$page/"
-                val doc = app.get(url, headers = speedpornHeaders).document
-                doc.select(".video-block, a.thumb").mapNotNull {
+                val doc = runCatching { app.get(url, headers = speedpornHeaders).document }.getOrNull()
+                doc?.select(".video-block, a.thumb")?.mapNotNull {
                     parseSpeedPornCard(it)
-                }
+                }.orEmpty()
             }
 
             // ParadiseHill movie and studio catalogs
@@ -113,10 +113,10 @@ class CustomScraper : MainAPI() {
                     val sep = if (request.data.contains("?")) "&" else "?"
                     "$mainUrl/${request.data}${sep}page=$page"
                 }
-                val doc = app.get(url, headers = defaultHeaders).document
-                doc.select(".all-block .item, .item, .all-films .item, div.item").mapNotNull {
+                val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+                doc?.select(".all-block .item, .item, .all-films .item, div.item")?.mapNotNull {
                     parseParadiseMovieCard(it)
-                }
+                }.orEmpty()
             }
         }
 
@@ -315,16 +315,16 @@ class CustomScraper : MainAPI() {
             }
         } else if (url.contains("speedporn.net")) {
             // === SPEEDPORN MOVIE / VIDEO DETAILS BRANCH ===
-            val doc = app.get(url, headers = speedpornHeaders).document
+            val doc = runCatching { app.get(url, headers = speedpornHeaders).document }.getOrNull()
 
-            val title = doc.selectFirst("h1")?.text()?.trim()
+            val title = doc?.selectFirst("h1")?.text()?.trim()
                 ?.replace(Regex("""^Watch\s+""", RegexOption.IGNORE_CASE), "")
                 ?.replace(Regex("""\s+Porn Online Free$""", RegexOption.IGNORE_CASE), "")
                 ?.trim()
-                ?: doc.selectFirst("meta[property='og:title']")?.attr("content")
+                ?: doc?.selectFirst("meta[property='og:title']")?.attr("content")
                 ?: "SpeedPorn Video"
 
-            val ldJson = doc.selectFirst("script[type='application/ld+json']")?.data()
+            val ldJson = doc?.selectFirst("script[type='application/ld+json']")?.data()
             val ldThumbnail = Regex("""["']thumbnailUrl["']\s*:\s*["']([^"']+)["']""").find(ldJson.orEmpty())?.groupValues?.get(1)
             val ldDescription = Regex("""["']description["']\s*:\s*["']([^"']+)["']""").find(ldJson.orEmpty())?.groupValues?.get(1)
             val ldDuration = Regex("""["']duration["']\s*:\s*["']PT(?:(\d+)H)?(?:(\d+)M)?["']""").find(ldJson.orEmpty())?.let {
@@ -334,17 +334,18 @@ class CustomScraper : MainAPI() {
             }
 
             val poster = ldThumbnail
-                ?: doc.selectFirst(".video-thumbnail img, .entry-thumb img, img.attachment-post-thumbnail")?.attr("data-src")?.ifBlank { null }
-                ?: doc.selectFirst(".video-thumbnail img, .entry-thumb img, img.attachment-post-thumbnail")?.attr("src")?.ifBlank { null }
-                ?: doc.selectFirst("meta[property='og:image']")?.attr("content")
+                ?: doc?.selectFirst(".video-thumbnail img, .entry-thumb img, img.attachment-post-thumbnail")?.attr("data-src")?.ifBlank { null }
+                ?: doc?.selectFirst(".video-thumbnail img, .entry-thumb img, img.attachment-post-thumbnail")?.attr("src")?.ifBlank { null }
+                ?: doc?.selectFirst("meta[property='og:image']")?.attr("content")
 
             val description = ldDescription?.trim()
-                ?: doc.selectFirst(".video-details, .entry-content, .description, .post-entry")?.text()?.trim()
-                ?: doc.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
+                ?: doc?.selectFirst(".video-details, .entry-content, .description, .post-entry")?.text()?.trim()
+                ?: doc?.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
 
-            val tags = doc.select("a[href*='/tag/'], a[href*='/category/']")
-                .mapNotNull { it.text().trim().ifBlank { null } }
-                .distinct()
+            val tags = doc?.select("a[href*='/tag/'], a[href*='/category/']")
+                ?.mapNotNull { it.text().trim().ifBlank { null } }
+                ?.distinct()
+                .orEmpty()
 
             newMovieLoadResponse(title, url, TvType.Movie, url) {
                 this.posterUrl = fixUrlNull(poster, speedpornUrl)
@@ -355,24 +356,24 @@ class CustomScraper : MainAPI() {
             }
         } else if (url.contains("porntrex.com")) {
             // === PORNTREX VIDEO DETAILS BRANCH ===
-            val doc = app.get(url, headers = porntrexHeaders).document
-            val scriptText = doc.selectFirst("script:containsData(var flashvars)")?.data()
-                ?: doc.selectFirst("script:containsData(flashvars)")?.data()
+            val doc = runCatching { app.get(url, headers = porntrexHeaders).document }.getOrNull()
+            val scriptText = doc?.selectFirst("script:containsData(var flashvars)")?.data()
+                ?: doc?.selectFirst("script:containsData(flashvars)")?.data()
 
             val title = Regex("""['"]?video_title['"]?\s*:\s*['"]([^'"]+)['"]""").find(scriptText.orEmpty())?.groupValues?.get(1)
-                ?: doc.selectFirst("h1.title, h1, .headline h1, .video-details h1, p.title-video")?.text()?.trim()
-                ?: doc.selectFirst("meta[property='og:title']")?.attr("content")?.substringBefore("|")?.trim()
+                ?: doc?.selectFirst("h1.title, h1, .headline h1, .video-details h1, p.title-video")?.text()?.trim()
+                ?: doc?.selectFirst("meta[property='og:title']")?.attr("content")?.substringBefore("|")?.trim()
                 ?: "Video"
 
             val rawPoster = Regex("""['"]?preview_url['"]?\s*:\s*['"]([^'"]+)['"]""").find(scriptText.orEmpty())?.groupValues?.get(1)
-                ?: doc.selectFirst("meta[property='og:image']")?.attr("content")
-                ?: doc.selectFirst("a.thumb img.cover, #player-holder video[poster], video[poster]")?.attr("poster")
-                ?: doc.selectFirst("a.thumb img.cover")?.attr("src")
+                ?: doc?.selectFirst("meta[property='og:image']")?.attr("content")
+                ?: doc?.selectFirst("a.thumb img.cover, #player-holder video[poster], video[poster]")?.attr("poster")
+                ?: doc?.selectFirst("a.thumb img.cover")?.attr("src")
             val poster = fixUrlNull(rawPoster, porntrexUrl)
 
-            val description = doc.selectFirst(".videodesc .items-holder em.des-link, .videodesc .des-link, .videodesc .items-holder, .videodesc, .description-block, .video-details")?.text()
+            val description = doc?.selectFirst(".videodesc .items-holder em.des-link, .videodesc .des-link, .videodesc .items-holder, .videodesc, .description-block, .video-details")?.text()
                 ?.replace(Regex("^Description:\\s*", RegexOption.IGNORE_CASE), "")?.trim()
-                ?: doc.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
+                ?: doc?.selectFirst("meta[property='og:description']")?.attr("content")?.trim()
 
             newMovieLoadResponse(title, url, TvType.Movie, url) {
                 this.posterUrl = poster
@@ -381,28 +382,29 @@ class CustomScraper : MainAPI() {
             }
         } else {
             // === PARADISEHILL FULL MOVIE DETAILS BRANCH ===
-            val doc = app.get(url, headers = defaultHeaders).document
+            val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
 
-            val title = doc.selectFirst("meta[property='og:title']")?.attr("content")
-                ?: doc.selectFirst("h1, .title h1")?.text()?.trim()
+            val title = doc?.selectFirst("meta[property='og:title']")?.attr("content")
+                ?: doc?.selectFirst("h1, .title h1")?.text()?.trim()
                 ?: "Movie"
 
-            val rawPoster = doc.selectFirst("meta[property='og:image']")?.attr("content")
-                ?: doc.selectFirst(".poster img, img.poster, div.poster img")?.attr("src")
+            val rawPoster = doc?.selectFirst("meta[property='og:image']")?.attr("content")
+                ?: doc?.selectFirst(".poster img, img.poster, div.poster img")?.attr("src")
             val poster = fixUrlNull(toHighResParadisePoster(rawPoster), mainUrl)
 
-            val description = doc.selectFirst("meta[property='og:description']")?.attr("content")
-                ?: doc.selectFirst(".story, div[itemprop='description'], .description")?.text()?.trim()
+            val description = doc?.selectFirst("meta[property='og:description']")?.attr("content")
+                ?: doc?.selectFirst(".story, div[itemprop='description'], .description")?.text()?.trim()
 
-            val releaseYear = doc.selectFirst("span[itemprop='releasedEvent']")?.text()
+            val releaseYear = doc?.selectFirst("span[itemprop='releasedEvent']")?.text()
                 ?.let { Regex("""\b(19\d\d|20\d\d)\b""").find(it)?.groupValues?.get(1)?.toIntOrNull() }
 
-            val categories = doc.select("span[itemprop='genre'] a, a[href*='/category/']")
-                .mapNotNull { it.text().trim().ifBlank { null } }
-                .distinct()
+            val categories = doc?.select("span[itemprop='genre'] a, a[href*='/category/']")
+                ?.mapNotNull { it.text().trim().ifBlank { null } }
+                ?.distinct()
+                .orEmpty()
 
-            val actors = doc.select("a[href*='/actor/']")
-                .mapNotNull { el ->
+            val actors = doc?.select("a[href*='/actor/']")
+                ?.mapNotNull { el ->
                     val actorName = el.text().trim()
                     if (actorName.isNotBlank() && !actorName.contains("Actors", ignoreCase = true)) {
                         ActorData(
@@ -412,10 +414,10 @@ class CustomScraper : MainAPI() {
                             voiceActor = null
                         )
                     } else null
-                }.distinctBy { it.actor.name.lowercase() }
+                }?.distinctBy { it.actor.name.lowercase() }.orEmpty()
 
             // Extract direct multi-part MP4 video sources
-            val rawHtml = doc.html()
+            val rawHtml = doc?.html().orEmpty()
             val mp4Sources = extractParadiseMp4Sources(rawHtml)
 
             // If movie is split into multi-CD parts (e.g. CD1, CD2 ... CD7)
@@ -472,17 +474,18 @@ class CustomScraper : MainAPI() {
             return true
         }
 
-        // A. Direct MP4 Stream Link (Instant handler - no HTTP request needed)
-        if (data.contains(".mp4", ignoreCase = true)) {
+        // A. Direct media URL (do not mistake a page slug containing '.mp4'
+        // for a stream; that used to bypass the site-specific resolver).
+        if (StreamSupport.isDirectMediaUrl(data)) {
             val streamUrl = fixUrl(data, mainUrl)
             callback(
                 ExtractorLink(
                     source = name,
-                    name = "$name 1080p",
+                    name = "$name ${if (streamUrl.contains(".m3u8", true)) "HLS" else "Direct MP4"}",
                     url = streamUrl,
                     referer = "$mainUrl/",
                     quality = getQualityFromName("1080p"),
-                    isM3u8 = false,
+                    isM3u8 = streamUrl.contains(".m3u8", true),
                     headers = mapOf("referer" to "$mainUrl/")
                 )
             )
@@ -491,7 +494,8 @@ class CustomScraper : MainAPI() {
 
         // B. PornTrex Video URL Branch
         if (data.contains("porntrex.com")) {
-            val response = app.get(data, headers = mapOf("referer" to "$porntrexUrl/")).text
+            val response = runCatching { app.get(data, headers = mapOf("referer" to "$porntrexUrl/")).text }.getOrNull()
+                ?: return false
 
             val flashvarsMatch = Regex("""var\s+flashvars\s*=\s*\{([^}]+)\}""", RegexOption.DOT_MATCHES_ALL).find(response)
             val scriptContent = flashvarsMatch?.groupValues?.get(1) ?: response
@@ -533,7 +537,8 @@ class CustomScraper : MainAPI() {
 
         // C. SpeedPorn Post URL & Host Embed Branch
         if (data.contains("speedporn.net")) {
-            val response = app.get(data, headers = speedpornHeaders).text
+            val response = runCatching { app.get(data, headers = speedpornHeaders).text }.getOrNull()
+                ?: return false
             var count = 0
 
             // 1. Direct VOE stream resolver (fast instant extraction)
@@ -576,30 +581,27 @@ class CustomScraper : MainAPI() {
                 }
             }
 
-            // 2. Direct MP4 links embedded in post
-            val directMp4s = Regex("""(https?://[^\s"'<>]+\.mp4[^\s"'<>]*)""").findAll(response)
-                .map { it.groupValues[1] }
+            // 2. Direct MP4 and HLS links embedded in the post or player data.
+            StreamSupport.extractMediaUrls(response)
                 .filter { !it.contains("deleted") && !it.contains("/api/") && !it.contains("test-videos.co.uk") }
-                .distinct()
-                .toList()
-
-            for (mp4 in directMp4s) {
-                callback(
-                    ExtractorLink(
-                        source = name,
-                        name = "$name Direct MP4",
-                        url = mp4,
-                        referer = "$speedpornUrl/",
-                        quality = getQualityFromName("1080p"),
-                        isM3u8 = false,
-                        headers = speedpornHeaders
+                .forEach { streamUrl ->
+                    callback(
+                        ExtractorLink(
+                            source = name,
+                            name = "$name ${if (streamUrl.contains(".m3u8", true)) "Direct HLS" else "Direct MP4"}",
+                            url = streamUrl,
+                            referer = "$speedpornUrl/",
+                            quality = getQualityFromName("1080p"),
+                            isM3u8 = streamUrl.contains(".m3u8", true),
+                            headers = speedpornHeaders
+                        )
                     )
-                )
-                count++
-            }
+                    count++
+                }
 
-            // 3. Multi-mirror Unpackers for StreamWish / Luluvid / FileLions / MixDrop
-            val hostLinks = Regex("""https?://[^\s"'<>\(\)]*(?:playmogo|dood|mixdrop|streamtape|voe|streamwish|filelions|luluvid|luluvdo|dropupload)[^\s"'<>\(\)]*""", RegexOption.IGNORE_CASE)
+            // 3. Multi-mirror unpackers and native extractor fallbacks. SpeedPorn
+            // now publishes PlayMate embeds too, which were missing here.
+            val hostLinks = Regex("""https?://[^\s"'<>\(\)]*(?:playmogo|dood|d0000d|mixdrop|mxdrop|streamtape|voe|streamwish|filelions|luluvid|luluvdo|lulustream|playmate|dropupload)[^\s"'<>\(\)]*""", RegexOption.IGNORE_CASE)
                 .findAll(response)
                 .map { it.value.replace("&amp;", "&") }
                 .distinct()
@@ -611,13 +613,13 @@ class CustomScraper : MainAPI() {
                     val code = Regex("""/(?:e|f)/([a-zA-Z0-9]+)""").find(hUrl)?.groupValues?.get(1)
                         ?: hUrl.substringAfterLast("/").substringBefore("?").substringBefore("&")
                     if (code.isNotBlank()) {
-                        for (mirror in listOf("https://luluvdo.com/e/$code", "https://filelions.to/e/$code", "https://streamwish.to/e/$code")) {
+                        for (mirror in listOf(hUrl, "https://luluvdo.com/e/$code", "https://luluvid.com/e/$code", "https://filelions.to/e/$code", "https://streamwish.to/e/$code").distinct()) {
                             try {
                                 val html = app.get(mirror, headers = mapOf("Referer" to "$speedpornUrl/")).text
                                 if (html.length < 500) continue
                                 val unpacked = unpackPacker(html)
-                                val sourceRegex = Regex("""https?://[^\s"'<>]+\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?""")
-                                val streamMatch = sourceRegex.find(unpacked)?.value ?: sourceRegex.find(html)?.value
+                                val streamMatch = StreamSupport.extractMediaUrls(unpacked).firstOrNull()
+                                    ?: StreamSupport.extractMediaUrls(html).firstOrNull()
                                 if (streamMatch != null) {
                                     callback(
                                         ExtractorLink(
@@ -635,16 +637,43 @@ class CustomScraper : MainAPI() {
                             } catch (_: Exception) {}
                         }
                     }
-                } else if (hUrl.contains("mixdrop")) {
+                } else if (hUrl.contains("playmate")) {
+                    val embedHtml = runCatching { app.get(hUrl, headers = mapOf("Referer" to "$speedpornUrl/")).text }.getOrNull()
+                    val mediaUrls = embedHtml?.let(StreamSupport::extractMediaUrls).orEmpty()
+                    mediaUrls.forEach { streamUrl ->
+                        callback(
+                            ExtractorLink(
+                                source = "PlayMate",
+                                name = "PlayMate ${if (streamUrl.contains(".m3u8", true)) "HLS" else "MP4"}",
+                                url = streamUrl,
+                                referer = hUrl,
+                                quality = getQualityFromName("1080p"),
+                                isM3u8 = streamUrl.contains(".m3u8", true),
+                                headers = mapOf("Referer" to hUrl, "User-Agent" to speedpornHeaders["user-agent"]!!)
+                            )
+                        )
+                        count++
+                    }
+                    if (mediaUrls.isEmpty()) {
+                        var emitted = false
+                        runCatching {
+                            loadExtractor(hUrl, "$speedpornUrl/", subtitleCallback) { link ->
+                                emitted = true
+                                callback(link)
+                            }
+                        }
+                        if (emitted) count++
+                    }
+                } else if (hUrl.contains("mixdrop") || hUrl.contains("mxdrop")) {
                     val code = Regex("""/(?:e|f)/([a-zA-Z0-9]+)""").find(hUrl)?.groupValues?.get(1)
                         ?: hUrl.substringAfterLast("/").substringBefore("?").substringBefore("&")
                     if (code.isNotBlank()) {
-                        for (mirror in listOf("https://mixdrop.ag/e/$code", "https://mixdrop.co/e/$code", "https://mixdrop.sx/e/$code")) {
+                        for (mirror in listOf(hUrl, "https://mxdrop.top/e/$code", "https://mixdrop.my/e/$code", "https://mixdrop.ag/e/$code", "https://mixdrop.co/e/$code", "https://mixdrop.sx/e/$code").distinct()) {
                             try {
                                 val html = app.get(mirror, headers = mapOf("Referer" to "$speedpornUrl/")).text
                                 if (html.length < 500) continue
                                 val unpacked = unpackPacker(html)
-                                val wurlRegex = Regex("""(?:MDCore\.wurl|wurl)\s*=\s*"([^"]+)"""")
+                                val wurlRegex = Regex("""(?:MDCore\.wurl|wurl)\s*[:=]\s*["']([^"']+)"""")
                                 val wurlMatch = wurlRegex.find(unpacked)?.groupValues?.get(1) ?: wurlRegex.find(html)?.groupValues?.get(1)
                                 if (wurlMatch != null) {
                                     val fullUrl = if (wurlMatch.startsWith("//")) "https:$wurlMatch" else wurlMatch
@@ -666,10 +695,20 @@ class CustomScraper : MainAPI() {
                         }
                     }
                 } else {
-                    runCatching {
-                        loadExtractor(hUrl, "$speedpornUrl/", subtitleCallback, callback)
-                        count++
+                    // A successful extractor call is not the same as an emitted
+                    // source. Count only callback results so CloudStream does not
+                    // report a playable link when none was actually produced.
+                    var emitted = false
+                    for (extractorUrl in speedPornExtractorUrls(hUrl)) {
+                        runCatching {
+                            loadExtractor(extractorUrl, "$speedpornUrl/", subtitleCallback) { link ->
+                                emitted = true
+                                callback(link)
+                            }
+                        }
+                        if (emitted) break
                     }
+                    if (emitted) count++
                 }
             }
 
@@ -678,7 +717,8 @@ class CustomScraper : MainAPI() {
 
         // D. ParadiseHill Movie Page URL or Part URL Branch
         val pageUrl = data.substringBefore("#")
-        val response = app.get(pageUrl, headers = mapOf("referer" to "$mainUrl/")).text
+        val response = runCatching { app.get(pageUrl, headers = mapOf("referer" to "$mainUrl/")).text }.getOrNull()
+            ?: return false
         val mp4Sources = extractParadiseMp4Sources(response)
         if (mp4Sources.isEmpty()) return false
 
@@ -779,6 +819,23 @@ class CustomScraper : MainAPI() {
         return newMovieSearchResponse(cleanTitle(title), fixUrl(href, speedpornUrl), TvType.Movie) {
             this.posterUrl = fixUrlNull(rawPoster, speedpornUrl)
             this.posterHeaders = speedpornHeaders
+        }
+    }
+
+    /**
+     * Keep the URL published by SpeedPorn first, then try the stable host
+     * aliases expected by CloudStream's bundled extractors. This is important
+     * for Dood/Playmogo aliases that rotate independently of the post URL.
+     */
+    private fun speedPornExtractorUrls(embedUrl: String): List<String> {
+        val clean = embedUrl.trim().replace("&amp;", "&")
+        val code = Regex("""/(?:e|d|f)/([a-zA-Z0-9]+)""").find(clean)?.groupValues?.getOrNull(1)
+        return when {
+            (clean.contains("playmogo", true) || clean.contains("dood", true) || clean.contains("d0000d", true)) && !code.isNullOrBlank() ->
+                listOf(clean, "https://d0000d.com/e/$code", "https://dood.la/e/$code").distinct()
+            (clean.contains("mixdrop", true) || clean.contains("mxdrop", true)) && !code.isNullOrBlank() ->
+                listOf(clean, "https://mxdrop.top/e/$code", "https://mixdrop.my/e/$code").distinct()
+            else -> listOf(clean)
         }
     }
 

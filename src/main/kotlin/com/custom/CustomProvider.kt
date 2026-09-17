@@ -10,8 +10,9 @@ import com.lagradost.cloudstream3.plugins.Plugin
 object ProviderSettingsHelper {
     fun initSettings(context: Context) {
         try {
-            val prefs = context.javaClass.getMethod("getSharedPreferences", String::class.java, Int::class.javaPrimitiveType)
-                .invoke(context, "Anshul_CustomProviders_Settings", 0)
+            val prefs =
+                context.javaClass.getMethod("getSharedPreferences", String::class.java, Int::class.javaPrimitiveType)
+                    .invoke(context, "Anshul_CustomProviders_Settings", 0)
             val getInt = prefs.javaClass.getMethod("getInt", String::class.java, Int::class.javaPrimitiveType)
 
             val sPages = getInt.invoke(prefs, "search_pages", 2) as? Int ?: 2
@@ -25,13 +26,22 @@ object ProviderSettingsHelper {
             TnaFlix.modelPages = mPages
             FPO.searchPages = sPages
             FPO.modelPages = mPages
-        } catch (_: Exception) {}
+            PLibrary.searchPages = sPages
+            PLibrary.yamyModelPages = mPages
+            PLibrary.daftModelPages = mPages
+            PLibrary.tnaModelPages = mPages
+            PLibrary.fpoModelPages = mPages
+            CustomScraper.searchPages = sPages
+            CustomScraper.actorPages = mPages
+        } catch (_: Exception) {
+        }
     }
 
     fun openSettingsDialog(ctx: Any) {
         try {
-            val prefs = ctx.javaClass.getMethod("getSharedPreferences", String::class.java, Int::class.javaPrimitiveType)
-                .invoke(ctx, "Anshul_CustomProviders_Settings", 0)
+            val prefs =
+                ctx.javaClass.getMethod("getSharedPreferences", String::class.java, Int::class.javaPrimitiveType)
+                    .invoke(ctx, "Anshul_CustomProviders_Settings", 0)
 
             val builderClass = Class.forName("android.app.AlertDialog\$Builder")
             val listenerClass = Class.forName("android.content.DialogInterface\$OnClickListener")
@@ -42,7 +52,8 @@ object ProviderSettingsHelper {
             )
 
             val mainBuilder = builderClass.getConstructor(Class.forName("android.content.Context")).newInstance(ctx)
-            builderClass.getMethod("setTitle", CharSequence::class.java).invoke(mainBuilder, "Provider Scraper Settings")
+            builderClass.getMethod("setTitle", CharSequence::class.java)
+                .invoke(mainBuilder, "Provider Scraper Settings")
 
             val mainListener = java.lang.reflect.Proxy.newProxyInstance(
                 listenerClass.classLoader,
@@ -63,8 +74,10 @@ object ProviderSettingsHelper {
                             "5 Pages (Maximum)"
                         )
                         val currentSearch = (YamyHub.searchPages - 1).coerceIn(0, 4)
-                        val sBuilder = builderClass.getConstructor(Class.forName("android.content.Context")).newInstance(ctx)
-                        builderClass.getMethod("setTitle", CharSequence::class.java).invoke(sBuilder, "Search Scrape Depth")
+                        val sBuilder =
+                            builderClass.getConstructor(Class.forName("android.content.Context")).newInstance(ctx)
+                        builderClass.getMethod("setTitle", CharSequence::class.java)
+                            .invoke(sBuilder, "Search Scrape Depth")
 
                         val sListener = java.lang.reflect.Proxy.newProxyInstance(
                             listenerClass.classLoader,
@@ -78,9 +91,12 @@ object ProviderSettingsHelper {
                                 Eporner.maxSearchPages = pages
                                 TnaFlix.searchPages = pages
                                 FPO.searchPages = pages
+                                PLibrary.searchPages = pages
+                                CustomScraper.searchPages = pages
 
                                 val editor = prefs.javaClass.getMethod("edit").invoke(prefs)
-                                editor.javaClass.getMethod("putInt", String::class.java, Int::class.javaPrimitiveType).invoke(editor, "search_pages", pages)
+                                editor.javaClass.getMethod("putInt", String::class.java, Int::class.javaPrimitiveType)
+                                    .invoke(editor, "search_pages", pages)
                                 editor.javaClass.getMethod("apply").invoke(editor)
 
                                 val sDialog = sArgs?.getOrNull(0)
@@ -88,7 +104,12 @@ object ProviderSettingsHelper {
                             }
                             null
                         }
-                        builderClass.getMethod("setSingleChoiceItems", Array<CharSequence>::class.java, Int::class.javaPrimitiveType, listenerClass)
+                        builderClass.getMethod(
+                            "setSingleChoiceItems",
+                            Array<CharSequence>::class.java,
+                            Int::class.javaPrimitiveType,
+                            listenerClass
+                        )
                             .invoke(sBuilder, searchOptions, currentSearch, sListener)
                         builderClass.getMethod("setNegativeButton", CharSequence::class.java, listenerClass)
                             .invoke(sBuilder, "Cancel", null)
@@ -105,8 +126,10 @@ object ProviderSettingsHelper {
                         val modelValues = intArrayOf(1, 2, 3, 5, 10)
                         val currentModel = modelValues.indexOf(YamyHub.modelPages).let { if (it >= 0) it else 1 }
 
-                        val mBuilder = builderClass.getConstructor(Class.forName("android.content.Context")).newInstance(ctx)
-                        builderClass.getMethod("setTitle", CharSequence::class.java).invoke(mBuilder, "Model Profile Scrape Depth")
+                        val mBuilder =
+                            builderClass.getConstructor(Class.forName("android.content.Context")).newInstance(ctx)
+                        builderClass.getMethod("setTitle", CharSequence::class.java)
+                            .invoke(mBuilder, "Model Profile Scrape Depth")
 
                         val mListener = java.lang.reflect.Proxy.newProxyInstance(
                             listenerClass.classLoader,
@@ -120,9 +143,15 @@ object ProviderSettingsHelper {
                                 Eporner.modelPages = pages
                                 TnaFlix.modelPages = pages
                                 FPO.modelPages = pages
+                                PLibrary.yamyModelPages = pages
+                                PLibrary.daftModelPages = pages
+                                PLibrary.tnaModelPages = pages
+                                PLibrary.fpoModelPages = pages
+                                CustomScraper.actorPages = pages
 
                                 val editor = prefs.javaClass.getMethod("edit").invoke(prefs)
-                                editor.javaClass.getMethod("putInt", String::class.java, Int::class.javaPrimitiveType).invoke(editor, "model_pages", pages)
+                                editor.javaClass.getMethod("putInt", String::class.java, Int::class.javaPrimitiveType)
+                                    .invoke(editor, "model_pages", pages)
                                 editor.javaClass.getMethod("apply").invoke(editor)
 
                                 val mDialog = mArgs?.getOrNull(0)
@@ -130,7 +159,12 @@ object ProviderSettingsHelper {
                             }
                             null
                         }
-                        builderClass.getMethod("setSingleChoiceItems", Array<CharSequence>::class.java, Int::class.javaPrimitiveType, listenerClass)
+                        builderClass.getMethod(
+                            "setSingleChoiceItems",
+                            Array<CharSequence>::class.java,
+                            Int::class.javaPrimitiveType,
+                            listenerClass
+                        )
                             .invoke(mBuilder, modelOptions, currentModel, mListener)
                         builderClass.getMethod("setNegativeButton", CharSequence::class.java, listenerClass)
                             .invoke(mBuilder, "Cancel", null)
@@ -203,6 +237,9 @@ class FPOProvider : Plugin() {
 @CloudstreamPlugin
 class PLibraryProvider : Plugin() {
     override fun load(context: Context) {
+        // PLibrary used to register CustomScraper here. That meant installing
+        // the PLibrary plugin actually opened MultiSource/ParadiseHill, which
+        // explains its intermittent catalogue and link-load failures.
         registerMainAPI(PLibrary())
         ProviderSettingsHelper.initSettings(context)
         this.openSettings = { ctx -> ProviderSettingsHelper.openSettingsDialog(ctx) }
@@ -252,6 +289,3 @@ class LimeTorrentsProvider : Plugin() {
         registerMainAPI(LimeTorrents())
     }
 }
-
-
-
