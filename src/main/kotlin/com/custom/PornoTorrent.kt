@@ -139,6 +139,7 @@ class PornoTorrent : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         var magnet = data
+        var emitted = false
         if (!magnet.startsWith("magnet:")) {
             val document = app.get(data, headers = headers).document
             for (a in document.select("a[href]")) {
@@ -179,7 +180,8 @@ class PornoTorrent : MainAPI() {
                     isM3u8 = false
                 ).apply { type = ExtractorLinkType.TORRENT }
             )
+            emitted = true
         }
-        return true
+        return emitted
     }
 }

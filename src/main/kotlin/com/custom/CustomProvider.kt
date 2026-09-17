@@ -203,7 +203,7 @@ class FPOProvider : Plugin() {
 @CloudstreamPlugin
 class PLibraryProvider : Plugin() {
     override fun load(context: Context) {
-        registerMainAPI(CustomScraper())
+        registerMainAPI(PLibrary())
         ProviderSettingsHelper.initSettings(context)
         this.openSettings = { ctx -> ProviderSettingsHelper.openSettingsDialog(ctx) }
     }

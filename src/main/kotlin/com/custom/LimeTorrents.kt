@@ -89,6 +89,7 @@ class LimeTorrents : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         var magnet = data
+        var emitted = false
         if (!magnet.startsWith("magnet:")) {
             val document = app.get(data, headers = headers).document
             magnet = document.selectFirst("a[href^='magnet:']")?.attr("href")
@@ -114,7 +115,8 @@ class LimeTorrents : MainAPI() {
                     isM3u8 = false
                 ).apply { type = ExtractorLinkType.TORRENT }
             )
+            emitted = true
         }
-        return true
+        return emitted
     }
 }

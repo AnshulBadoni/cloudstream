@@ -69,4 +69,23 @@ class SpeedPornIntegrationTest {
         println("SpeedPorn link extraction success: $success (Count: ${extractedLinks.size})")
         assertTrue(extractedLinks.isNotEmpty() || success, "Should extract links from SpeedPorn entry")
     }
+
+    @Test
+    fun testSpeedPornStars8Diagnostics() = runBlocking {
+        println("=== 4. TESTING SPEEDPORN STARS 8 DIAGNOSTICS ===")
+        val sampleUrl = "https://speedporn.net/stars-8-3/"
+        val extractedLinks = mutableListOf<ExtractorLink>()
+        val success = scraper.loadLinks(sampleUrl, isCasting = false, subtitleCallback = {}) { link ->
+            extractedLinks.add(link)
+        }
+
+        val sources = extractedLinks.groupingBy { it.source }.eachCount()
+        val names = extractedLinks.groupingBy { it.name.substringBefore(" [").substringBefore(" Direct") }.eachCount()
+        println("loadLinks returned: $success")
+        println("Total extracted links: ${extractedLinks.size}")
+        println("Sources: $sources")
+        println("Names: $names")
+
+        assertTrue(extractedLinks.isNotEmpty(), "Should extract at least one stream for Stars 8")
+    }
 }

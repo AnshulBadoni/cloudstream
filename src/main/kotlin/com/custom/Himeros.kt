@@ -12,6 +12,7 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
@@ -456,6 +457,11 @@ class Himeros : MainAPI() {
             ?.replace(Regex("""(?i)^Watch\s+"""), "")
             ?.replace(Regex("""(?i)\s+Porn\s+Online\s+Free$"""), "")
             ?.trim() ?: ""
+        val emittedCount = AtomicInteger(0)
+        val emit: (ExtractorLink) -> Unit = { link ->
+            emittedCount.incrementAndGet()
+            callback(link)
+        }
 
         val rawCandidateUrls = mutableSetOf<String>()
 
@@ -504,21 +510,21 @@ class Himeros : MainAPI() {
             val luluJobs = validOriginalUrls.filter { 
                 it.contains("luluvid") || it.contains("luluvdo") || it.contains("streamwish") || it.contains("filelions") 
             }.map { embedUrl ->
-                async { resolveLuluvidStreamWish(embedUrl, callback) }
+                async { resolveLuluvidStreamWish(embedUrl, emit) }
             }
 
             // F. Direct custom unpackers for MixDrop
             val mixdropJobs = validOriginalUrls.filter {
                 it.contains("mixdrop")
             }.map { embedUrl ->
-                async { resolveMixDrop(embedUrl, callback) }
+                async { resolveMixDrop(embedUrl, emit) }
             }
 
             // G. Default CloudStream extractors for others
             val extractorJobs = validOriginalUrls.map { normalizeEmbedUrl(it) }.distinct().map { embedUrl ->
                 async {
                     try {
-                        loadExtractor(embedUrl, subtitleCallback, callback)
+                        loadExtractor(embedUrl, subtitleCallback, emit)
                     } catch (_: Exception) {}
                 }
             }
@@ -528,7 +534,7 @@ class Himeros : MainAPI() {
             directStreamRegex.findAll(rawHtml).forEach { m ->
                 val streamUrl = m.value
                 if (!streamUrl.contains("test-videos.co.uk") && !streamUrl.contains("sample")) {
-                    callback.invoke(
+                    emit(
                         ExtractorLink(
                             source = name,
                             name = "SpeedPorn Direct (1080p)",
@@ -543,8 +549,8 @@ class Himeros : MainAPI() {
             }
 
             // I. Parallel Torrent Resolution (PornoTorrent & LimeTorrents)
-            val pTorrent = if (movieTitle.isNotEmpty()) async { resolvePornoTorrent(movieTitle, callback) } else null
-            val lTorrent = if (movieTitle.isNotEmpty()) async { resolveLimeTorrents(movieTitle, callback) } else null
+            val pTorrent = if (movieTitle.isNotEmpty()) async { resolvePornoTorrent(movieTitle, emit) } else null
+            val lTorrent = if (movieTitle.isNotEmpty()) async { resolveLimeTorrents(movieTitle, emit) } else null
 
             luluJobs.awaitAll()
             mixdropJobs.awaitAll()
@@ -553,7 +559,7 @@ class Himeros : MainAPI() {
             lTorrent?.await()
         }
 
-        return true
+        return emittedCount.get() > 0
     }
 
     // 9. PORNOTORRENT RESOLVER

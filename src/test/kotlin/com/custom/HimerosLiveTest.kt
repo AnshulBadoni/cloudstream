@@ -43,4 +43,22 @@ class HimerosLiveTest {
         println("Total extracted links: ${extractedLinks.size}")
         assertTrue(extractedLinks.isNotEmpty(), "Should extract at least one stream for Meant to Fuck")
     }
+
+    @Test
+    fun testLoadLinksStars8Diagnostics() = runBlocking {
+        println("=== 4. TESTING LOAD LINKS DIAGNOSTICS FOR STARS 8 ===")
+        val extractedLinks = mutableListOf<ExtractorLink>()
+        val success = himeros.loadLinks("https://speedporn.net/stars-8-3/", isCasting = false, subtitleCallback = {}) { link ->
+            extractedLinks.add(link)
+        }
+
+        val sources = extractedLinks.groupingBy { it.source }.eachCount()
+        val names = extractedLinks.groupingBy { it.name.substringBefore(" [").substringBefore(" Direct") }.eachCount()
+        println("loadLinks returned: $success")
+        println("Total extracted links: ${extractedLinks.size}")
+        println("Sources: $sources")
+        println("Names: $names")
+
+        assertTrue(extractedLinks.isNotEmpty(), "Should extract at least one stream for Stars 8")
+    }
 }
