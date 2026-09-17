@@ -289,3 +289,13 @@ class LimeTorrentsProvider : Plugin() {
         registerMainAPI(LimeTorrents())
     }
 }
+
+/**
+ * Dedicated Plugin for 5MoviesPorn (5moviesporn.io)
+ */
+@CloudstreamPlugin
+class FiveMoviesPornProvider : Plugin() {
+    override fun load(context: Context) {
+        registerMainAPI(FiveMoviesPorn())
+    }
+}

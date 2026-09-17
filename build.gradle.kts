@@ -187,6 +187,7 @@ tasks.register("makePlugin") {
         val himerosCs3 = File(distDir, "Himeros.cs3")
         val pornoTorrentCs3 = File(distDir, "PornoTorrent.cs3")
         val limeTorrentsCs3 = File(distDir, "LimeTorrents.cs3")
+        val fiveMoviesCs3 = File(distDir, "FiveMoviesPorn.cs3")
 
         createPluginZip("PornTrex", "com.megix.PorntrexProvider", porntrexCs3, version = 104)
         createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3, version = 109)
@@ -197,9 +198,25 @@ tasks.register("makePlugin") {
         createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 120)
         createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 108)
         createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 106)
+        createPluginZip("FiveMoviesPorn", "com.custom.FiveMoviesPornProvider", fiveMoviesCs3, version = 100)
 
         val pluginsJson = """
 [
+  {
+    "name": "FiveMoviesPorn",
+    "internalName": "FiveMoviesPorn",
+    "version": 100,
+    "apiVersion": 1,
+    "description": "High quality full movie and scene streaming provider with VOE, PlayMogo, and DoodStream multi-host embeds from 5moviesporn.io.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie"],
+    "iconUrl": "https://www.5moviesporn.io/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/FiveMoviesPorn.cs3",
+    "fileSize": ${if (fiveMoviesCs3.exists()) fiveMoviesCs3.length() else 102400}
+  },
   {
     "name": "Himeros",
     "internalName": "Himeros",
