@@ -1,38 +1,295 @@
 package com.custom
 
+import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.*
-import kotlinx.coroutines.*
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.jsoup.Jsoup
+import com.lagradost.cloudstream3.network.CloudflareKiller
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.newExtractorLink
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
-import java.security.SecureRandom
-import java.security.cert.X509Certificate
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
 
-/**
- * Himeros - SpeedPorn Master Provider for CloudStream
- *
- * Direct Catalogs from SpeedPorn:
- * 1. HD Movies -> https://speedporn.net/hdmovies/
- * 2. Latest Releases -> https://speedporn.net/
- * 3. Adult Movies -> https://speedporn.net/adult/
- * 4. Full Length Movies -> https://speedporn.net/free-movies/
- * 5. HD Scenes -> https://speedporn.net/hdporn/
- * 6. Popular -> https://speedporn.net/search-tags/
- *
- * Resolvers:
- * - Direct Built-in Unpackers: Luluvid, StreamWish, Luluvdo, FileLions, VOE, MixDrop, DoodStream.
- * - Torrent Resolvers (Parallel): PornoTorrent (pornotorrent.com.br), LimeTorrents (limetorrents.lol).
- */
+// =====================================================================
+//  LOGGING
+// =====================================================================
+private const val TAG = "Himeros"
+
+internal fun hLog(msg: String) {
+    Log.d(TAG, msg)
+}
+
+internal fun hLog(msg: String, e: Throwable) {
+    Log.e(TAG, "$msg -> ${e::class.java.simpleName}: ${e.message}")
+}
+
+// =====================================================================
+//  URL UTILITIES
+// =====================================================================
+internal object UrlUtils {
+
+    /** "//host/x" -> "https://host/x"; "http://" left alone; trims junk. */
+    fun fixProtocol(url: String): String {
+        val u = url.trim().replace("\\/", "/")
+        return when {
+            u.startsWith("//") -> "https:$u"
+            u.startsWith("http://") || u.startsWith("https://") -> u
+            u.startsWith("magnet:") -> u
+            else -> u
+        }
+    }
+
+    /** "https://a.b.com/e/xyz?q=1" -> "https://a.b.com" */
+    fun origin(url: String): String =
+        Regex("""^(https?://[^/]+)""").find(url)?.groupValues?.get(1) ?: url
+
+    /** "https://a.b.com/e/xyz" -> "https://a.b.com/" */
+    fun originSlash(url: String): String = origin(url) + "/"
+
+    fun encode(s: String): String = URLEncoder.encode(s, "UTF-8")
+}
+
+// =====================================================================
+//  DEAN EDWARDS P.A.C.K.E.R UNPACKER (self-contained, base-62 capable)
+// =====================================================================
+internal object JsPacker {
+
+    private val PACKED_SINGLE = Regex(
+        """\}\s*\(\s*'(.*?)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'(.*?)'\s*\.\s*split\s*\(\s*'\|'\s*\)""",
+        RegexOption.DOT_MATCHES_ALL
+    )
+
+    private val PACKED_DOUBLE = Regex(
+        """\}\s*\(\s*"(.*?)"\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*"(.*?)"\s*\.\s*split\s*\(\s*"\|"\s*\)""",
+        RegexOption.DOT_MATCHES_ALL
+    )
+
+    fun looksPacked(source: String): Boolean =
+        source.contains("eval(function(p,a,c,k,e,")
+
+    /**
+     * Unpacks every packed block found in [source] and returns them joined.
+     * Returns "" when nothing could be unpacked.
+     */
+    fun unpackAll(source: String): String {
+        val out = StringBuilder()
+        for (regex in listOf(PACKED_SINGLE, PACKED_DOUBLE)) {
+            for (m in regex.findAll(source)) {
+                val decoded = try {
+                    decode(
+                        payload = unescape(m.groupValues[1]),
+                        base = m.groupValues[2].toIntOrNull() ?: continue,
+                        count = m.groupValues[3].toIntOrNull() ?: continue,
+                        keys = unescape(m.groupValues[4]).split("|")
+                    )
+                } catch (e: Exception) {
+                    hLog("unpack failed", e); null
+                }
+                if (!decoded.isNullOrBlank()) out.append(decoded).append('\n')
+            }
+            if (out.isNotEmpty()) break
+        }
+        return out.toString()
+    }
+
+    /** Unpacks if packed, otherwise returns the original text. Never throws. */
+    fun unpackOrOriginal(source: String): String {
+        if (!looksPacked(source)) return source
+        val un = unpackAll(source)
+        return if (un.isBlank()) source else un
+    }
+
+    private fun unescape(s: String): String = s
+        .replace("\\\\", "\u0000")
+        .replace("\\'", "'")
+        .replace("\\\"", "\"")
+        .replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace("\u0000", "\\")
+
+    /** Mirrors the packer's own base encoder (0-9 a-z A-Z, base up to 62). */
+    private fun encodeBase(value: Int, base: Int): String {
+        fun digit(d: Int): String =
+            if (d > 35) (d + 29).toChar().toString() else d.toString(36)
+        return if (value < base) digit(value)
+        else encodeBase(value / base, base) + digit(value % base)
+    }
+
+    private fun decode(payload: String, base: Int, count: Int, keys: List<String>): String {
+        if (base <= 1 || count <= 0) return ""
+        val map = HashMap<String, String>(count * 2)
+        for (i in 0 until count) {
+            val token = encodeBase(i, base)
+            val replacement = keys.getOrNull(i)
+            map[token] = if (replacement.isNullOrEmpty()) token else replacement
+        }
+        // single pass over word tokens -> no cascading re-replacement
+        return Regex("""\b\w+\b""").replace(payload) { m -> map[m.value] ?: m.value }
+    }
+}
+
+// =====================================================================
+//  MEDIA URL FINDER (m3u8 / mp4 / mkv inside html or unpacked js)
+// =====================================================================
+internal object MediaFinder {
+
+    private val DIRECT = Regex(
+        """https?:(?:\\/\\/|//)[^\s"'<>()\[\]]+?\.(?:m3u8|mp4|mkv|webm)(?:\?[^\s"'<>()\[\]]*)?""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val KEYED = Regex(
+        """["'](?:file|src|source|hls|url|videoUrl|play_url)["']?\s*[:=]\s*["'](https?:[^"']+|//[^"']+)["']""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val BLOCKED = listOf(
+        "test-videos.co.uk", "/sample", "sample.mp4", "googletagmanager",
+        "google-analytics", "doubleclick", "/ads/", "advert", "favicon"
+    )
+
+    fun find(text: String): List<String> {
+        val raw = LinkedHashSet<String>()
+
+        DIRECT.findAll(text).forEach { raw.add(it.value) }
+
+        KEYED.findAll(text).forEach { m ->
+            val v = m.groupValues[1]
+            if (v.contains(".m3u8", true) || v.contains(".mp4", true) ||
+                v.contains(".mkv", true) || v.contains("/hls", true)
+            ) raw.add(v)
+        }
+
+        return raw
+            .map { UrlUtils.fixProtocol(it) }
+            .filter { url ->
+                url.startsWith("http") && BLOCKED.none { url.contains(it, ignoreCase = true) }
+            }
+            .distinct()
+    }
+
+    fun isM3u8(url: String): Boolean =
+        url.contains(".m3u8", ignoreCase = true) || url.contains("/hls", ignoreCase = true)
+}
+
+// =====================================================================
+//  QUALITY PARSER
+// =====================================================================
+internal object QualityParser {
+
+    /** Returns a Qualities.*.value, or Qualities.Unknown.value when unsure. */
+    fun fromText(text: String?): Int {
+        if (text.isNullOrBlank()) return Qualities.Unknown.value
+        val t = text.lowercase()
+        return when {
+            t.contains("2160") || t.contains("4k") || t.contains("uhd") -> Qualities.P2160.value
+            t.contains("1440") -> Qualities.P1440.value
+            t.contains("1080") -> Qualities.P1080.value
+            t.contains("720") -> Qualities.P720.value
+            t.contains("480") -> Qualities.P480.value
+            t.contains("360") -> Qualities.P360.value
+            t.contains("240") -> Qualities.P240.value
+            else -> Qualities.Unknown.value
+        }
+    }
+}
+
+// =====================================================================
+//  TORRENT FINDER
+// =====================================================================
+internal data class TorrentHit(val url: String, val isMagnet: Boolean)
+internal data class SearchEntry(val title: String, val url: String)
+
+internal object TorrentFinder {
+
+    val limeMirrors = listOf(
+        "https://www.limetorrents.lol",
+        "https://limetorrents.lol",
+        "https://www.limetorrents.pro",
+        "https://limetorrents.unblockit.click"
+    )
+
+    fun limeSearchUrls(mirror: String, query: String): List<String> {
+        val dashed = query.trim().replace(Regex("""\s+"""), "-")
+        val plussed = query.trim().replace(Regex("""\s+"""), "+")
+        return listOf(
+            "$mirror/search/all/${UrlUtils.encode(dashed)}/seeds/1/",
+            "$mirror/search/all/$plussed/"
+        ).distinct()
+    }
+
+    /** Rows of the LimeTorrents result table. */
+    fun findLimeEntries(doc: Document, baseUrl: String): List<SearchEntry> {
+        val out = mutableListOf<SearchEntry>()
+        val rows = doc.select("table.table2 tr, table tr")
+        for (row in rows) {
+            val a = row.select("a[href]").firstOrNull { link ->
+                val h = link.attr("href")
+                h.contains("-torrent-") || h.endsWith(".html")
+            } ?: continue
+            val title = a.text().trim()
+            if (title.isEmpty()) continue
+            val href = absolute(a.attr("href"), baseUrl)
+            if (href.isEmpty()) continue
+            out.add(SearchEntry(title, href))
+        }
+        return out.distinctBy { it.url }
+    }
+
+    /** Magnet first, then .torrent file links. */
+    fun extractTorrent(doc: Document): TorrentHit? {
+        doc.selectFirst("a[href^=magnet:]")?.attr("href")?.takeIf { it.isNotBlank() }?.let {
+            return TorrentHit(it, true)
+        }
+        val fileLink = doc.select("a[href]").firstOrNull { a ->
+            val h = a.attr("href").lowercase()
+            h.endsWith(".torrent") || h.contains("itorrents.org") || h.contains("/download/")
+        }?.attr("href")
+        if (!fileLink.isNullOrBlank()) return TorrentHit(UrlUtils.fixProtocol(fileLink), false)
+
+        // last resort: magnet written in plain text/script
+        Regex("""magnet:\?xt=urn:btih:[A-Za-z0-9]{32,40}[^\s"'<>]*""")
+            .find(doc.html())?.value?.let { return TorrentHit(it, true) }
+
+        return null
+    }
+
+    /** Secondary pages that sometimes hold the real magnet. */
+    fun alternateDetailUrls(doc: Document, baseUrl: String): List<String> =
+        doc.select("a[href]")
+            .map { it.attr("href") }
+            .filter { h ->
+                h.contains("-torrent-") || h.contains("/torrent/") ||
+                        h.contains("download") || h.endsWith(".html")
+            }
+            .map { absolute(it, baseUrl) }
+            .filter { it.isNotEmpty() && it != baseUrl }
+            .distinct()
+            .take(3)
+
+    private fun absolute(href: String, baseUrl: String): String {
+        val h = href.trim()
+        return when {
+            h.isEmpty() -> ""
+            h.startsWith("http") -> h
+            h.startsWith("//") -> "https:$h"
+            h.startsWith("/") -> UrlUtils.origin(baseUrl) + h
+            else -> UrlUtils.originSlash(baseUrl) + h
+        }
+    }
+}
+
+// =====================================================================
+//  PROVIDER
+// =====================================================================
 class Himeros : MainAPI() {
+
     override var mainUrl = "https://speedporn.net"
     override var name = "Himeros"
     override val hasMainPage = true
@@ -41,45 +298,97 @@ class Himeros : MainAPI() {
     override val vpnStatus = VPNStatus.MightBeNeeded
     override val supportedTypes = setOf(TvType.NSFW, TvType.Movie)
 
-    val speedpornHeaders = mapOf(
-        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language" to "en-US,en;q=0.9",
-        "Referer" to "$mainUrl/"
-    )
+    companion object {
+        private const val UA =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
-    private val unsafeClient: OkHttpClient by lazy {
+        private val HOST_MARKERS = listOf(
+            "lulustream", "luluvid", "luluvdo", "streamwish", "filelions", "playmogo",
+            "dood", "d0000d", "mixdrop", "mxdrop", "streamtape", "voe.sx", "voe.",
+            "playmate", "wolfstream", "dropupload", "vidhide", "filemoon"
+        )
+
+        private val JUNK_MARKERS = listOf(
+            "google.com", "gstatic", "deleted", "favicon", "theporndude",
+            "/ads", "disqus", "facebook", "twitter"
+        )
+
+        private val ITEM_SELECTOR =
+            "div.video-block, div.thumb, .item, .post, article"
+    }
+
+    private val cfKiller = CloudflareKiller()
+
+    private val siteHeaders
+        get() = mapOf(
+            "User-Agent" to UA,
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language" to "en-US,en;q=0.9"
+        )
+
+    // -----------------------------------------------------------------
+    // HTTP  (one code path, fails loudly)
+    // -----------------------------------------------------------------
+    private suspend fun getPage(url: String, referer: String = "$mainUrl/"): Document {
+        val res = app.get(url, headers = siteHeaders, referer = referer, interceptor = cfKiller)
+        if (!res.isSuccessful) throw ErrorLoadingException("HTTP ${res.code} for $url")
+        return res.document
+    }
+
+    private suspend fun getTextOrNull(url: String, referer: String): String? = try {
+        val res = app.get(url, headers = siteHeaders, referer = referer)
+        if (!res.isSuccessful) {
+            hLog("skip $url -> HTTP ${res.code}")
+            null
+        } else res.text
+    } catch (e: Exception) {
+        hLog("request failed $url", e); null
+    }
+
+    private suspend fun getDocOrNull(url: String, referer: String): Document? = try {
+        val res = app.get(url, headers = siteHeaders, referer = referer)
+        if (res.isSuccessful) res.document else null
+    } catch (e: Exception) {
+        hLog("request failed $url", e); null
+    }
+
+    // -----------------------------------------------------------------
+    // LINK EMISSION  (single place -> only spot to touch if the
+    //                 newExtractorLink signature changes)
+    // -----------------------------------------------------------------
+    private suspend fun emit(
+        callback: (ExtractorLink) -> Unit,
+        sourceName: String,
+        displayName: String,
+        url: String,
+        type: ExtractorLinkType,
+        referer: String,
+        quality: Int = Qualities.Unknown.value,
+        extraHeaders: Map<String, String> = emptyMap()
+    ) {
         try {
-            val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
-                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-            })
-            val sslContext = SSLContext.getInstance("SSL")
-            sslContext.init(null, trustAllCerts, SecureRandom())
-            OkHttpClient.Builder()
-                .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
-                .hostnameVerifier { _, _ -> true }
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(20, TimeUnit.SECONDS)
-                .followRedirects(true)
-                .followSslRedirects(true)
-                .build()
+            callback.invoke(
+                newExtractorLink(
+                    source = sourceName,
+                    name = displayName,
+                    url = url,
+                    type = type
+                ) {
+                    this.referer = referer
+                    this.quality = quality
+                    this.headers = mapOf("User-Agent" to UA) + extraHeaders
+                }
+            )
+            hLog("emit [$displayName] $url (ref=$referer)")
         } catch (e: Exception) {
-            OkHttpClient()
+            hLog("emit failed for $url", e)
         }
     }
 
-    private suspend fun fetchHtml(url: String, headers: Map<String, String> = speedpornHeaders): Document =
-        withContext(Dispatchers.IO) {
-            val reqBuilder = Request.Builder().url(url)
-            headers.forEach { (k, v) -> reqBuilder.addHeader(k, v) }
-            val response = unsafeClient.newCall(reqBuilder.build()).execute()
-            val body = response.body?.string() ?: ""
-            Jsoup.parse(body, url)
-        }
-
-    // 1. SPEEDPORN HOME PAGE CATALOGS
+    // -----------------------------------------------------------------
+    // MAIN PAGE
+    // -----------------------------------------------------------------
     override val mainPage = mainPageOf(
         "$mainUrl/hdmovies/" to "HD Movies",
         "$mainUrl/" to "Latest Releases",
@@ -91,35 +400,44 @@ class Himeros : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val base = request.data.trimEnd('/')
-        val url = if (page <= 1) {
-            "$base/"
-        } else {
-            "$base/page/$page/"
-        }
-        val document = try {
-            fetchHtml(url)
-        } catch (e: Exception) {
-            app.get(url, headers = speedpornHeaders).document
-        }
+        val url = if (page <= 1) "$base/" else "$base/page/$page/"
+        val doc = getPage(url)
 
-        val items = document.select("div.video-block, div.thumb, .item, .post, article")
-            .mapNotNull { it.toSpeedPornSearchResult() }
+        val items = doc.select(ITEM_SELECTOR)
+            .mapNotNull { it.toSearchResult() }
             .distinctBy { it.url }
 
-        return newHomePageResponse(HomePageList(request.name, items), hasNext = items.isNotEmpty())
+        val hasNext = doc.selectFirst(
+            "a.next, a.next_page, .pagination a[href*='/page/'], .nav-links a.next"
+        ) != null
+
+        return newHomePageResponse(HomePageList(request.name, items), hasNext = hasNext)
     }
+
+    // -----------------------------------------------------------------
+    // TITLE HELPERS
+    // -----------------------------------------------------------------
+    private fun String.stripSiteSuffix(): String = this
+        .replace(Regex("""(?i)^\s*Watch\s+"""), "")
+        .replace(Regex("""(?i)\s+Porn\s+Online\s+Free\s*$"""), "")
+        .trim()
 
     private fun cleanTitle(raw: String): String {
         var t = raw
         t = t.replace(Regex("""&#?\w+;"""), " ")
         t = t.replace(Regex("""\[.*?\]|\(.*?\)|<.*?>"""), " ")
         t = t.replace(
-            Regex("""(?i)\b(?:Blacked|Evil\s*Angel|Brazzers|Tushy|Vixen|Bang!?|Naughty\s*America|Sweet\s*Sinner|Wicked|Digital\s*Playground|Jules\s*Jordan|Reality\s*Kings|DDF|Mofos)(?:\s*\d{2,4})?\b"""),
-            " "
+            Regex(
+                """(?i)\b(?:Blacked|Evil\s*Angel|Brazzers|Tushy|Vixen|Bang!?|Naughty\s*America|""" +
+                        """Sweet\s*Sinner|Wicked|Digital\s*Playground|Jules\s*Jordan|Reality\s*Kings|DDF|Mofos)""" +
+                        """(?:\s*\d{2,4})?\b"""
+            ), " "
         )
         t = t.replace(
-            Regex("""(?i)\b(?:\d{3,4}p|4K|2160p|1080p|720p|480p|WEB-?DL|BDRip|DVDRip|HDRip|x264|x265|HEVC|AAC|MP3|SPLITSCENES|XXX|FULL|HD|VOSTFR|FRENCH)\b"""),
-            " "
+            Regex(
+                """(?i)\b(?:\d{3,4}p|4K|2160p|1080p|720p|480p|WEB-?DL|BDRip|DVDRip|HDRip|""" +
+                        """x264|x265|HEVC|AAC|MP3|SPLITSCENES|XXX|FULL|HD|VOSTFR|FRENCH)\b"""
+            ), " "
         )
         t = t.replace(Regex("""\b(?:19|20)\d{2}\b"""), " ")
         t = t.replace(Regex("""#(\d+)"""), "$1")
@@ -129,82 +447,46 @@ class Himeros : MainAPI() {
         return t.ifEmpty { raw.trim() }
     }
 
-    private fun Element.toSpeedPornSearchResult(): SearchResponse? {
-        val linkEl = selectFirst("a.infos, a.thumb, a[title], h2 a, h3 a, a[href*='speedporn.net/']") ?: return null
-        val href = fixUrl(linkEl.attr("href"))
-        if (href.isEmpty() || href == "$mainUrl/" || href.contains("/category/") || href.contains("/tag/") || href.contains(
-                "cdn-cgi"
-            ) || href.startsWith("#")
-        ) {
-            return null
-        }
-
-        val rawTitle = selectFirst("span.title, a.infos, h2, h3, .title")?.text()?.trim()
-            ?: linkEl.attr("title").ifEmpty { linkEl.text().trim() }
-        val title = rawTitle.replace(Regex("""(?i)^Watch\s+"""), "")
-            .replace(Regex("""(?i)\s+Porn\s+Online\s+Free$"""), "")
-            .trim()
-        if (title.isEmpty()) return null
-
-        val imgEl = selectFirst("div.no-thumb img, img")
-        val posterUrl = imgEl?.let {
-            it.attr("data-src").ifEmpty { it.attr("src") }
-        }
-
-        return newMovieSearchResponse(cleanTitle(title), href, TvType.NSFW) {
-            this.posterUrl = posterUrl
-        }
-    }
-
-    // 2. ROMAN & NUMBER NORMALIZATION HELPERS
+    // ---- roman / arabic normalisation -------------------------------
     private fun parseRoman(s: String): Int? {
-        val roman = s.uppercase()
-        val values = mapOf('I' to 1, 'V' to 5, 'X' to 10, 'L' to 50, 'C' to 100, 'D' to 500, 'M' to 1000)
+        val v = mapOf('I' to 1, 'V' to 5, 'X' to 10, 'L' to 50, 'C' to 100, 'D' to 500, 'M' to 1000)
+        val up = s.uppercase()
         var total = 0
         var prev = 0
-        for (i in roman.length - 1 downTo 0) {
-            val curr = values[roman[i]] ?: return null
-            if (curr < prev) total -= curr else total += curr
-            prev = curr
+        for (i in up.length - 1 downTo 0) {
+            val cur = v[up[i]] ?: return null
+            if (cur < prev) total -= cur else total += cur
+            prev = cur
         }
         return if (total > 0) total else null
     }
 
-    private fun convertRomanNumerals(input: String): String {
-        return input.replace(Regex("""(?i)\b([MDCLXVI]+)\b""")) { m ->
-            val num = parseRoman(m.groupValues[1])
-            if (num != null) num.toString() else m.value
+    private fun romanToArabic(input: String): String =
+        input.replace(Regex("""(?i)\b([MDCLXVI]+)\b""")) { m ->
+            parseRoman(m.groupValues[1])?.toString() ?: m.value
         }
-    }
 
     private fun intToRoman(num: Int): String {
-        if (num <= 0 || num > 3999) return num.toString()
+        if (num !in 1..3999) return num.toString()
         val vals = intArrayOf(1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1)
         val syms = arrayOf("M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I")
         var n = num
         val sb = StringBuilder()
-        for (i in vals.indices) {
-            while (n >= vals[i]) {
-                n -= vals[i]
-                sb.append(syms[i])
-            }
+        for (i in vals.indices) while (n >= vals[i]) {
+            n -= vals[i]; sb.append(syms[i])
         }
         return sb.toString()
     }
 
-    private fun convertArabicToRoman(input: String): String {
-        return input.replace(Regex("""\b(\d{1,2})\b""")) { m ->
-            val num = m.groupValues[1].toIntOrNull()
-            if (num != null && num in 1..99) intToRoman(num) else m.value
+    private fun arabicToRoman(input: String): String =
+        input.replace(Regex("""\b(\d{1,2})\b""")) { m ->
+            val n = m.groupValues[1].toIntOrNull()
+            if (n != null && n in 1..99) intToRoman(n) else m.value
         }
-    }
 
-    private fun normalizeSearchVariants(raw: String): List<String> {
-        val variants = mutableListOf<String>()
+    private fun searchVariants(raw: String): List<String> {
         val trimmed = raw.trim()
-        if (trimmed.isEmpty()) return variants
-
-        // 1. Standard sanitized query (strip Vol., Volume, Ep., Episode, Part, No., #, Release Years)
+        if (trimmed.isEmpty()) return emptyList()
         val cleaned = trimmed
             .replace(Regex("""(?i)\b(?:Vol\.?|Volume|Episode|Ep\.?|Part|No\.?|#)\s*(\d+)"""), "$1")
             .replace(Regex("""(?i)\b(?:Vol\.?|Volume|Episode|Ep\.?|Part|No\.?)\s*([MDCLXVI]+)\b"""), "$1")
@@ -212,602 +494,461 @@ class Himeros : MainAPI() {
             .replace(Regex("""[-:_/]+"""), " ")
             .replace(Regex("""\s+"""), " ")
             .trim()
-
-        variants.add(cleaned)
-
-        // 2. Roman to Arabic (e.g. Level Up IV -> Level Up 4)
-        val romanToArab = convertRomanNumerals(cleaned)
-        if (!variants.contains(romanToArab)) variants.add(romanToArab)
-
-        // 3. Arabic to Roman (e.g. Level Up 4 -> Level Up IV)
-        val arabToRoman = convertArabicToRoman(cleaned)
-        if (!variants.contains(arabToRoman)) variants.add(arabToRoman)
-
-        // 4. Raw trimmed if different
-        if (!variants.contains(trimmed)) variants.add(trimmed)
-
-        return variants
+        return listOf(cleaned, romanToArabic(cleaned), arabicToRoman(cleaned), trimmed)
+            .filter { it.isNotBlank() }
+            .distinct()
     }
 
-    // 3. SEARCH
+    private fun tokensOf(text: String, stop: Set<String> = emptySet()): Set<String> =
+        text.lowercase()
+            .replace(Regex("""[^a-z0-9]"""), " ")
+            .split(" ")
+            .filter { it.isNotBlank() && it !in stop }
+            .toSet()
+
+    // -----------------------------------------------------------------
+    // SEARCH RESULT PARSING
+    // -----------------------------------------------------------------
+    private fun Element.toSearchResult(): SearchResponse? {
+        val linkEl = selectFirst(
+            "a.infos, a.thumb, a[title], h2 a, h3 a, a[href*='speedporn.net/']"
+        ) ?: return null
+
+        val href = fixUrl(linkEl.attr("href"))
+        if (href.isBlank() || href == "$mainUrl/" || href.startsWith("#") ||
+            href.contains("/category/") || href.contains("/tag/") || href.contains("cdn-cgi")
+        ) return null
+
+        val rawTitle = selectFirst("span.title, a.infos, h2, h3, .title")?.text()?.trim()
+            ?: linkEl.attr("title").ifBlank { linkEl.text().trim() }
+        val title = rawTitle.stripSiteSuffix()
+        if (title.isBlank()) return null
+
+        val poster = selectFirst("div.no-thumb img, img")?.let {
+            it.attr("data-src").ifBlank { it.attr("src") }
+        }?.let { if (it.isBlank()) null else UrlUtils.fixProtocol(it) }
+
+        return newMovieSearchResponse(cleanTitle(title), href, TvType.NSFW) {
+            this.posterUrl = poster
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // SEARCH
+    //  Stops at the first variant that returns hits: later variants are
+    //  re-spellings of the same query, not additional content.
+    // -----------------------------------------------------------------
     override suspend fun search(query: String): List<SearchResponse> {
-        val results = mutableListOf<SearchResponse>()
-        val variants = normalizeSearchVariants(query)
-
-        for (v in variants) {
-            val searchUrl = "$mainUrl/?s=${URLEncoder.encode(v, "UTF-8")}"
+        for (variant in searchVariants(query)) {
+            val url = "$mainUrl/?s=${UrlUtils.encode(variant)}"
             val doc = try {
-                fetchHtml(searchUrl)
+                getPage(url)
             } catch (e: Exception) {
-                app.get(searchUrl, headers = speedpornHeaders).document
+                hLog("search failed for '$variant'", e); continue
             }
-
-            doc.select("div.video-block, div.thumb, .item, .post, article")
-                .mapNotNull { it.toSpeedPornSearchResult() }
-                .forEach { results.add(it) }
-
-            if (results.isNotEmpty()) break
+            val results = doc.select(ITEM_SELECTOR)
+                .mapNotNull { it.toSearchResult() }
+                .distinctBy { it.url }
+            if (results.isNotEmpty()) return results
         }
-
-        return results.distinctBy { it.url }
+        return emptyList()
     }
 
-    // 4. LOAD MOVIE DETAILS
+    // -----------------------------------------------------------------
+    // LOAD
+    // -----------------------------------------------------------------
     override suspend fun load(url: String): LoadResponse {
-        val doc = try {
-            fetchHtml(url)
-        } catch (e: Exception) {
-            app.get(url, headers = speedpornHeaders).document
-        }
+        val doc = getPage(url)
 
-        val rawTitle = doc.selectFirst("h1.title, h1.entry-title, h1")?.text()?.trim() ?: "SpeedPorn Movie"
-        val title = rawTitle.replace(Regex("""(?i)^Watch\s+"""), "")
-            .replace(Regex("""(?i)\s+Porn\s+Online\s+Free$"""), "")
-            .trim()
+        val title = (doc.selectFirst("h1.title, h1.entry-title, h1")?.text()?.trim()
+            ?: "SpeedPorn Video").stripSiteSuffix()
 
-        val posterUrl = doc.selectFirst("meta[property='og:image']")?.attr("content")
+        val poster = doc.selectFirst("meta[property=og:image]")?.attr("content")?.ifBlank { null }
             ?: doc.selectFirst("div.no-thumb img, article img, div.entry-content img, img")?.let {
-                it.attr("data-src").ifEmpty { it.attr("src") }
-            }
+                it.attr("data-src").ifBlank { it.attr("src") }
+            }?.ifBlank { null }
 
-        val plot = doc.selectFirst("div.description, div.entry-content p, div.synopsis, p")?.text()?.trim()
+        val plot = doc.selectFirst("div.description, div.entry-content p, div.synopsis, p")
+            ?.text()?.trim()?.ifBlank { null }
 
         val tags = doc.select("a[href*='/tag/'], a[href*='/category/']")
-            .map { it.text().trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
+            .map { it.text().trim() }.filter { it.isNotEmpty() }.distinct()
 
         val actors = doc.select("a[href*='/pornstar/'], a[href*='/actor/'], a[href*='/model/']")
-            .map { ActorData(Actor(it.text().trim(), null)) }
-            .filter { it.actor.name.isNotEmpty() }
-            .distinctBy { it.actor.name }
+            .map { it.text().trim() }.filter { it.isNotEmpty() }.distinct()
+            .map { ActorData(Actor(it, null)) }
 
         return newMovieLoadResponse(title, url, TvType.NSFW, url) {
-            this.posterUrl = posterUrl
+            this.posterUrl = poster?.let { UrlUtils.fixProtocol(it) }
             this.plot = plot
             this.tags = tags
             this.actors = actors
         }
     }
 
-    // 5. DEAN EDWARDS PACKER UNPACKER
-    private fun unpackPacker(packedJs: String): String {
-        try {
-            val regex = Regex(
-                """eval\(function\(p,a,c,k,e,d\)\{.*?return p\}\('(.*?)',(\d+),(\d+),'(.*?)'\.split\('\|'\)""",
-                RegexOption.DOT_MATCHES_ALL
-            )
-            val match = regex.find(packedJs) ?: return ""
-            var p = match.groupValues[1]
-            val a = match.groupValues[2].toIntOrNull() ?: 10
-            var c = match.groupValues[3].toIntOrNull() ?: 0
-            val k = match.groupValues[4].split("|")
+    // -----------------------------------------------------------------
+    // EMBED URL NORMALISATION
+    //  Only rewrites WITHIN the same service. A file code is never
+    //  shared across different hosts.
+    // -----------------------------------------------------------------
+    private fun normalizeEmbed(url: String): String {
+        var clean = UrlUtils.fixProtocol(url).substringBefore("#").trim()
 
-            while (c-- > 0) {
-                if (c < k.size && k[c].isNotEmpty()) {
-                    val key = java.lang.Integer.toString(c, a)
-                    p = p.replace(Regex("""\b$key\b"""), java.util.regex.Matcher.quoteReplacement(k[c]))
-                }
+        fun codeAfter(marker: String): String =
+            clean.substringAfter(marker)
+                .substringBefore("?").substringBefore("&").substringBefore("/")
+
+        // DoodStream family (playmogo is a Dood rebrand -> same backend)
+        val doodHosts = listOf(
+            "playmogo.com", "doodstream.com", "dood.to", "dood.li",
+            "dood.ws", "dood.yt", "ds2play.com", "d0000d.com", "d000d.com"
+        )
+        if (doodHosts.any { clean.contains(it, true) }) {
+            val c = when {
+                clean.contains("/e/") -> codeAfter("/e/")
+                clean.contains("/d/") -> codeAfter("/d/")
+                else -> ""
             }
-            return p
-        } catch (_: Exception) {
-            return ""
-        }
-    }
-
-    // 6. DIRECT EMBED RESOLVERS (Luluvid / StreamWish / FileLions / LuluStream / MixDrop)
-    private suspend fun resolveLuluvidStreamWish(embedUrl: String, callback: (ExtractorLink) -> Unit) {
-        try {
-            val code = Regex("""/(?:e|f)/([a-zA-Z0-9]+)""").find(embedUrl)?.groupValues?.get(1)
-                ?: embedUrl.substringAfterLast("/").substringBefore("?").substringBefore("&")
-            if (code.isBlank()) return
-
-            val mirrors = listOf(
-                "https://lulustream.com/e/$code",
-                "https://luluvdo.com/e/$code",
-                "https://luluvid.com/e/$code",
-                embedUrl,
-                "https://filelions.to/e/$code",
-                "https://streamwish.to/e/$code"
-            ).distinct()
-
-            for (mirror in mirrors) {
-                val responseText = try {
-                    app.get(
-                        mirror,
-                        headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to speedpornHeaders["User-Agent"]!!)
-                    ).text
-                } catch (_: Exception) {
-                    continue
-                }
-
-                if (responseText.length < 500) continue
-                val unpacked = unpackPacker(responseText)
-                val streamMatch = StreamSupport.extractMediaUrls(unpacked).firstOrNull()
-                    ?: StreamSupport.extractMediaUrls(responseText).firstOrNull()
-                    ?: Regex("""sources\s*:\s*\[\{file\s*:\s*["']([^"']+)["']""").find(unpacked)?.groupValues?.get(1)
-
-                if (!streamMatch.isNullOrBlank()) {
-                    val isLulu = mirror.contains("lulu")
-                    callback.invoke(
-                        ExtractorLink(
-                            source = name,
-                            name = if (isLulu) "SpeedPorn [LuluStream 1080p]" else "SpeedPorn [StreamWish 1080p]",
-                            url = streamMatch,
-                            referer = "",
-                            quality = Qualities.P1080.value,
-                            isM3u8 = streamMatch.contains(".m3u8"),
-                            headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)
-                        )
-                    )
-                    break
-                }
-            }
-        } catch (_: Exception) {
-        }
-    }
-
-    private suspend fun resolveMixDrop(embedUrl: String, callback: (ExtractorLink) -> Unit) {
-        try {
-            val code = Regex("""/(?:e|f)/([a-zA-Z0-9]+)""").find(embedUrl)?.groupValues?.get(1)
-                ?: embedUrl.substringAfterLast("/").substringBefore("?").substringBefore("&")
-            if (code.isBlank()) return
-
-            val mirrors = listOf(
-                "https://mixdrop.ag/e/$code",
-                "https://mixdrop.my/e/$code",
-                embedUrl,
-                "https://mxdrop.top/e/$code",
-                "https://mixdrop.co/e/$code",
-                "https://mixdrop.sx/e/$code"
-            ).distinct()
-
-            for (mirror in mirrors) {
-                val responseText = try {
-                    app.get(
-                        mirror,
-                        headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to speedpornHeaders["User-Agent"]!!)
-                    ).text
-                } catch (_: Exception) {
-                    continue
-                }
-
-                if (responseText.length < 500) continue
-                val unpacked = unpackPacker(responseText)
-                val wurlRegex = Regex("""(?:MDCore\.wurl|wurl)\s*[:=]\s*["']([^"']+)"""")
-                val wurlMatch = wurlRegex.find(unpacked)?.groupValues?.get(1)
-                    ?: wurlRegex.find(responseText)?.groupValues?.get(1)
-
-                if (!wurlMatch.isNullOrBlank() && wurlMatch.trim().isNotEmpty()) {
-                    val fullUrl = if (wurlMatch.startsWith("//")) "https:$wurlMatch" else wurlMatch
-                    callback.invoke(
-                        ExtractorLink(
-                            source = name,
-                            name = "SpeedPorn [MixDrop 1080p]",
-                            url = fullUrl,
-                            referer = "https://mixdrop.ag/",
-                            quality = Qualities.P1080.value,
-                            isM3u8 = false,
-                            headers = mapOf(
-                                "Referer" to "https://mixdrop.ag/",
-                                "User-Agent" to speedpornHeaders["User-Agent"]!!
-                            )
-                        )
-                    )
-                    break
-                }
-            }
-        } catch (_: Exception) {
-        }
-    }
-
-    // 7. NORMALIZE EMBED URLS
-    private fun normalizeEmbedUrl(url: String): String {
-        var clean = url.trim()
-        if (clean.startsWith("//")) clean = "https:$clean"
-
-        // Playmogo / DoodStream mirror -> d0000d.com / dood.to
-        if (clean.contains("playmogo.com/e/") || clean.contains("playmogo.com/d/")) {
-            val code = clean.substringAfter("/e/").substringAfter("/d/").substringBefore("?").substringBefore("&")
-            return "https://d0000d.com/e/$code"
-        }
-        if (clean.contains("doodstream.com/d/") || clean.contains("dood.to/d/") || clean.contains("dood.li/d/") || clean.contains(
-                "dood.ws/d/"
-            )
-        ) {
-            val code = clean.substringAfter("/d/").substringBefore("?").substringBefore("&")
-            return "https://d0000d.com/e/$code"
-        }
-        if (clean.contains("doodstream.com/e/") || clean.contains("dood.to/e/") || clean.contains("dood.li/e/") || clean.contains(
-                "dood.ws/e/"
-            )
-        ) {
-            val code = clean.substringAfter("/e/").substringBefore("?").substringBefore("&")
-            return "https://d0000d.com/e/$code"
-        }
-
-        // MixDrop mirror -> mixdrop.ag / mixdrop.co
-        if (clean.contains("mixdrop.my/e/") || clean.contains("mixdrop.co/e/") || clean.contains("mixdrop.to/e/") || clean.contains(
-                "mixdrop.sx/e/"
-            )
-        ) {
-            val code = clean.substringAfter("/e/").substringBefore("?").substringBefore("&")
-            return "https://mixdrop.ag/e/$code"
-        }
-        if (clean.contains("mixdrop.ag/f/") || clean.contains("mixdrop.my/f/") || clean.contains("mixdrop.co/f/")) {
-            val code = clean.substringAfter("/f/").substringBefore("?").substringBefore("&")
-            return "https://mixdrop.ag/e/$code"
-        }
-
-        // StreamWish / Luluvid / LuluStream / FileLions mirrors
-        if (clean.contains("lulustream.com/") || clean.contains("luluvid.com/e/") || clean.contains("luluvdo.com/e/")) {
-            val code = clean.substringAfter("/e/").substringAfterLast("/").substringBefore("?").substringBefore("&")
-            return "https://lulustream.com/e/$code"
-        }
-        if (clean.contains("streamwish.to/f/") || clean.contains("filelions.to/f/") || clean.contains("filelions.com/f/")) {
-            val code = clean.substringAfter("/f/").substringBefore("?").substringBefore("&")
-            return "https://streamwish.to/e/$code"
-        }
-
-        // StreamTape
-        if (clean.contains("streamtape.com/e/")) {
+            if (c.isNotBlank()) return "https://d0000d.com/e/$c"
             return clean
         }
 
-        // VOE mirror
-        if (clean.contains("voe.sx/e/")) {
-            return clean
+        // MixDrop: /f/ (file page) -> /e/ (embed), keep host
+        if (Regex("""m[ix]{1,2}drop\.\w+/f/""", RegexOption.IGNORE_CASE).containsMatchIn(clean)) {
+            return clean.replace("/f/", "/e/")
         }
+
+        // Wish forks: /f/ -> /e/, keep host
+        if (Regex(
+                """(?:streamwish|filelions|lulustream|luluvid|luluvdo|vidhide|filemoon)\.\w+/f/""",
+                RegexOption.IGNORE_CASE
+            ).containsMatchIn(clean)
+        ) return clean.replace("/f/", "/e/")
 
         return clean
     }
 
-    // 8. RESOLVE LINKS (SPEEDPORN EMBEDS + DIRECT UNPACKERS + TORRENTS)
+    // -----------------------------------------------------------------
+    // FALLBACK RESOLVER: Lulu family (lulustream/luluvdo/luluvid share a DB)
+    // -----------------------------------------------------------------
+    private suspend fun resolveLulu(embedUrl: String, callback: (ExtractorLink) -> Unit): Boolean {
+        val code = Regex("""/(?:e|f|d)/([A-Za-z0-9_-]+)""").find(embedUrl)?.groupValues?.get(1)
+            ?: return false
+
+        // original first, then SAME-SERVICE mirrors only
+        val mirrors = (listOf(embedUrl) + listOf(
+            "https://lulustream.com/e/$code",
+            "https://luluvdo.com/e/$code",
+            "https://luluvid.com/e/$code"
+        )).distinct()
+
+        for (mirror in mirrors) {
+            val text = getTextOrNull(mirror, "$mainUrl/") ?: continue
+            if (text.length < 500) continue
+
+            val searchable = JsPacker.unpackOrOriginal(text) + "\n" + text
+            val stream = MediaFinder.find(searchable).firstOrNull() ?: continue
+
+            val origin = UrlUtils.origin(mirror)
+            emit(
+                callback = callback,
+                sourceName = name,
+                displayName = "LuluStream",
+                url = stream,
+                type = if (MediaFinder.isM3u8(stream)) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
+                referer = "$origin/",                       // the mirror that actually served us
+                quality = QualityParser.fromText(stream),   // only if the URL says so
+                extraHeaders = mapOf("Origin" to origin)    // wish forks check Origin too
+            )
+            return true
+        }
+        hLog("lulu: nothing found for $embedUrl")
+        return false
+    }
+
+    // -----------------------------------------------------------------
+    // FALLBACK RESOLVER: MixDrop
+    // -----------------------------------------------------------------
+    private suspend fun resolveMixDrop(embedUrl: String, callback: (ExtractorLink) -> Unit): Boolean {
+        val code = Regex("""/(?:e|f)/([A-Za-z0-9_-]+)""").find(embedUrl)?.groupValues?.get(1)
+            ?: return false
+
+        val mirrors = (listOf(embedUrl) + listOf(
+            "https://mixdrop.ag/e/$code",
+            "https://mixdrop.my/e/$code",
+            "https://mixdrop.co/e/$code",
+            "https://mixdrop.sx/e/$code",
+            "https://mxdrop.to/e/$code"
+        )).distinct()
+
+        val wurlRegex = Regex("""(?:MDCore\.)?wurl\s*[:=]\s*["']([^"']+)["']""")
+
+        for (mirror in mirrors) {
+            val text = getTextOrNull(mirror, "$mainUrl/") ?: continue
+            if (text.length < 500) continue
+
+            val unpacked = JsPacker.unpackOrOriginal(text)
+            val wurl = wurlRegex.find(unpacked)?.groupValues?.get(1)
+                ?: wurlRegex.find(text)?.groupValues?.get(1)
+                ?: continue
+            if (wurl.isBlank()) continue
+
+            val origin = UrlUtils.origin(mirror)
+            emit(
+                callback = callback,
+                sourceName = name,
+                displayName = "MixDrop",
+                url = UrlUtils.fixProtocol(wurl),
+                type = ExtractorLinkType.VIDEO,
+                referer = "$origin/",   // MUST match the mirror that generated the link
+                quality = Qualities.Unknown.value
+            )
+            return true
+        }
+        hLog("mixdrop: nothing found for $embedUrl")
+        return false
+    }
+
+    // -----------------------------------------------------------------
+    // LOAD LINKS
+    // -----------------------------------------------------------------
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val doc = try {
-            fetchHtml(data)
-        } catch (e: Exception) {
-            app.get(data, headers = speedpornHeaders).document
-        }
-
+        val doc = getPage(data)
         val rawHtml = doc.html()
-        // Returning true without a callback makes CloudStream show an empty
-        // source list. Every resolver below therefore reports through this
-        // wrapper and loadLinks returns true only for a real emitted source.
-        val emittedLinks = AtomicInteger(0)
-        val reportLink: (ExtractorLink) -> Unit = { link ->
+
+        val emitted = AtomicInteger(0)
+        val report: (ExtractorLink) -> Unit = { link ->
             callback(link)
-            emittedLinks.incrementAndGet()
+            emitted.incrementAndGet()
         }
-        val movieTitle = doc.selectFirst("h1.title, h1.entry-title, h1")?.text()?.trim()
-            ?.replace(Regex("""(?i)^Watch\s+"""), "")
-            ?.replace(Regex("""(?i)\s+Porn\s+Online\s+Free$"""), "")
-            ?.trim() ?: ""
 
-        val rawCandidateUrls = mutableSetOf<String>()
+        val movieTitle = doc.selectFirst("h1.title, h1.entry-title, h1")
+            ?.text()?.trim()?.stripSiteSuffix().orEmpty()
 
-        // A. Extract all anchor hrefs
-        for (a in doc.select("a[href]")) {
-            val href = a.attr("href").trim()
-            if (href.isNotEmpty() && !href.startsWith("#") && !href.startsWith("javascript")) {
-                rawCandidateUrls.add(href)
+        // ---------- collect candidates --------------------------------
+        val candidates = LinkedHashSet<String>()
+
+        doc.select("a[href]").forEach { a ->
+            val h = a.attr("href").trim()
+            if (h.isNotEmpty() && !h.startsWith("#") && !h.startsWith("javascript")) candidates.add(h)
+        }
+
+        doc.select("iframe").forEach { f ->
+            listOf("src", "data-src", "data-lazy-src").forEach { attr ->
+                f.attr(attr).trim().takeIf { it.isNotEmpty() }?.let { candidates.add(it) }
             }
         }
 
-        // B. Extract all iframe src & data-src
-        for (iframe in doc.select("iframe")) {
-            val src = iframe.attr("src").trim()
-            val dataSrc = iframe.attr("data-src").trim()
-            if (src.isNotEmpty()) rawCandidateUrls.add(src)
-            if (dataSrc.isNotEmpty()) rawCandidateUrls.add(dataSrc)
-        }
-
-        // C. Extract custom data attributes
-        for (el in doc.select("[data-url], [data-src], [data-href], [data-embed], [data-fl-source], [data-fl-url]")) {
-            for (attr in listOf("data-fl-source", "data-fl-url", "data-url", "data-src", "data-href", "data-embed")) {
-                val u = el.attr(attr).trim()
-                if (u.isNotEmpty() && !u.contains("deleted") && !u.contains("favicon")) {
-                    rawCandidateUrls.add(u)
+        doc.select("[data-url],[data-src],[data-href],[data-embed],[data-fl-source],[data-fl-url],[data-player]")
+            .forEach { el ->
+                listOf(
+                    "data-fl-source", "data-fl-url", "data-url",
+                    "data-src", "data-href", "data-embed", "data-player"
+                ).forEach { attr ->
+                    val u = el.attr(attr).trim()
+                    if (u.isNotEmpty()) candidates.add(u)
                 }
             }
-        }
 
-        // D. Regex scan the whole page HTML for host URLs
-        val lockerRegex = Regex(
-            """(https?://[^\s"'<>]*(?:lulustream|luluvid|luluvdo|streamwish|filelions|playmogo|dood|d0000d|mixdrop|mxdrop|streamtape|voe|wolfstream|playmate|dropupload|rapidgator|nitroflare)[^\s"'<>]*)""",
+        Regex(
+            """https?:(?://|\\/\\/)[^\s"'<>\\]*(?:""" +
+                    HOST_MARKERS.joinToString("|") { Regex.escape(it) } +
+                    """)[^\s"'<>\\]*""",
             RegexOption.IGNORE_CASE
-        )
-        lockerRegex.findAll(rawHtml).forEach { m ->
-            rawCandidateUrls.add(m.value)
-        }
+        ).findAll(rawHtml).forEach { candidates.add(it.value) }
 
-        // Filter valid video lockers
-        val validOriginalUrls = rawCandidateUrls.filter { url ->
-            !url.contains("google.com") &&
-                    !url.contains("api.") &&
-                    !url.contains("deleted") &&
-                    !url.contains("favicon") &&
-                    !url.contains("theporndude") &&
-                    (url.contains("lulustream") || url.contains("luluvid") || url.contains("luluvdo") ||
-                            url.contains("streamwish") || url.contains("filelions") || url.contains("playmogo") ||
-                            url.contains("dood") || url.contains("mixdrop") || url.contains("mxdrop") ||
-                            url.contains("streamtape") || url.contains("voe.sx") || url.contains("playmate") ||
-                            url.contains("wolfstream") || url.contains("dropupload"))
-        }.distinct()
+        // ---------- filter + normalise (normalised only, deduped) -----
+        val embedUrls = candidates
+            .map { UrlUtils.fixProtocol(it) }
+            .filter { u ->
+                u.startsWith("http") &&
+                        JUNK_MARKERS.none { u.contains(it, true) } &&
+                        HOST_MARKERS.any { u.contains(it, true) }
+            }
+            .map { normalizeEmbed(it) }
+            .distinct()
+
+        hLog("found ${embedUrls.size} embed candidates for $data")
 
         coroutineScope {
-            // E. Direct custom unpackers for LuluStream / Luluvid / StreamWish / FileLions (take up to 3 embeds)
-            val luluJobs = validOriginalUrls.filter {
-                it.contains("lulustream") || it.contains("luluvid") || it.contains("luluvdo") || it.contains("streamwish") || it.contains("filelions")
-            }.take(3).map { embedUrl ->
-                async { resolveLuluvidStreamWish(embedUrl, reportLink) }
-            }
-
-            // F. Direct custom unpackers for MixDrop (take up to 2 embeds)
-            val mixdropJobs = validOriginalUrls.filter {
-                it.contains("mixdrop") || it.contains("mxdrop")
-            }.take(2).map { embedUrl ->
-                async { resolveMixDrop(embedUrl, reportLink) }
-            }
-
-            // G. Default CloudStream extractors for others
-            val extractorJobs = validOriginalUrls.filter {
-                !it.contains("mixdrop") && !it.contains("mxdrop") &&
-                !it.contains("lulustream") && !it.contains("luluvid") && !it.contains("luluvdo") &&
-                !it.contains("streamwish") && !it.contains("filelions")
-            }.flatMap { original ->
-                listOf(original, normalizeEmbedUrl(original))
-            }.distinct().take(4).map { embedUrl ->
+            // 1) Built-in extractors first (maintained upstream, handle
+            //    referer/origin correctly for most hosts).
+            val extractorJobs = embedUrls.map { url ->
                 async {
                     try {
-                        loadExtractor(embedUrl, "$mainUrl/", subtitleCallback, reportLink)
-                    } catch (_: Exception) {
+                        loadExtractor(url, "$mainUrl/", subtitleCallback, report)
+                    } catch (e: Exception) {
+                        hLog("loadExtractor failed $url", e)
                     }
                 }
             }
 
-            // H. Look for direct MP4 / M3U8 video streams in page scripts.
-            StreamSupport.extractMediaUrls(rawHtml).forEach { streamUrl ->
-                if (!streamUrl.contains("test-videos.co.uk") && !streamUrl.contains("sample")) {
-                    reportLink.invoke(
-                        ExtractorLink(
-                            source = name,
-                            name = "SpeedPorn Direct (1080p)",
-                            url = streamUrl,
-                            referer = "$mainUrl/",
-                            quality = Qualities.P1080.value,
-                            isM3u8 = streamUrl.contains(".m3u8"),
-                            headers = mapOf("Referer" to "$mainUrl/", "User-Agent" to speedpornHeaders["User-Agent"]!!)
-                        )
-                    )
-                }
+            // 2) Direct media found on the page itself.
+            MediaFinder.find(rawHtml).forEach { streamUrl ->
+                emit(
+                    callback = report,
+                    sourceName = name,
+                    displayName = "SpeedPorn Direct",
+                    url = streamUrl,
+                    type = if (MediaFinder.isM3u8(streamUrl)) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
+                    referer = "$mainUrl/",
+                    quality = QualityParser.fromText(streamUrl)
+                )
             }
 
-            // I. Parallel Torrent Resolution (PornoTorrent & LimeTorrents)
-            val pTorrent = if (movieTitle.isNotEmpty()) async { resolvePornoTorrent(movieTitle, reportLink) } else null
-            val lTorrent = if (movieTitle.isNotEmpty()) async { resolveLimeTorrents(movieTitle, reportLink) } else null
+            // 3) Torrents in parallel.
+            val torrentJobs = if (movieTitle.isNotEmpty()) listOf(
+                async { resolvePornoTorrent(movieTitle, report) },
+                async { resolveLimeTorrents(movieTitle, report) }
+            ) else emptyList()
 
-            luluJobs.awaitAll()
-            mixdropJobs.awaitAll()
             extractorJobs.awaitAll()
-            pTorrent?.await()
-            lTorrent?.await()
+
+            // 4) Custom fallbacks ONLY if the built-ins produced nothing.
+            if (emitted.get() == 0) {
+                hLog("built-in extractors produced nothing, trying custom resolvers")
+                val fallbacks =
+                    embedUrls.filter { u ->
+                        listOf("lulustream", "luluvid", "luluvdo").any { u.contains(it, true) }
+                    }.take(2).map { async { resolveLulu(it, report) } } +
+                            embedUrls.filter { u ->
+                                u.contains("mixdrop", true) || u.contains("mxdrop", true)
+                            }.take(2).map { async { resolveMixDrop(it, report) } }
+                fallbacks.awaitAll()
+            }
+
+            torrentJobs.awaitAll()
         }
 
-        return emittedLinks.get() > 0
+        hLog("loadLinks emitted ${emitted.get()} link(s)")
+        return emitted.get() > 0
     }
 
-    // 9. PORNOTORRENT RESOLVER
+    // -----------------------------------------------------------------
+    // TORRENT EMISSION
+    // -----------------------------------------------------------------
+    private suspend fun emitTorrent(
+        callback: (ExtractorLink) -> Unit,
+        sourceName: String,
+        rawTitle: String,
+        hit: TorrentHit,
+        referer: String
+    ) {
+        emit(
+            callback = callback,
+            sourceName = sourceName,
+            displayName = "$sourceName [${cleanTitle(rawTitle)}]",
+            url = hit.url,
+            type = if (hit.isMagnet) ExtractorLinkType.MAGNET else ExtractorLinkType.TORRENT,
+            referer = referer,
+            quality = QualityParser.fromText(rawTitle)
+        )
+    }
+
+    // -----------------------------------------------------------------
+    // PORNOTORRENT
+    // -----------------------------------------------------------------
     private suspend fun resolvePornoTorrent(title: String, callback: (ExtractorLink) -> Unit) {
         try {
-            val numMatch = Regex("""\b(\d+)\b""").find(title)?.groupValues?.get(1)
-            val baseName = title.replace(Regex("""(?i)\b(?:Vol\.?|Volume|Episode|Ep\.?|Part|No\.?|#)?\s*\d+"""), "")
+            val num = Regex("""\b(\d+)\b""").find(title)?.groupValues?.get(1)
+            val baseName = title
+                .replace(Regex("""(?i)\b(?:Vol\.?|Volume|Episode|Ep\.?|Part|No\.?|#)?\s*\d+"""), "")
                 .replace(Regex("""[-:_/]+"""), " ")
                 .trim()
 
             val queries = mutableListOf<String>()
-            if (numMatch != null && baseName.isNotEmpty()) {
-                queries.add("$baseName #$numMatch")
-                queries.add("$baseName $numMatch")
+            if (num != null && baseName.isNotEmpty()) {
+                queries.add("$baseName #$num")
+                queries.add("$baseName $num")
             }
-            queries.addAll(normalizeSearchVariants(title))
+            queries.addAll(searchVariants(title))
             queries.add(title)
-            if (baseName.isNotEmpty() && !queries.contains(baseName)) {
-                queries.add(baseName)
-            }
+            if (baseName.isNotEmpty()) queries.add(baseName)
 
-            val wantedTokens = title.lowercase()
-                .replace(Regex("""[^a-z0-9]"""), " ")
-                .split(" ")
-                .filter { it.isNotBlank() && it != "vol" && it != "volume" }
+            val wanted = tokensOf(title, setOf("vol", "volume"))
+
+            for (q in queries.distinct()) {
+                val searchUrl = "https://pornotorrent.com.br/?s=${UrlUtils.encode(q)}"
+                val doc = getDocOrNull(searchUrl, "https://pornotorrent.com.br/") ?: continue
+
+                for (article in doc.select("article, .post, div.item, .cp-card")) {
+                    val a = article.selectFirst(
+                        "h1 a, h2 a, h3 a, a[title], .entry-title a, .cp-card__title a, a.cp-card__link"
+                    ) ?: continue
+
+                    val postTitle = a.attr("title")
+                        .ifBlank { a.attr("aria-label") }
+                        .ifBlank { a.text().trim() }
+                    val postHref = fixUrl(a.attr("href"))
+                    if (postTitle.isBlank() || postHref.isBlank()) continue
+                    if (wanted.isNotEmpty() && !wanted.all(tokensOf(postTitle)::contains)) continue
+
+                    val postDoc = getDocOrNull(postHref, "https://pornotorrent.com.br/") ?: continue
+                    var hit = TorrentFinder.extractTorrent(postDoc)
+
+                    if (hit == null) {
+                        for (alt in TorrentFinder.alternateDetailUrls(postDoc, postHref)) {
+                            val altDoc = getDocOrNull(alt, postHref) ?: continue
+                            hit = TorrentFinder.extractTorrent(altDoc)
+                            if (hit != null) break
+                        }
+                    }
+
+                    if (hit != null) {
+                        emitTorrent(callback, "PornoTorrent", postTitle, hit, "https://pornotorrent.com.br/")
+                        return
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            hLog("pornotorrent resolver crashed", e)
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // LIMETORRENTS
+    // -----------------------------------------------------------------
+    private suspend fun resolveLimeTorrents(title: String, callback: (ExtractorLink) -> Unit) {
+        try {
+            val wanted = tokensOf(title, setOf("the", "a", "an", "vol", "volume"))
+                .filter { it.length > 1 && !it.matches(Regex("""(?:19|20)\d{2}""")) }
                 .toSet()
 
-            var found = false
-            for (q in queries.distinct()) {
-                if (found) break
-                val url = "https://pornotorrent.com.br/?s=${URLEncoder.encode(q, "UTF-8")}"
-                val doc = try {
-                    app.get(url, headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)).document
-                } catch (_: Exception) {
-                    continue
-                }
-                val articles = doc.select("article, .post, div.item, .cp-card")
+            for (query in searchVariants(title).ifEmpty { listOf(title) }) {
+                for (mirror in TorrentFinder.limeMirrors) {
+                    for (searchUrl in TorrentFinder.limeSearchUrls(mirror, query)) {
+                        val searchDoc = getDocOrNull(searchUrl, "$mirror/") ?: continue
 
-                for (article in articles) {
-                    val linkEl =
-                        article.selectFirst("h2 a, h3 a, h1 a, a[title], .entry-title a, .cp-card__title a, a.cp-card__link")
-                            ?: continue
-                    val postTitle =
-                        linkEl.attr("title").ifEmpty { linkEl.attr("aria-label") }.ifEmpty { linkEl.text().trim() }
-                    val postHref = fixUrl(linkEl.attr("href"))
-                    if (postHref.isEmpty() || postTitle.isEmpty()) continue
+                        val entries = TorrentFinder.findLimeEntries(searchDoc, mirror)
+                            .filter { e -> wanted.isEmpty() || wanted.all(tokensOf(e.title)::contains) }
 
-                    val candTokens = postTitle.lowercase()
-                        .replace(Regex("""[^a-z0-9]"""), " ")
-                        .split(" ")
-                        .filter { it.isNotBlank() }
-                        .toSet()
+                        for (entry in entries.take(5)) {
+                            val detail = getDocOrNull(entry.url, "$mirror/") ?: continue
+                            var hit = TorrentFinder.extractTorrent(detail)
 
-                    if (wantedTokens.isNotEmpty() && wantedTokens.all { candTokens.contains(it) }) {
-                        val postDoc = app.get(
-                            postHref,
-                            headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!)
-                        ).document
-                        var torrent = TorrentSupport.extractTorrent(postDoc)
-                        if (torrent == null) {
-                            for (alternateUrl in TorrentSupport.alternateTorrentDetailUrls(postDoc, postHref)) {
-                                val alternateDoc = runCatching {
-                                    app.get(
-                                        alternateUrl,
-                                        headers = mapOf(
-                                            "User-Agent" to speedpornHeaders["User-Agent"]!!,
-                                            "Referer" to postHref
-                                        )
-                                    ).document
-                                }.getOrNull() ?: continue
-                                torrent = TorrentSupport.extractTorrent(alternateDoc)
-                                if (torrent != null) break
+                            if (hit == null) {
+                                for (alt in TorrentFinder.alternateDetailUrls(detail, entry.url)) {
+                                    val altDoc = getDocOrNull(alt, entry.url) ?: continue
+                                    hit = TorrentFinder.extractTorrent(altDoc)
+                                    if (hit != null) break
+                                }
                             }
-                        }
 
-                        if (torrent != null) {
-                            callback.invoke(
-                                ExtractorLink(
-                                    source = "PornoTorrent",
-                                    name = "PornoTorrent [${cleanTitle(postTitle)}]",
-                                    url = torrent.url,
-                                    referer = "https://pornotorrent.com.br/",
-                                    quality = when (TorrentSupport.qualityFromText(postTitle)) {
-                                        2160 -> Qualities.P2160.value
-                                        1440 -> Qualities.P1440.value
-                                        1080 -> Qualities.P1080.value
-                                        720 -> Qualities.P720.value
-                                        480 -> Qualities.P480.value
-                                        else -> Qualities.Unknown.value
-                                    },
-                                    isM3u8 = false
-                                ).apply { type = ExtractorLinkType.TORRENT }
-                            )
-                            found = true
-                            break
+                            if (hit != null) {
+                                emitTorrent(callback, "LimeTorrents", entry.title, hit, "$mirror/")
+                                return
+                            }
                         }
                     }
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            hLog("limetorrents resolver crashed", e)
         }
     }
-
-    // 10. LIMETORRENTS RESOLVER
-    private suspend fun resolveLimeTorrents(title: String, callback: (ExtractorLink) -> Unit) {
-        val wantedTokens = title.lowercase()
-            .replace(Regex("""[^a-z0-9]"""), " ")
-            .split(" ")
-            .filter { token ->
-                token.length > 1 && token !in setOf("the", "a", "an", "vol", "volume") && !token.matches(
-                    Regex("""(?:19|20)\d{2}""")
-                )
-            }
-            .toSet()
-
-        for (query in normalizeSearchVariants(title).ifEmpty { listOf(title) }) {
-            for (mirror in TorrentSupport.limeMirrors) {
-                for (searchUrl in TorrentSupport.limeSearchUrls(mirror, query)) {
-                    val searchDocument = runCatching {
-                        app.get(
-                            searchUrl,
-                            headers = mapOf("User-Agent" to speedpornHeaders["User-Agent"]!!, "Referer" to "$mirror/")
-                        ).document
-                    }.getOrNull() ?: continue
-
-                    val matches = TorrentSupport.findLimeSearchEntries(searchDocument, searchUrl)
-                        .filter { entry ->
-                            val candidateTokens = entry.title.lowercase()
-                                .replace(Regex("""[^a-z0-9]"""), " ")
-                                .split(" ")
-                                .filter { it.isNotBlank() }
-                                .toSet()
-                            wantedTokens.isEmpty() || wantedTokens.all(candidateTokens::contains)
-                        }
-
-                    for (entry in matches) {
-                        val detailDocument = runCatching {
-                            app.get(
-                                entry.url,
-                                headers = mapOf(
-                                    "User-Agent" to speedpornHeaders["User-Agent"]!!,
-                                    "Referer" to "$mirror/"
-                                )
-                            ).document
-                        }.getOrNull() ?: continue
-
-                        var torrent = TorrentSupport.extractTorrent(detailDocument)
-                        if (torrent == null) {
-                            for (alternateUrl in TorrentSupport.alternateTorrentDetailUrls(detailDocument, entry.url)) {
-                                val alternateDocument = runCatching {
-                                    app.get(
-                                        alternateUrl,
-                                        headers = mapOf(
-                                            "User-Agent" to speedpornHeaders["User-Agent"]!!,
-                                            "Referer" to entry.url
-                                        )
-                                    ).document
-                                }.getOrNull() ?: continue
-                                torrent = TorrentSupport.extractTorrent(alternateDocument)
-                                if (torrent != null) break
-                            }
-                        }
-
-                        if (torrent != null) {
-                            val quality = when (TorrentSupport.qualityFromText(entry.title)) {
-                                2160 -> Qualities.P2160.value
-                                1440 -> Qualities.P1440.value
-                                1080 -> Qualities.P1080.value
-                                720 -> Qualities.P720.value
-                                480 -> Qualities.P480.value
-                                else -> Qualities.Unknown.value
-                            }
-                            callback(
-                                ExtractorLink(
-                                    source = "LimeTorrents",
-                                    name = "LimeTorrents [${cleanTitle(entry.title)}]",
-                                    url = torrent.url,
-                                    referer = "$mirror/",
-                                    quality = quality,
-                                    isM3u8 = false
-                                ).apply { type = ExtractorLinkType.TORRENT }
-                            )
-                            return
-                        }
-                    }
-                }
-            }
-        }
-    }
-
 }
