@@ -188,6 +188,7 @@ tasks.register("makePlugin") {
         val pornoTorrentCs3 = File(distDir, "PornoTorrent.cs3")
         val limeTorrentsCs3 = File(distDir, "LimeTorrents.cs3")
         val fiveMoviesCs3 = File(distDir, "FiveMoviesPorn.cs3")
+        val paradiseHillCs3 = File(distDir, "ParadiseHill.cs3")
 
         createPluginZip("PornTrex", "com.megix.PorntrexProvider", porntrexCs3, version = 104)
         createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3, version = 110)
@@ -199,9 +200,25 @@ tasks.register("makePlugin") {
         createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 109)
         createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 107)
         createPluginZip("FiveMoviesPorn", "com.custom.FiveMoviesPornProvider", fiveMoviesCs3, version = 101)
+        createPluginZip("ParadiseHill", "com.custom.ParadiseHillProvider", paradiseHillCs3, version = 101)
 
         val pluginsJson = """
 [
+  {
+    "name": "ParadiseHill",
+    "internalName": "ParadiseHill",
+    "version": 101,
+    "apiVersion": 1,
+    "description": "Dedicated provider for en.paradisehill.cc featuring full-length movies, performer profiles, multi-part CD breakdowns, and direct high-speed 1080p MP4 streaming.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie", "TvSeries"],
+    "iconUrl": "https://en.paradisehill.cc/img/favicon/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/ParadiseHill.cs3",
+    "fileSize": ${if (paradiseHillCs3.exists()) paradiseHillCs3.length() else 102400}
+  },
   {
     "name": "FiveMoviesPorn",
     "internalName": "FiveMoviesPorn",

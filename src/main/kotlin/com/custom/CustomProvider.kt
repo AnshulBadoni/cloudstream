@@ -299,3 +299,14 @@ class FiveMoviesPornProvider : Plugin() {
         registerMainAPI(FiveMoviesPorn())
     }
 }
+
+/**
+ * Dedicated Plugin for ParadiseHill (en.paradisehill.cc)
+ */
+@CloudstreamPlugin
+class ParadiseHillProvider : Plugin() {
+    override fun load(context: Context) {
+        registerMainAPI(ParadiseHill())
+    }
+}
+
