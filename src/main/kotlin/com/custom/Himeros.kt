@@ -149,7 +149,10 @@ internal object MediaFinder {
 
     private val BLOCKED = listOf(
         "test-videos.co.uk", "/sample", "sample.mp4", "googletagmanager",
-        "google-analytics", "doubleclick", "/ads/", "advert", "favicon"
+        "google-analytics", "doubleclick", "/ads/", "advert", "favicon",
+        "nitroflare", "rapidgator", "k2s.cc", "keep2share", "fileboom",
+        "fboom.me", "tezfiles", "depositfiles", "turbobit", "uploadgig",
+        "alfafile", "katfile", "mexashare", "subyshare", "rapidrar"
     )
 
     fun find(text: String): List<String> {
@@ -828,6 +831,8 @@ class Himeros : MainAPI() {
         hit: TorrentHit,
         referer: String
     ) {
+        val q = QualityParser.fromText(rawTitle)
+        val finalQuality = if (q > 0) q else Qualities.P1080.value
         emit(
             callback = callback,
             sourceName = sourceName,
@@ -835,7 +840,7 @@ class Himeros : MainAPI() {
             url = hit.url,
             type = ExtractorLinkType.TORRENT,
             referer = referer,
-            quality = QualityParser.fromText(rawTitle)
+            quality = finalQuality
         )
     }
 

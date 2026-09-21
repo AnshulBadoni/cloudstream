@@ -146,13 +146,14 @@ class PornoTorrent : MainAPI() {
                     count++
                 }
                 StreamSupport.extractMediaUrls(document.html()).forEach { streamUrl ->
+                    val isTrailer = streamUrl.contains("trailer", ignoreCase = true) || streamUrl.contains("preview", ignoreCase = true)
                     callback(
                         ExtractorLink(
                             source = name,
-                            name = "$name [Direct]",
+                            name = if (isTrailer) "$name [Preview Clip]" else "$name [Direct]",
                             url = streamUrl,
                             referer = "$mainUrl/",
-                            quality = Qualities.P1080.value,
+                            quality = if (isTrailer) Qualities.P720.value else Qualities.P1080.value,
                             isM3u8 = streamUrl.contains(".m3u8")
                         )
                     )
@@ -178,19 +179,21 @@ class PornoTorrent : MainAPI() {
     }
 
     private fun emitTorrent(torrentUrl: String, label: String, callback: (ExtractorLink) -> Unit) {
-        val quality = when (TorrentSupport.qualityFromText(label.ifBlank { torrentUrl })) {
+        val q = TorrentSupport.qualityFromText(label.ifBlank { torrentUrl })
+        val quality = when (q) {
             2160 -> Qualities.P2160.value
             1440 -> Qualities.P1440.value
             1080 -> Qualities.P1080.value
             720 -> Qualities.P720.value
             480 -> Qualities.P480.value
             360 -> Qualities.P360.value
-            else -> Qualities.Unknown.value
+            else -> Qualities.P1080.value
         }
+        val qTag = if (q > 0) " ${q}p" else " 1080p"
         callback(
             ExtractorLink(
                 source = name,
-                name = "$name [Torrent]",
+                name = "$name [Torrent]$qTag",
                 url = torrentUrl,
                 referer = "$mainUrl/",
                 quality = quality,

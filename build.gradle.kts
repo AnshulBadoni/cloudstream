@@ -196,8 +196,8 @@ tasks.register("makePlugin") {
         createPluginZip("Eporner", "com.custom.EpornerProvider", epornerCs3, version = 104)
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3, version = 105)
         createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3, version = 105)
-        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 121)
-        createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 109)
+        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 122)
+        createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 110)
         createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 107)
         createPluginZip("FiveMoviesPorn", "com.custom.FiveMoviesPornProvider", fiveMoviesCs3, version = 101)
         createPluginZip("ParadiseHill", "com.custom.ParadiseHillProvider", paradiseHillCs3, version = 101)
@@ -237,7 +237,7 @@ tasks.register("makePlugin") {
   {
     "name": "Himeros",
     "internalName": "Himeros",
-    "version": 121,
+    "version": 122,
     "apiVersion": 1,
     "description": "Master aggregator provider with Data18 movie/series/showcase catalogs, PornPics trending models & studios, IMDb/TMDb enhanced artwork, episodic scene breakdowns, SpeedPorn full movies & multi-source torrents (PornoTorrent, LimeTorrents, 1337x).",
     "authors": ["AnshulBadoni"],
@@ -252,7 +252,7 @@ tasks.register("makePlugin") {
   {
     "name": "PornoTorrent",
     "internalName": "PornoTorrent",
-    "version": 109,
+    "version": 110,
     "apiVersion": 1,
     "description": "High-speed direct torrent provider indexing top studio releases and movies from pornotorrent.com.br.",
     "authors": ["AnshulBadoni"],
