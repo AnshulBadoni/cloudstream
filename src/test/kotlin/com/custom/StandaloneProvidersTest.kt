@@ -119,6 +119,7 @@ class StandaloneProvidersTest {
         val trending = runCatching { provider.getMainPage(1, MainPageRequest("Trending", "trending")) }.getOrNull()
         val list = trending?.items?.firstOrNull()?.list.orEmpty()
         println("FPO Trending count: ${list.size}")
+        assertTrue(list.isNotEmpty(), "FPO trending should not be empty")
 
         // 2. Search
         val query = "aletta ocean"
@@ -128,6 +129,34 @@ class StandaloneProvidersTest {
         val firstItem = searchRes.first()
         println("  First Search Result: ${firstItem.name} (Type: ${firstItem.type}) -> ${firstItem.url}")
         assertEquals(TvType.TvSeries, firstItem.type, "First item should be a TvSeries model card")
+        assertFalse(firstItem.name.contains("404", ignoreCase = true), "Search result should not contain 404")
+        assertFalse(firstItem.name.contains("Page Not Found", ignoreCase = true), "Search result should not be Page Not Found")
+
+        // 3. Model Load
+        val modelRes = provider.load(firstItem.url) as? TvSeriesLoadResponse
+        assertNotNull(modelRes, "Should load model search as TvSeriesLoadResponse")
+        println("  Model Name: ${modelRes?.name}, Total Videos: ${modelRes?.episodes?.size}")
+        assertNotEquals("Page Not Found", modelRes?.name, "Model title should not be 'Page Not Found'")
+        assertTrue((modelRes?.episodes?.size ?: 0) > 0, "Model should have video episodes")
+
+        // 4. Video Load
+        val videoUrl = modelRes?.episodes?.first()?.data ?: list.first().url
+        val videoRes = provider.load(videoUrl) as? MovieLoadResponse
+        assertNotNull(videoRes, "Should load video as MovieLoadResponse")
+        println("  Video Title: ${videoRes?.name}")
+        assertNotEquals("Page Not Found", videoRes?.name, "Video title should not be 'Page Not Found'")
+
+        // 5. Stream Extraction
+        val links = mutableListOf<ExtractorLink>()
+        val hasLinks = provider.loadLinks(videoUrl, isCasting = false, subtitleCallback = {}) {
+            links.add(it)
+        }
+        println("  Extracted stream links count: ${links.size}")
+        for (l in links) {
+            println("    -> [${l.quality}p] ${l.name}: ${l.url}")
+        }
+        assertTrue(hasLinks, "Should extract links for $videoUrl")
+        assertTrue(links.isNotEmpty(), "Stream links should not be empty")
     }
 
     @Test

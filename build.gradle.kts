@@ -194,7 +194,7 @@ tasks.register("makePlugin") {
         createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3, version = 110)
         createPluginZip("YamyHub", "com.custom.YamyHubProvider", yamyHubCs3, version = 104)
         createPluginZip("Eporner", "com.custom.EpornerProvider", epornerCs3, version = 104)
-        createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3, version = 104)
+        createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3, version = 105)
         createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3, version = 105)
         createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 121)
         createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 109)
@@ -327,7 +327,7 @@ tasks.register("makePlugin") {
   {
     "name": "FPO",
     "internalName": "FPO",
-    "version": 104,
+    "version": 105,
     "apiVersion": 1,
     "description": "Fast video indexing with model profiles, trending videos, and direct downloadable MP4 streams.",
     "authors": ["AnshulBadoni"],

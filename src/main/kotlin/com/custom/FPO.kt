@@ -69,9 +69,9 @@ class FPO : MainAPI() {
                 if (ppItems.isNotEmpty()) {
                     ppItems
                 } else {
-                    val url = if (page <= 1) "$mainUrl/models/" else "$mainUrl/models/page/$page/"
+                    val url = if (page <= 1) "$mainUrl/search/models/" else "$mainUrl/search/models/page/$page/"
                     val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
-                    doc?.select("div.item, div.model-item, a[href*='/models/']")?.mapNotNull { parseActorCard(it) }.orEmpty()
+                    doc?.select("div.item, div.model-item, a[href*='/models/'], a[href*='/search/']")?.mapNotNull { parseActorCard(it) }.orEmpty()
                 }
             }
 
@@ -122,18 +122,18 @@ class FPO : MainAPI() {
         val queryWords = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
         val titleCaseQuery = queryWords.joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
-        // 1. Search actors (Synthetic Performer Card)
+        // 1. Search actors (Synthetic Performer Card pointing to working search endpoint)
         val actorsJob = async {
             runCatching {
                 val list = mutableListOf<SearchResponse>()
                 if (queryWords.size in 1..4 && slugQuery.isNotBlank()) {
-                    val actorDoc = runCatching { app.get("$mainUrl/models/$slugQuery/", headers = defaultHeaders).document }.getOrNull()
+                    val actorDoc = runCatching { app.get("$mainUrl/search/$slugQuery/", headers = defaultHeaders).document }.getOrNull()
                     val actorPoster = extractImg(actorDoc?.selectFirst("div.profile-pic img, .avatar img, div.item img, img"))
 
                     list.add(
                         newTvSeriesSearchResponse(
                             name = titleCaseQuery,
-                            url = "$mainUrl/models/$slugQuery/",
+                            url = "$mainUrl/search/$slugQuery/",
                             type = TvType.TvSeries
                         ) {
                             this.posterUrl = fixUrlNull(actorPoster, mainUrl)
@@ -177,9 +177,13 @@ class FPO : MainAPI() {
         if (isPerformer) {
             val rawSlug = url.trimEnd('/').substringAfterLast('/').lowercase().trim()
             val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
-            val name = doc?.selectFirst("h1")?.text()?.trim()
-                ?: rawSlug.replace("-", " ").split(" ").filter { it.isNotBlank() }
+            val rawName = doc?.selectFirst("h1, .search-title, .title")?.text()?.trim()
+            val name = if (rawName.isNullOrBlank() || rawName.equals("Page Not Found", ignoreCase = true) || rawName.contains("404", ignoreCase = true) || rawName.startsWith("Search for", ignoreCase = true) || rawName.startsWith("Videos for", ignoreCase = true)) {
+                rawSlug.replace("-", " ").split(" ").filter { it.isNotBlank() }
                     .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+            } else {
+                rawName
+            }
 
             val slug = rawSlug.ifBlank { name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') }
             val ppPoster = TrailerHelper.fetchPornPicsActorAvatar(slug) ?: TrailerHelper.fetchPornPicsStudioLogo(slug)
@@ -192,30 +196,35 @@ class FPO : MainAPI() {
             val episodes = mutableListOf<Episode>()
 
             for (p in 1..modelPages.coerceIn(1, 10)) {
-                val pageUrl = if (url.contains("/search/")) {
-                    if (p <= 1) "$mainUrl/search/$slug/" else "$mainUrl/search/$slug/page/$p/"
-                } else {
-                    if (p <= 1) "$mainUrl/models/$slug/" else "$mainUrl/models/$slug/page/$p/"
-                }
+                val pageUrl = if (p <= 1) "$mainUrl/search/$slug/" else "$mainUrl/search/$slug/page/$p/"
                 val pageDoc = runCatching { app.get(pageUrl, headers = defaultHeaders).document }.getOrNull() ?: break
-                val cards = pageDoc.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/'], div:has(img) a")
+                val cards = pageDoc.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/']")
                 if (cards.isEmpty()) break
                 cards.forEach { el ->
-                    val linkEl = if (el.tagName() == "a") el else el.selectFirst("a") ?: return@forEach
+                    val linkEl = if (el.tagName() == "a") el else el.selectFirst("a[href*='/video/'], a[href*='/videos/'], a") ?: return@forEach
                     val link = linkEl.attr("href").ifBlank { null } ?: return@forEach
-                    if (link.contains("/models/") || link.contains("/tags/") || link == "#") return@forEach
+                    if (!link.contains("/video/") && !link.contains("/videos/")) return@forEach
+                    if (link.contains("/models/") || link.contains("/tags/") || link.contains("/link/") || link.contains("/signup/") || link.contains("/login/") || link.contains("/sites/") || link == "#") return@forEach
 
                     val imgEl = el.selectFirst("img") ?: linkEl.selectFirst("img")
-                    val title = imgEl?.attr("alt")?.ifBlank { null }
+                    val rawTitle = imgEl?.attr("alt")?.ifBlank { null }
                         ?: linkEl.attr("title").ifBlank { null }
                         ?: el.selectFirst(".title, h2, h3")?.text()?.trim()
-                        ?: "FPO Scene ${episodes.size + 1}"
+
+                    val title = if (rawTitle.isNullOrBlank() || rawTitle.equals("Page Not Found", ignoreCase = true) || rawTitle.contains("404", ignoreCase = true)) {
+                        val s = link.trimEnd('/').substringAfterLast('/')
+                        s.replace(Regex("^[0-9]+-"), "").replace("-", " ").split(" ")
+                            .filter { it.isNotBlank() }.joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+                    } else {
+                        rawTitle
+                    }
+                    val finalTitle = title.ifBlank { "FPO Scene ${episodes.size + 1}" }
                     val img = extractImg(imgEl)
 
                     episodes.add(
                         Episode(
                             data = fixUrl(link, mainUrl),
-                            name = title,
+                            name = finalTitle,
                             season = 1,
                             episode = episodes.size + 1,
                             posterUrl = fixUrlNull(img, mainUrl)
@@ -229,24 +238,33 @@ class FPO : MainAPI() {
                 for (p in 1..modelPages.coerceIn(1, 10)) {
                     val searchUrl = if (p <= 1) "$mainUrl/search/$cleanQuery/" else "$mainUrl/search/$cleanQuery/page/$p/"
                     val searchDoc = runCatching { app.get(searchUrl, headers = defaultHeaders).document }.getOrNull() ?: break
-                    val cards = searchDoc.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/'], div:has(img) a")
+                    val cards = searchDoc.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/']")
                     if (cards.isEmpty()) break
                     cards.forEach { el ->
-                        val linkEl = if (el.tagName() == "a") el else el.selectFirst("a") ?: return@forEach
+                        val linkEl = if (el.tagName() == "a") el else el.selectFirst("a[href*='/video/'], a[href*='/videos/'], a") ?: return@forEach
                         val link = linkEl.attr("href").ifBlank { null } ?: return@forEach
-                        if (link.contains("/models/") || link.contains("/tags/") || link == "#") return@forEach
+                        if (!link.contains("/video/") && !link.contains("/videos/")) return@forEach
+                        if (link.contains("/models/") || link.contains("/tags/") || link.contains("/link/") || link.contains("/signup/") || link.contains("/login/") || link.contains("/sites/") || link == "#") return@forEach
 
                         val imgEl = el.selectFirst("img") ?: linkEl.selectFirst("img")
-                        val title = imgEl?.attr("alt")?.ifBlank { null }
+                        val rawTitle = imgEl?.attr("alt")?.ifBlank { null }
                             ?: linkEl.attr("title").ifBlank { null }
                             ?: el.selectFirst(".title, h2, h3")?.text()?.trim()
-                            ?: "FPO Scene ${episodes.size + 1}"
+
+                        val title = if (rawTitle.isNullOrBlank() || rawTitle.equals("Page Not Found", ignoreCase = true) || rawTitle.contains("404", ignoreCase = true)) {
+                            val s = link.trimEnd('/').substringAfterLast('/')
+                            s.replace(Regex("^[0-9]+-"), "").replace("-", " ").split(" ")
+                                .filter { it.isNotBlank() }.joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+                        } else {
+                            rawTitle
+                        }
+                        val finalTitle = title.ifBlank { "FPO Scene ${episodes.size + 1}" }
                         val img = extractImg(imgEl)
 
                         episodes.add(
                             Episode(
                                 data = fixUrl(link, mainUrl),
-                                name = title,
+                                name = finalTitle,
                                 season = 1,
                                 episode = episodes.size + 1,
                                 posterUrl = fixUrlNull(img, mainUrl)
@@ -264,7 +282,15 @@ class FPO : MainAPI() {
             }
         } else {
             val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
-            val title = doc?.selectFirst("h1, .video-title, .title")?.text()?.trim() ?: "FPO Video"
+            val rawTitle = doc?.selectFirst("h1, .video-title, .title")?.text()?.trim()
+            val title = if (rawTitle.isNullOrBlank() || rawTitle.equals("Page Not Found", ignoreCase = true) || rawTitle.contains("404", ignoreCase = true)) {
+                val slug = url.trimEnd('/').substringAfterLast('/')
+                val sTitle = slug.replace(Regex("^[0-9]+-"), "").replace("-", " ").split(" ")
+                    .filter { it.isNotBlank() }.joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+                sTitle.ifBlank { "FPO Video" }
+            } else {
+                rawTitle
+            }
             val poster = doc?.selectFirst("meta[property='og:image']")?.attr("content")
                 ?: doc?.selectFirst("video[poster]")?.attr("poster")
                 ?: extractImg(doc?.selectFirst("img"))
@@ -291,10 +317,14 @@ class FPO : MainAPI() {
         val doc = runCatching { app.get(data, headers = defaultHeaders).document }.getOrNull()
         val rawHtml = doc?.html().orEmpty()
 
-        val streams = Regex("""(https?://[^\s"'<>]+\.(?:mp4|m3u8)[^\s"'<>]*)""").findAll(rawHtml)
+        val directSources = doc?.select("video source, source[src], video[src]")?.mapNotNull {
+            it.attr("src").ifBlank { null }
+        }.orEmpty()
+
+        val streams = (directSources + Regex("""(https?://[^\s"'<>]+\.(?:mp4|m3u8)[^\s"'<>]*)""").findAll(rawHtml)
             .map { it.groupValues[1] }
+            .toList())
             .distinct()
-            .toList()
 
         for (sUrl in streams) {
             val qLabel = when {
@@ -325,15 +355,23 @@ class FPO : MainAPI() {
 
     // 5. HELPER CARD PARSERS
     private fun parseVideoCard(element: Element): SearchResponse? {
-        val linkEl = if (element.tagName() == "a") element else element.selectFirst("a") ?: return null
+        val linkEl = if (element.tagName() == "a") element else element.selectFirst("a[href*='/video/'], a[href*='/videos/'], a") ?: return null
         val href = linkEl.attr("href")
-        if (href.isBlank() || href == "#" || href.contains("/models/") || href.contains("/tags/")) return null
+        if (href.isBlank() || href == "#") return null
+        if (!href.contains("/video/") && !href.contains("/videos/")) return null
+        if (href.contains("/models/") || href.contains("/tags/") || href.contains("/link/") || href.contains("/signup/") || href.contains("/login/") || href.contains("/sites/")) return null
 
         val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
-        val title = imgEl?.attr("alt")?.ifBlank { null }
+        var title = imgEl?.attr("alt")?.ifBlank { null }
             ?: linkEl.attr("title").ifBlank { null }
             ?: element.selectFirst(".title, h2, h3")?.text()?.trim()
-            ?: return null
+
+        if (title.isNullOrBlank() || title.equals("Page Not Found", ignoreCase = true) || title.contains("404", ignoreCase = true)) {
+            val slug = href.trimEnd('/').substringAfterLast('/')
+            title = slug.replace(Regex("^[0-9]+-"), "").replace("-", " ").split(" ")
+                .filter { it.isNotBlank() }.joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+        }
+        if (title.isBlank()) return null
 
         val poster = extractImg(imgEl)
 
@@ -346,7 +384,7 @@ class FPO : MainAPI() {
     private fun parseActorCard(element: Element): SearchResponse? {
         val linkEl = if (element.tagName() == "a") element else element.selectFirst("a") ?: return null
         val href = linkEl.attr("href")
-        if (href.isBlank() || href == "#" || !href.contains("/models/")) return null
+        if (href.isBlank() || href == "#" || (!href.contains("/models/") && !href.contains("/search/"))) return null
 
         val imgEl = element.selectFirst("img") ?: linkEl.selectFirst("img")
         val name = imgEl?.attr("alt")?.ifBlank { null }
@@ -374,7 +412,7 @@ class FPO : MainAPI() {
 
         val poster = extractImg(element.selectFirst("img"))
 
-        return newTvSeriesSearchResponse(name, "$mainUrl/models/$slug/", TvType.TvSeries) {
+        return newTvSeriesSearchResponse(name, "$mainUrl/search/$slug/", TvType.TvSeries) {
             this.posterUrl = fixUrlNull(poster, pornpicsUrl)
             this.posterHeaders = pornpicsHeaders
         }
