@@ -49,7 +49,8 @@ class FPO : MainAPI() {
             "trending" -> {
                 val url = if (page <= 1) "$mainUrl/" else "$mainUrl/page/$page/"
                 val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
-                doc?.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/']")?.mapNotNull { parseVideoCard(it) }.orEmpty()
+                    ?: runCatching { app.get(if (page <= 1) "$mainUrl/new-1/" else "$mainUrl/new-1/page/$page/", headers = defaultHeaders).document }.getOrNull()
+                doc?.select("div.item, div.video-item, a[href*='/videos/'], a[href*='/video/'], div.thumb")?.mapNotNull { parseVideoCard(it) }.orEmpty()
             }
 
             // Actors / Models (PornPics Trending Models with FPO video profile link)
@@ -316,15 +317,28 @@ class FPO : MainAPI() {
         var count = 0
         val doc = runCatching { app.get(data, headers = defaultHeaders).document }.getOrNull()
         val rawHtml = doc?.html().orEmpty()
+        val streams = mutableSetOf<String>()
 
-        val directSources = doc?.select("video source, source[src], video[src]")?.mapNotNull {
-            it.attr("src").ifBlank { null }
-        }.orEmpty()
+        doc?.select("video source, source[src], video[src]")?.forEach {
+            val src = it.attr("src").ifBlank { null } ?: it.attr("data-src").ifBlank { null }
+            if (!src.isNullOrBlank()) streams.add(fixUrl(src, mainUrl))
+        }
 
-        val streams = (directSources + Regex("""(https?://[^\s"'<>]+\.(?:mp4|m3u8)[^\s"'<>]*)""").findAll(rawHtml)
-            .map { it.groupValues[1] }
-            .toList())
-            .distinct()
+        Regex("""(?i)(?:https?:\\/\\/|https?://|/get_file/)[^\s"'<>\\]+?(?:\.mp4|\.m3u8|/get_file/[^\s"'<>\\]+)[^\s"'<>\\]*""").findAll(rawHtml).forEach {
+            val clean = it.value.replace("\\/", "/")
+            if (!clean.endsWith(".jpg") && !clean.endsWith(".png") && !clean.endsWith(".webp") && !clean.endsWith(".gif")) {
+                streams.add(fixUrl(clean, mainUrl))
+            }
+        }
+
+        Regex("""(?:video_url|video_alt_url|url|file)\s*:\s*['"](https?:[^'"]+|/[^'"]+)['"]""").findAll(rawHtml).forEach {
+            val clean = it.groupValues[1].replace("\\/", "/")
+            if ((clean.contains(".mp4") || clean.contains(".m3u8") || clean.contains("/get_file/")) &&
+                !clean.endsWith(".jpg") && !clean.endsWith(".png")
+            ) {
+                streams.add(fixUrl(clean, mainUrl))
+            }
+        }
 
         for (sUrl in streams) {
             val qLabel = when {

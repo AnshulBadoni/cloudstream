@@ -141,6 +141,7 @@ class StandaloneProvidersTest {
 
         // 4. Video Load
         val videoUrl = modelRes?.episodes?.first()?.data ?: list.first().url
+        println("  Testing Video URL: $videoUrl")
         val videoRes = provider.load(videoUrl) as? MovieLoadResponse
         assertNotNull(videoRes, "Should load video as MovieLoadResponse")
         println("  Video Title: ${videoRes?.name}")
@@ -154,6 +155,10 @@ class StandaloneProvidersTest {
         println("  Extracted stream links count: ${links.size}")
         for (l in links) {
             println("    -> [${l.quality}p] ${l.name}: ${l.url}")
+        }
+        if (links.isEmpty()) {
+            val rawDoc = app.get(videoUrl).text
+            println("  RAW VIDEO PAGE SNIPPET: ${rawDoc.take(1000)}")
         }
         assertTrue(hasLinks, "Should extract links for $videoUrl")
         assertTrue(links.isNotEmpty(), "Stream links should not be empty")
