@@ -189,6 +189,7 @@ tasks.register("makePlugin") {
         val limeTorrentsCs3 = File(distDir, "LimeTorrents.cs3")
         val fiveMoviesCs3 = File(distDir, "FiveMoviesPorn.cs3")
         val paradiseHillCs3 = File(distDir, "ParadiseHill.cs3")
+        val xtapesCs3 = File(distDir, "XTapes.cs3")
 
         createPluginZip("PornTrex", "com.megix.PorntrexProvider", porntrexCs3, version = 104)
         createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3, version = 110)
@@ -201,9 +202,25 @@ tasks.register("makePlugin") {
         createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 107)
         createPluginZip("FiveMoviesPorn", "com.custom.FiveMoviesPornProvider", fiveMoviesCs3, version = 101)
         createPluginZip("ParadiseHill", "com.custom.ParadiseHillProvider", paradiseHillCs3, version = 101)
+        createPluginZip("XTapes", "com.custom.XTapesProvider", xtapesCs3, version = 101)
 
         val pluginsJson = """
 [
+  {
+    "name": "XTapes",
+    "internalName": "XTapes",
+    "version": 101,
+    "apiVersion": 1,
+    "description": "Fast and clean video provider for ww3.xtapes.tw / xtapes.to featuring latest updates, most popular, top rated, full movies, HD/VR catalogs, and direct MP4/M3U8/embed streaming.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie"],
+    "iconUrl": "https://ww3.xtapes.tw/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/XTapes.cs3",
+    "fileSize": ${if (xtapesCs3.exists()) xtapesCs3.length() else 102400}
+  },
   {
     "name": "ParadiseHill",
     "internalName": "ParadiseHill",

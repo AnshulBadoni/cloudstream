@@ -33,6 +33,8 @@ object ProviderSettingsHelper {
             PLibrary.fpoModelPages = mPages
             CustomScraper.searchPages = sPages
             CustomScraper.actorPages = mPages
+            XTapes.searchPages = sPages
+            XTapes.catalogPages = mPages
         } catch (_: Exception) {
         }
     }
@@ -93,6 +95,7 @@ object ProviderSettingsHelper {
                                 FPO.searchPages = pages
                                 PLibrary.searchPages = pages
                                 CustomScraper.searchPages = pages
+                                XTapes.searchPages = pages
 
                                 val editor = prefs.javaClass.getMethod("edit").invoke(prefs)
                                 editor.javaClass.getMethod("putInt", String::class.java, Int::class.javaPrimitiveType)
@@ -148,6 +151,7 @@ object ProviderSettingsHelper {
                                 PLibrary.tnaModelPages = pages
                                 PLibrary.fpoModelPages = pages
                                 CustomScraper.actorPages = pages
+                                XTapes.catalogPages = pages
 
                                 val editor = prefs.javaClass.getMethod("edit").invoke(prefs)
                                 editor.javaClass.getMethod("putInt", String::class.java, Int::class.javaPrimitiveType)
@@ -307,6 +311,18 @@ class FiveMoviesPornProvider : Plugin() {
 class ParadiseHillProvider : Plugin() {
     override fun load(context: Context) {
         registerMainAPI(ParadiseHill())
+    }
+}
+
+/**
+ * Dedicated Plugin for XTapes (ww3.xtapes.tw / xtapes.to)
+ */
+@CloudstreamPlugin
+class XTapesProvider : Plugin() {
+    override fun load(context: Context) {
+        registerMainAPI(XTapes())
+        ProviderSettingsHelper.initSettings(context)
+        this.openSettings = { ctx -> ProviderSettingsHelper.openSettingsDialog(ctx) }
     }
 }
 
