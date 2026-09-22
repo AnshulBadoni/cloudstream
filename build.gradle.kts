@@ -202,14 +202,14 @@ tasks.register("makePlugin") {
         createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 107)
         createPluginZip("FiveMoviesPorn", "com.custom.FiveMoviesPornProvider", fiveMoviesCs3, version = 101)
         createPluginZip("ParadiseHill", "com.custom.ParadiseHillProvider", paradiseHillCs3, version = 101)
-        createPluginZip("XTapes", "com.custom.XTapesProvider", xtapesCs3, version = 102)
+        createPluginZip("XTapes", "com.custom.XTapesProvider", xtapesCs3, version = 103)
 
         val pluginsJson = """
 [
   {
     "name": "XTapes",
     "internalName": "XTapes",
-    "version": 102,
+    "version": 103,
     "apiVersion": 1,
     "description": "Fast and clean video provider for ww3.xtapes.tw / xtapes.to featuring latest updates, most popular, top rated, full movies, HD/VR catalogs, and direct MP4/M3U8/embed streaming.",
     "authors": ["AnshulBadoni"],
