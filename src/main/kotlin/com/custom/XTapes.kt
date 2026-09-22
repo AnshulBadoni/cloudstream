@@ -1,6 +1,7 @@
 package com.custom
 
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.network.WebViewResolver
 import com.lagradost.cloudstream3.utils.*
 import kotlinx.coroutines.*
 import org.jsoup.nodes.Document
@@ -9,7 +10,8 @@ import java.net.URLEncoder
 
 /**
  * Dedicated Provider for XTapes (ww3.xtapes.tw / xtapes.to)
- * Fast, clean, standalone provider with direct MP4/M3U8 extraction and embed support.
+ * Fast, clean, standalone provider with direct MP4/M3U8 extraction, embed support,
+ * and background WebViewResolver interceptor for Cloudflare challenge bypass.
  */
 class XTapes : MainAPI() {
     override var mainUrl = "https://ww3.xtapes.tw"
@@ -19,6 +21,8 @@ class XTapes : MainAPI() {
     override val hasDownloadSupport = true
     override val vpnStatus = VPNStatus.MightBeNeeded
     override val supportedTypes = setOf(TvType.NSFW, TvType.Movie)
+
+    private val interceptor = WebViewResolver(Regex("""xtapes"""))
 
     private val defaultHeaders = mapOf(
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -50,13 +54,13 @@ class XTapes : MainAPI() {
             if (path.contains("?")) "$mainUrl/$path&page=$page" else "$mainUrl/$path/page/$page/"
         }
 
-        val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+        val doc = runCatching { app.get(url, headers = defaultHeaders, interceptor = interceptor).document }.getOrNull()
             ?: runCatching {
                 val altUrl = url.replace("https://ww3.xtapes.tw", "https://xtapes.to")
-                app.get(altUrl, headers = defaultHeaders).document
+                app.get(altUrl, headers = defaultHeaders, interceptor = interceptor).document
             }.getOrNull()
 
-        val items = doc?.select("div.item, div.video-item, article.post, div.thumb, .item-video, .video-thumb")
+        val items = doc?.select("div.item, div.video-item, article.post, div.thumb, .item-video, .video-thumb, .thumb-item")
             ?.mapNotNull { parseVideoCard(it) }
             ?.distinctBy { it.url }
             .orEmpty()
@@ -85,8 +89,8 @@ class XTapes : MainAPI() {
                 val pageUrl = if (p <= 1) u else {
                     if (u.contains("?")) "$u&page=$p" else "${u.trimEnd('/')}/page/$p/"
                 }
-                val doc = runCatching { app.get(pageUrl, headers = defaultHeaders).document }.getOrNull() ?: break
-                val items = doc.select("div.item, div.video-item, article.post, div.thumb, .item-video, .video-thumb, a[href*='/video/']")
+                val doc = runCatching { app.get(pageUrl, headers = defaultHeaders, interceptor = interceptor).document }.getOrNull() ?: break
+                val items = doc.select("div.item, div.video-item, article.post, div.thumb, .item-video, .video-thumb, a[href*='/video/'], a[href*='/porn-movies-hd/']")
                     .mapNotNull { parseVideoCard(it) }
                 if (items.isEmpty()) break
                 results.addAll(items)
@@ -99,10 +103,10 @@ class XTapes : MainAPI() {
 
     // 3. LOAD DETAILS
     override suspend fun load(url: String): LoadResponse {
-        val doc = runCatching { app.get(url, headers = defaultHeaders).document }.getOrNull()
+        val doc = runCatching { app.get(url, headers = defaultHeaders, interceptor = interceptor).document }.getOrNull()
             ?: runCatching {
                 val altUrl = url.replace("https://ww3.xtapes.tw", "https://xtapes.to")
-                app.get(altUrl, headers = defaultHeaders).document
+                app.get(altUrl, headers = defaultHeaders, interceptor = interceptor).document
             }.getOrNull()
 
         val rawTitle = doc?.selectFirst("h1.entry-title, h1, .video-title, .title, meta[property='og:title']")?.let {
@@ -163,10 +167,10 @@ class XTapes : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean = coroutineScope {
         var count = 0
-        val doc = runCatching { app.get(data, headers = defaultHeaders).document }.getOrNull()
+        val doc = runCatching { app.get(data, headers = defaultHeaders, interceptor = interceptor).document }.getOrNull()
             ?: runCatching {
                 val altUrl = data.replace("https://ww3.xtapes.tw", "https://xtapes.to")
-                app.get(altUrl, headers = defaultHeaders).document
+                app.get(altUrl, headers = defaultHeaders, interceptor = interceptor).document
             }.getOrNull()
 
         val rawHtml = doc?.html().orEmpty()
@@ -245,7 +249,7 @@ class XTapes : MainAPI() {
 
     // 5. HELPER PARSERS
     private fun parseVideoCard(element: Element): SearchResponse? {
-        val linkEl = if (element.tagName() == "a") element else element.selectFirst("a[href*='/video/'], a[href*='/videos/'], a[href*='/watch/'], a") ?: return null
+        val linkEl = if (element.tagName() == "a") element else element.selectFirst("a[href*='/video/'], a[href*='/videos/'], a[href*='/watch/'], a[href*='/porn-movies-hd/'], a[href*='/movie/'], a") ?: return null
         val href = linkEl.attr("href")
         if (href.isBlank() || href == "#" || href.contains("/category/") || href.contains("/tag/") || href.contains("/channels/")) return null
 
