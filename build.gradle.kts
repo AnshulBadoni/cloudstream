@@ -197,7 +197,7 @@ tasks.register("makePlugin") {
         createPluginZip("Eporner", "com.custom.EpornerProvider", epornerCs3, version = 104)
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3, version = 105)
         createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3, version = 105)
-        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 122)
+        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 123)
         createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 110)
         createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 107)
         createPluginZip("FiveMoviesPorn", "com.custom.FiveMoviesPornProvider", fiveMoviesCs3, version = 101)
@@ -254,9 +254,9 @@ tasks.register("makePlugin") {
   {
     "name": "Himeros",
     "internalName": "Himeros",
-    "version": 122,
+    "version": 123,
     "apiVersion": 1,
-    "description": "Master aggregator provider with Data18 movie/series/showcase catalogs, PornPics trending models & studios, IMDb/TMDb enhanced artwork, episodic scene breakdowns, SpeedPorn full movies & multi-source torrents (PornoTorrent, LimeTorrents, 1337x).",
+    "description": "Optimized high-speed full movie provider powered by SpeedPorn with direct 1080p/4K MP4/M3U8 streams and multi-host embed resolvers (LuluStream, Streamtape, DoodStream, MixDrop, VOE).",
     "authors": ["AnshulBadoni"],
     "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
     "status": 1,
