@@ -401,17 +401,20 @@ class FiveMoviesPorn : MainAPI() {
 
                 if (!wurlMatch.isNullOrBlank() && wurlMatch.trim().isNotEmpty()) {
                     val fullUrl = if (wurlMatch.startsWith("//")) "https:$wurlMatch" else wurlMatch
+                    val origin = Regex("""^(https?://[^/]+)""").find(mirror)?.groupValues?.get(1) ?: "https://mixdrop.ag"
                     callback.invoke(
                         ExtractorLink(
                             source = name,
                             name = "$name [MixDrop 1080p]",
                             url = fullUrl,
-                            referer = "https://mixdrop.ag/",
+                            referer = "$origin/",
                             quality = Qualities.P1080.value,
                             isM3u8 = false,
                             headers = mapOf(
-                                "Referer" to "https://mixdrop.ag/",
-                                "User-Agent" to headers["User-Agent"]!!
+                                "Referer" to "$origin/",
+                                "Origin" to origin,
+                                "User-Agent" to headers["User-Agent"]!!,
+                                "Accept" to "*/*"
                             )
                         )
                     )

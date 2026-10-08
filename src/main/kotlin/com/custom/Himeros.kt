@@ -410,8 +410,21 @@ class Himeros : MainAPI() {
             .map { normalizeEmbed(it) }
             .distinct()
 
-        // 3. Launch all built-in extractors in parallel
-        val extractorJobs = embedUrls.map { url ->
+        val mixdropUrls = embedUrls.filter { u -> u.contains("mixdrop", true) || u.contains("mxdrop", true) }
+        val otherUrls = embedUrls.filter { u -> !u.contains("mixdrop", true) && !u.contains("mxdrop", true) }
+
+        // 3. Launch all extractors in parallel (with dedicated MixDrop unpacker)
+        val mixdropJobs = mixdropUrls.map { url ->
+            async {
+                try {
+                    resolveMixDrop(url, report)
+                } catch (e: Exception) {
+                    hLog("resolveMixDrop failed for $url", e)
+                }
+            }
+        }
+
+        val extractorJobs = otherUrls.map { url ->
             async {
                 try {
                     loadExtractor(url, "$mainUrl/", subtitleCallback, report)
@@ -420,16 +433,13 @@ class Himeros : MainAPI() {
                 }
             }
         }
-        extractorJobs.awaitAll()
+        (mixdropJobs + extractorJobs).awaitAll()
 
-        // 4. Custom fallbacks ONLY if built-ins produced nothing for those hosts
+        // 4. Custom fallbacks ONLY if built-ins produced nothing for other hosts
         if (emitted.get() == 0) {
-            val fallbacks = embedUrls.filter { u ->
+            val fallbacks = otherUrls.filter { u ->
                 listOf("lulustream", "luluvid", "luluvdo").any { u.contains(it, true) }
-            }.take(2).map { async { resolveLulu(it, report) } } +
-                    embedUrls.filter { u ->
-                        u.contains("mixdrop", true) || u.contains("mxdrop", true)
-                    }.take(2).map { async { resolveMixDrop(it, report) } }
+            }.take(2).map { async { resolveLulu(it, report) } }
             fallbacks.awaitAll()
         }
 
@@ -481,6 +491,7 @@ class Himeros : MainAPI() {
             "https://mixdrop.my/e/$code",
             "https://mixdrop.co/e/$code",
             "https://mixdrop.sx/e/$code",
+            "https://mixdrop.is/e/$code",
             "https://mxdrop.to/e/$code"
         )).distinct()
 
@@ -504,7 +515,12 @@ class Himeros : MainAPI() {
                 url = UrlUtils.fixProtocol(wurl),
                 type = ExtractorLinkType.VIDEO,
                 referer = "$origin/",
-                quality = 0
+                quality = QualityParser.fromText(wurl),
+                extraHeaders = mapOf(
+                    "Origin" to origin,
+                    "Referer" to "$origin/",
+                    "Accept" to "*/*"
+                )
             )
             return true
         }
@@ -561,6 +577,11 @@ class Himeros : MainAPI() {
         val qLabel = if (quality > 0) "${quality}p" else "Direct"
         val isM3u8 = type == ExtractorLinkType.M3U8 || url.contains(".m3u8")
 
+        val streamHeaders = defaultHeaders.toMutableMap().apply {
+            this["Referer"] = referer
+            putAll(extraHeaders)
+        }
+
         val link = ExtractorLink(
             source = sourceName,
             name = "$displayName ($qLabel)",
@@ -568,7 +589,7 @@ class Himeros : MainAPI() {
             referer = referer,
             quality = if (quality > 0) quality else Qualities.P1080.value,
             isM3u8 = isM3u8,
-            headers = defaultHeaders + extraHeaders
+            headers = streamHeaders
         )
         callback(link)
     }

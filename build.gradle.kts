@@ -197,10 +197,10 @@ tasks.register("makePlugin") {
         createPluginZip("Eporner", "com.custom.EpornerProvider", epornerCs3, version = 104)
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3, version = 105)
         createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3, version = 105)
-        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 123)
+        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 124)
         createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 110)
         createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 107)
-        createPluginZip("FiveMoviesPorn", "com.custom.FiveMoviesPornProvider", fiveMoviesCs3, version = 101)
+        createPluginZip("FiveMoviesPorn", "com.custom.FiveMoviesPornProvider", fiveMoviesCs3, version = 102)
         createPluginZip("ParadiseHill", "com.custom.ParadiseHillProvider", paradiseHillCs3, version = 101)
         createPluginZip("XTapes", "com.custom.XTapesProvider", xtapesCs3, version = 103)
 
@@ -239,7 +239,7 @@ tasks.register("makePlugin") {
   {
     "name": "FiveMoviesPorn",
     "internalName": "FiveMoviesPorn",
-    "version": 101,
+    "version": 102,
     "apiVersion": 1,
     "description": "High quality full movie and scene streaming provider with VOE, PlayMogo, and DoodStream multi-host embeds from 5moviesporn.io.",
     "authors": ["AnshulBadoni"],
@@ -254,7 +254,7 @@ tasks.register("makePlugin") {
   {
     "name": "Himeros",
     "internalName": "Himeros",
-    "version": 123,
+    "version": 124,
     "apiVersion": 1,
     "description": "Optimized high-speed full movie provider powered by SpeedPorn with direct 1080p/4K MP4/M3U8 streams and multi-host embed resolvers (LuluStream, Streamtape, DoodStream, MixDrop, VOE).",
     "authors": ["AnshulBadoni"],
