@@ -222,7 +222,7 @@ class Himeros : MainAPI() {
         "lulustream", "luluvid", "luluvdo",
         "mixdrop", "mxdrop",
         "streamtape", "streamta", "strtape",
-        "doodstream", "dood.", "ds2play", "playmogo", "d0000d", "d000d",
+        "doodstream", "dood.", "ds2play", "playmogo", "d0000d", "d000d", "doply.net", "doply",
         "voe.sx", "voe-unblock", "streamwish", "filelions", "filemoon",
         "vidhide", "dropload", "vidoza", "streamcloud", "upstream"
     )
@@ -393,12 +393,20 @@ class Himeros : MainAPI() {
                 }
             }
 
+        // Extract HLM data-servers (SpeedPorn Host Links Manager plugin)
+        doc.select("[data-servers]").forEach { el ->
+            val serversAttr = el.attr("data-servers").replace("\\/", "/")
+            Regex("""https?://[^\s"'<>\\]+""", RegexOption.IGNORE_CASE).findAll(serversAttr).forEach { m ->
+                candidates.add(m.value)
+            }
+        }
+
         Regex(
             """https?:(?://|\\/\\/)[^\s"'<>\\]*(?:""" +
                     HOST_MARKERS.joinToString("|") { Regex.escape(it) } +
                     """)[^\s"'<>\\]*""",
             RegexOption.IGNORE_CASE
-        ).findAll(rawHtml).forEach { candidates.add(it.value) }
+        ).findAll(rawHtml.replace("\\/", "/")).forEach { candidates.add(it.value) }
 
         val embedUrls = candidates
             .map { UrlUtils.fixProtocol(it) }
@@ -488,9 +496,10 @@ class Himeros : MainAPI() {
 
         val mirrors = (listOf(embedUrl) + listOf(
             "https://mixdrop.ag/e/$code",
+            "https://mixdrop.sx/e/$code",
+            "https://mixdrop.ps/e/$code",
             "https://mixdrop.my/e/$code",
             "https://mixdrop.co/e/$code",
-            "https://mixdrop.sx/e/$code",
             "https://mixdrop.is/e/$code",
             "https://mxdrop.to/e/$code"
         )).distinct()
@@ -539,7 +548,8 @@ class Himeros : MainAPI() {
 
         val doodHosts = listOf(
             "playmogo.com", "doodstream.com", "dood.to", "dood.li",
-            "dood.ws", "dood.yt", "ds2play.com", "d0000d.com", "d000d.com"
+            "dood.ws", "dood.yt", "ds2play.com", "d0000d.com", "d000d.com",
+            "doply.net", "doply.org", "d0000d.net"
         )
         if (doodHosts.any { clean.contains(it, true) }) {
             val c = when {
