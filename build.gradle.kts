@@ -197,7 +197,7 @@ tasks.register("makePlugin") {
         createPluginZip("Eporner", "com.custom.EpornerProvider", epornerCs3, version = 104)
         createPluginZip("FPO", "com.custom.FPOProvider", fpoCs3, version = 105)
         createPluginZip("PLibrary", "com.custom.PLibraryProvider", plibraryCs3, version = 105)
-        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 124)
+        createPluginZip("Himeros", "com.custom.HimerosProvider", himerosCs3, version = 125)
         createPluginZip("PornoTorrent", "com.custom.PornoTorrentProvider", pornoTorrentCs3, version = 110)
         createPluginZip("LimeTorrents", "com.custom.LimeTorrentsProvider", limeTorrentsCs3, version = 107)
         createPluginZip("FiveMoviesPorn", "com.custom.FiveMoviesPornProvider", fiveMoviesCs3, version = 102)
@@ -254,7 +254,7 @@ tasks.register("makePlugin") {
   {
     "name": "Himeros",
     "internalName": "Himeros",
-    "version": 124,
+    "version": 125,
     "apiVersion": 1,
     "description": "Optimized high-speed full movie provider powered by SpeedPorn with direct 1080p/4K MP4/M3U8 streams and multi-host embed resolvers (LuluStream, Streamtape, DoodStream, MixDrop, VOE).",
     "authors": ["AnshulBadoni"],

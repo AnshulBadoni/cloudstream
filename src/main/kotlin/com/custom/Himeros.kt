@@ -149,7 +149,8 @@ internal object MediaFinder {
         "google-analytics", "doubleclick", "/ads/", "advert", "favicon",
         "nitroflare", "rapidgator", "k2s.cc", "keep2share", "fileboom",
         "fboom.me", "tezfiles", "depositfiles", "turbobit", "uploadgig",
-        "alfafile", "katfile", "mexashare", "subyshare", "rapidrar"
+        "alfafile", "katfile", "mexashare", "subyshare", "rapidrar",
+        "frdl.my", "freedld"
     )
 
     fun find(text: String): List<String> {
@@ -219,7 +220,7 @@ class Himeros : MainAPI() {
     )
 
     private val HOST_MARKERS = listOf(
-        "lulustream", "luluvid", "luluvdo",
+        "lulustream", "luluvid", "luluvdo", "luluvido", "luluvstream",
         "mixdrop", "mxdrop",
         "streamtape", "streamta", "strtape",
         "doodstream", "dood.", "ds2play", "playmogo", "d0000d", "d000d", "doply.net", "doply",
@@ -446,7 +447,7 @@ class Himeros : MainAPI() {
         // 4. Custom fallbacks ONLY if built-ins produced nothing for other hosts
         if (emitted.get() == 0) {
             val fallbacks = otherUrls.filter { u ->
-                listOf("lulustream", "luluvid", "luluvdo").any { u.contains(it, true) }
+                listOf("lulustream", "luluvid", "luluvdo", "luluvido", "luluvstream").any { u.contains(it, true) }
             }.take(2).map { async { resolveLulu(it, report) } }
             fallbacks.awaitAll()
         }
@@ -463,6 +464,7 @@ class Himeros : MainAPI() {
 
         val mirrors = (listOf(embedUrl) + listOf(
             "https://lulustream.com/e/$code",
+            "https://luluvido.com/e/$code",
             "https://luluvdo.com/e/$code",
             "https://luluvid.com/e/$code"
         )).distinct()
@@ -566,7 +568,7 @@ class Himeros : MainAPI() {
         }
 
         if (Regex(
-                """(?:streamwish|filelions|lulustream|luluvid|luluvdo|vidhide|filemoon)\.\w+/f/""",
+                """(?:streamwish|filelions|lulustream|luluvid|luluvdo|luluvido|luluvstream|vidhide|filemoon)\.\w+/f/""",
                 RegexOption.IGNORE_CASE
             ).containsMatchIn(clean)
         ) return clean.replace("/f/", "/e/")
