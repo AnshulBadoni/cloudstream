@@ -420,15 +420,45 @@ class Himeros : MainAPI() {
             .distinct()
 
         val mixdropUrls = embedUrls.filter { u -> u.contains("mixdrop", true) || u.contains("mxdrop", true) }
-        val otherUrls = embedUrls.filter { u -> !u.contains("mixdrop", true) && !u.contains("mxdrop", true) }
+        val luluUrls = embedUrls.filter { u ->
+            listOf("lulustream", "luluvid", "luluvdo", "luluvido", "luluvstream").any { u.contains(it, true) }
+        }
+        val doodUrls = embedUrls.filter { u ->
+            listOf("dood", "ds2play", "playmogo", "d0000d", "d000d", "doply").any { u.contains(it, true) }
+        }
+        val otherUrls = embedUrls.filter { u ->
+            !u.contains("mixdrop", true) && !u.contains("mxdrop", true) &&
+                    listOf("lulustream", "luluvid", "luluvdo", "luluvido", "luluvstream").none { u.contains(it, true) } &&
+                    listOf("dood", "ds2play", "playmogo", "d0000d", "d000d", "doply").none { u.contains(it, true) }
+        }
 
-        // 3. Launch all extractors in parallel (with dedicated MixDrop unpacker)
+        // 3. Launch all extractors concurrently
         val mixdropJobs = mixdropUrls.map { url ->
             async {
                 try {
                     resolveMixDrop(url, report)
                 } catch (e: Exception) {
                     hLog("resolveMixDrop failed for $url", e)
+                }
+            }
+        }
+
+        val luluJobs = luluUrls.map { url ->
+            async {
+                try {
+                    resolveLulu(url, report)
+                } catch (e: Exception) {
+                    hLog("resolveLulu failed for $url", e)
+                }
+            }
+        }
+
+        val doodJobs = doodUrls.map { url ->
+            async {
+                try {
+                    resolveDood(url, report)
+                } catch (e: Exception) {
+                    hLog("resolveDood failed for $url", e)
                 }
             }
         }
@@ -442,15 +472,7 @@ class Himeros : MainAPI() {
                 }
             }
         }
-        (mixdropJobs + extractorJobs).awaitAll()
-
-        // 4. Custom fallbacks ONLY if built-ins produced nothing for other hosts
-        if (emitted.get() == 0) {
-            val fallbacks = otherUrls.filter { u ->
-                listOf("lulustream", "luluvid", "luluvdo", "luluvido", "luluvstream").any { u.contains(it, true) }
-            }.take(2).map { async { resolveLulu(it, report) } }
-            fallbacks.awaitAll()
-        }
+        (mixdropJobs + luluJobs + doodJobs + extractorJobs).awaitAll()
 
         emitted.get() > 0
     }
@@ -485,7 +507,7 @@ class Himeros : MainAPI() {
                 type = if (MediaFinder.isM3u8(stream)) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
                 referer = "$origin/",
                 quality = QualityParser.fromText(stream),
-                extraHeaders = mapOf("Origin" to origin)
+                extraHeaders = mapOf("Referer" to "$origin/")
             )
             return true
         }
@@ -530,6 +552,55 @@ class Himeros : MainAPI() {
                 extraHeaders = mapOf(
                     "Origin" to origin,
                     "Referer" to "$origin/",
+                    "Accept" to "*/*"
+                )
+            )
+            return true
+        }
+        return false
+    }
+
+    private suspend fun resolveDood(embedUrl: String, callback: (ExtractorLink) -> Unit): Boolean {
+        val code = Regex("""/(?:e|d)/([A-Za-z0-9_-]+)""").find(embedUrl)?.groupValues?.get(1)
+            ?: return false
+
+        val mirrors = (listOf(embedUrl) + listOf(
+            "https://d0000d.com/e/$code",
+            "https://dood.la/e/$code",
+            "https://dood.ws/e/$code",
+            "https://doodstream.com/e/$code",
+            "https://playmogo.com/e/$code"
+        )).distinct()
+
+        for (mirror in mirrors) {
+            val html = getTextOrNull(mirror, "$mainUrl/") ?: continue
+            if (html.length < 500) continue
+
+            val md5Path = Regex("""/pass_md5/([^"']+)""").find(html)?.value ?: continue
+            val domain = UrlUtils.origin(mirror)
+            val passUrl = "$domain$md5Path"
+
+            val tokenBase = runCatching {
+                app.get(passUrl, headers = mapOf("Referer" to mirror, "User-Agent" to (defaultHeaders["User-Agent"] ?: ""))).text
+            }.getOrNull() ?: continue
+
+            if (tokenBase.isBlank()) continue
+
+            val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+            val randomStr = (1..10).map { chars.random() }.joinToString("")
+            val expiry = System.currentTimeMillis()
+            val finalStream = "$tokenBase$randomStr?token=${md5Path.substringAfterLast("/")}&expiry=$expiry"
+
+            emit(
+                callback = callback,
+                sourceName = name,
+                displayName = "DoodStream",
+                url = finalStream,
+                type = ExtractorLinkType.VIDEO,
+                referer = "$domain/",
+                quality = Qualities.P1080.value,
+                extraHeaders = mapOf(
+                    "Referer" to "$domain/",
                     "Accept" to "*/*"
                 )
             )
@@ -589,8 +660,12 @@ class Himeros : MainAPI() {
         val qLabel = if (quality > 0) "${quality}p" else "Direct"
         val isM3u8 = type == ExtractorLinkType.M3U8 || url.contains(".m3u8")
 
-        val streamHeaders = defaultHeaders.toMutableMap().apply {
-            this["Referer"] = referer
+        val ua = defaultHeaders["User-Agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        val streamHeaders = mutableMapOf(
+            "User-Agent" to ua,
+            "Accept" to "*/*",
+            "Referer" to referer
+        ).apply {
             putAll(extraHeaders)
         }
 
@@ -655,11 +730,20 @@ class Himeros : MainAPI() {
     private fun String.stripSiteSuffix(): String =
         this.replace(Regex("""(?i)\s*[-|–—]\s*(?:SpeedPorn|Speed\s*Porn|Free\s*Porn\s*Videos).*$"""), "").trim()
 
-    private suspend fun getPage(url: String): Document =
-        app.get(url, headers = defaultHeaders).document
+    private suspend fun getPage(url: String): Document {
+        for (attempt in 1..3) {
+            val doc = runCatching {
+                app.get(url, headers = defaultHeaders).document
+            }.getOrNull()
+            if (doc != null) return doc
+            kotlinx.coroutines.delay(1000L * attempt)
+        }
+        return app.get(url, headers = defaultHeaders).document
+    }
 
     private suspend fun getTextOrNull(url: String, referer: String): String? =
         runCatching {
-            app.get(url, headers = defaultHeaders + mapOf("Referer" to referer)).text
+            val ua = defaultHeaders["User-Agent"] ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            app.get(url, headers = mapOf("User-Agent" to ua, "Referer" to referer)).text
         }.getOrNull()
 }
