@@ -1,10 +1,12 @@
 import { ISourceAdapter } from './base.adapter.js';
 import { SpeedPornAdapter } from './speedporn.adapter.js';
+import { ParadiseHillAdapter } from './paradisehill.adapter.js';
 
 export class AdapterRegistry {
   private adapters: Map<string, ISourceAdapter> = new Map();
 
   constructor() {
+    this.register(new ParadiseHillAdapter());
     this.register(new SpeedPornAdapter());
   }
 

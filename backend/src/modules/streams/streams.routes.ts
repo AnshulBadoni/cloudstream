@@ -19,10 +19,18 @@ export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       // 1. Check positive cache
       const cached = await redisCache.get(`str:${cacheKey}`);
       if (cached) {
+        const parsed = JSON.parse(cached);
+        const normalized = parsed.map((s: any) => ({
+          ...s,
+          url: s.url || s.streamUrl,
+          streamUrl: s.streamUrl || s.url,
+          source: s.source || s.sourceName || 'TPDB',
+          sourceName: s.sourceName || s.source || 'TPDB',
+        }));
         return reply.send({
           status: 'SUCCESS',
           content: { id: tpdbId, type: 'MOVIE' },
-          results: JSON.parse(cached),
+          results: normalized,
           cached: true,
           lastUpdated: new Date().toISOString(),
         });
@@ -96,10 +104,23 @@ export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         3500
       );
 
+      const rawStreams = (result as any).streams || (Array.isArray(result) ? result : []);
+      const normalizedStreams = rawStreams.map((s: any) => ({
+        sourceId: s.sourceId || 'paradisehill',
+        sourceName: s.sourceName || s.source || 'ParadiseHill',
+        source: s.source || s.sourceName || 'ParadiseHill',
+        streamUrl: s.streamUrl || s.url || '',
+        url: s.url || s.streamUrl || '',
+        quality: s.quality || '1080p',
+        isM3u8: Boolean(s.isM3u8),
+        sizeBytes: s.sizeBytes,
+        headers: s.headers || {},
+      }));
+
       return reply.send({
-        status: (result as any).status || 'SUCCESS',
+        status: (result as any).status || (normalizedStreams.length > 0 ? 'SUCCESS' : 'EMPTY'),
         content: { id: tpdbId, type: 'MOVIE' },
-        results: (result as any).streams || (Array.isArray(result) ? result : []),
+        results: normalizedStreams,
         cached: false,
         lastUpdated: new Date().toISOString(),
       });

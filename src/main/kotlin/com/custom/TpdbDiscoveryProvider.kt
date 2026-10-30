@@ -191,10 +191,10 @@ open class TpdbDiscoveryProvider : MainAPI() {
 
         for (i in 0 until resultsArr.length()) {
             val item = resultsArr.optJSONObject(i) ?: continue
-            val streamUrl = item.optString("url")
+            val streamUrl = item.optString("url").ifBlank { item.optString("streamUrl") }
             if (streamUrl.isBlank()) continue
 
-            val source = item.optString("source", "TPDB")
+            val source = item.optString("source").ifBlank { item.optString("sourceName", "TPDB") }
             val quality = item.optString("quality", "1080p")
             val isM3u8 = item.optBoolean("isM3u8", false) || streamUrl.contains(".m3u8")
 
