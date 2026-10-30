@@ -68,7 +68,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
     override val hasMainPage = true
     override val hasDownloadSupport = true
 
-    var backendBaseUrl = "http://10.0.2.2:3000" // Default for Android emulator loopback; configurable for LAN/VPS
+    var backendBaseUrl = "https://cloudstream-gl1n.onrender.com"
 
     private val jsonMapper = jacksonObjectMapper()
 
