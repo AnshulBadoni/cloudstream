@@ -7,6 +7,7 @@ import { getDb } from '../../db/client.js';
 import { content, releases, sources } from '../../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { logger } from '../../utils/logger.js';
+import { generateTitleVariants } from '../../utils/title-normalizer.js';
 
 export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // Movie Stream Discovery Endpoint
@@ -88,21 +89,27 @@ export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
             logger.warn({ err: dbErr, tpdbId }, 'Postgres check failed before discovery; continuing to scrapers');
           }
 
-          // Fetch Canonical Metadata from TPDB (or fallback to query title)
+          // Fetch Canonical Metadata from TPDB & compute intelligent title variants
           const metadata = await tpdbClient.getScene(tpdbId);
-          const title = queryTitle || metadata?.title || `Scene ${tpdbId}`;
-          const cleanTitle = metadata?.cleanTitle || title.replace(/[-_.:]/g, ' ').replace(/\s+/g, ' ').trim();
-          const aliases = metadata?.aliases || [];
-          if (queryTitle && metadata?.title && queryTitle !== metadata.title) {
-            aliases.push(metadata.title);
+          const rawTitle = queryTitle || metadata?.title || `Scene ${tpdbId}`;
+          const variants = generateTitleVariants(rawTitle);
+          if (metadata?.title) {
+            variants.push(...generateTitleVariants(metadata.title));
           }
+          if (metadata?.aliases) {
+            for (const a of metadata.aliases) {
+              variants.push(...generateTitleVariants(a));
+            }
+          }
+          const uniqueAliases = Array.from(new Set(variants));
+          const cleanTitle = uniqueAliases.find((v) => v !== rawTitle) || rawTitle;
 
           return await discoveryOrchestrator.discover({
             tpdbId,
             contentType: 'MOVIE',
-            title,
+            title: rawTitle,
             cleanTitle,
-            aliases: metadata?.aliases || [],
+            aliases: uniqueAliases,
             releaseDate: metadata?.releaseDate,
           });
         },
