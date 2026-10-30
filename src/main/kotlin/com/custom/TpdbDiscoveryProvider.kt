@@ -140,11 +140,12 @@ open class TpdbDiscoveryProvider : MainAPI() {
             }
         }
 
+        val encodedTitle = URLEncoder.encode(displayTitle, "UTF-8")
         return newMovieLoadResponse(
             name = displayTitle,
             url = url,
             type = TvType.Movie,
-            dataUrl = "tpdb://movie/$tpdbId"
+            dataUrl = "tpdb://movie/$tpdbId?title=$encodedTitle"
         ) {
             this.posterUrl = if (!poster.isNullOrBlank()) poster else null
             this.plot = if (!description.isNullOrBlank()) description else null
@@ -160,10 +161,12 @@ open class TpdbDiscoveryProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val tpdbId = data.removePrefix("tpdb://movie/").trim()
+        val cleanData = data.removePrefix("tpdb://movie/").trim()
+        val tpdbId = cleanData.substringBefore("?").trim()
+        val queryParam = if (cleanData.contains("?")) "&" + cleanData.substringAfter("?") else ""
         val emitted = AtomicInteger(0)
 
-        val backendEndpoint = "$backendBaseUrl/api/v1/streams/movie/$tpdbId"
+        val backendEndpoint = "$backendBaseUrl/api/v1/streams/movie/$tpdbId$queryParam"
 
         val resp = runCatching {
             app.get(

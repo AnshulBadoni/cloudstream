@@ -10,10 +10,11 @@ import { logger } from '../../utils/logger.js';
 
 export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
   // Movie Stream Discovery Endpoint
-  fastify.get<{ Params: { tpdbId: string } }>(
+  fastify.get<{ Params: { tpdbId: string }; Querystring: { title?: string } }>(
     '/streams/movie/:tpdbId',
     async (request, reply) => {
       const { tpdbId } = request.params;
+      const queryTitle = request.query?.title;
       const cacheKey = `m:${tpdbId}`;
 
       // 1. Check positive cache
@@ -87,10 +88,14 @@ export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
             logger.warn({ err: dbErr, tpdbId }, 'Postgres check failed before discovery; continuing to scrapers');
           }
 
-          // Fetch Canonical Metadata from TPDB
+          // Fetch Canonical Metadata from TPDB (or fallback to query title)
           const metadata = await tpdbClient.getScene(tpdbId);
-          const title = metadata?.title || `Scene ${tpdbId}`;
-          const cleanTitle = metadata?.cleanTitle || title;
+          const title = queryTitle || metadata?.title || `Scene ${tpdbId}`;
+          const cleanTitle = metadata?.cleanTitle || title.replace(/[-_.:]/g, ' ').replace(/\s+/g, ' ').trim();
+          const aliases = metadata?.aliases || [];
+          if (queryTitle && metadata?.title && queryTitle !== metadata.title) {
+            aliases.push(metadata.title);
+          }
 
           return await discoveryOrchestrator.discover({
             tpdbId,
