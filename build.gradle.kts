@@ -190,6 +190,7 @@ tasks.register("makePlugin") {
         val fiveMoviesCs3 = File(distDir, "FiveMoviesPorn.cs3")
         val paradiseHillCs3 = File(distDir, "ParadiseHill.cs3")
         val xtapesCs3 = File(distDir, "XTapes.cs3")
+        val tpdbDiscoveryCs3 = File(distDir, "TpdbDiscovery.cs3")
 
         createPluginZip("PornTrex", "com.megix.PorntrexProvider", porntrexCs3, version = 104)
         createPluginZip("MultiSource", "com.custom.CustomProvider", multiSourceCs3, version = 110)
@@ -203,9 +204,25 @@ tasks.register("makePlugin") {
         createPluginZip("FiveMoviesPorn", "com.custom.FiveMoviesPornProvider", fiveMoviesCs3, version = 102)
         createPluginZip("ParadiseHill", "com.custom.ParadiseHillProvider", paradiseHillCs3, version = 101)
         createPluginZip("XTapes", "com.custom.XTapesProvider", xtapesCs3, version = 103)
+        createPluginZip("TpdbDiscovery", "com.custom.TpdbDiscoveryProvider", tpdbDiscoveryCs3, version = 100)
 
         val pluginsJson = """
 [
+  {
+    "name": "TPDB Discovery",
+    "internalName": "TpdbDiscovery",
+    "version": 100,
+    "apiVersion": 1,
+    "description": "Centralized discovery and link aggregation engine powered by ThePornDB metadata and synchronized backend streaming sources.",
+    "authors": ["AnshulBadoni"],
+    "repositoryUrl": "https://github.com/AnshulBadoni/cloudstream",
+    "status": 1,
+    "language": "en",
+    "tvTypes": ["NSFW", "Movie"],
+    "iconUrl": "https://theporndb.net/favicon.ico",
+    "url": "https://raw.githubusercontent.com/AnshulBadoni/cloudstream/builds/TpdbDiscovery.cs3",
+    "fileSize": ${if (tpdbDiscoveryCs3.exists()) tpdbDiscoveryCs3.length() else 102400}
+  },
   {
     "name": "XTapes",
     "internalName": "XTapes",

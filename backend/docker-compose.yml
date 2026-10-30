@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  fastify-backend:
+    build: .
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - DATABASE_URL=postgres://cs_user:cs_pass@postgres:5432/cloudstream_db
+      - REDIS_CACHE_URL=redis://redis-cache:6379
+      - REDIS_QUEUE_URL=redis://redis-queue:6379
+      - TPDB_API_KEY=${TPDB_API_KEY:-demo_key}
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-admin_secret_token}
+    depends_on:
+      - postgres
+      - redis-cache
+      - redis-queue
+
+  bullmq-worker:
+    build: .
+    command: npm run worker
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://cs_user:cs_pass@postgres:5432/cloudstream_db
+      - REDIS_CACHE_URL=redis://redis-cache:6379
+      - REDIS_QUEUE_URL=redis://redis-queue:6379
+      - WORKER_GLOBAL_CONCURRENCY=16
+    depends_on:
+      - postgres
+      - redis-cache
+      - redis-queue
+
+  redis-cache:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 1073741824 --maxmemory-policy volatile-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_cache_data:/data
+
+  redis-queue:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 268435456 --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_queue_data:/data
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cs_user
+      POSTGRES_PASSWORD: cs_pass
+      POSTGRES_DB: cloudstream_db
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  redis_cache_data:
+  redis_queue_data:
+  pg_data:

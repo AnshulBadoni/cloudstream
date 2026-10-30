@@ -28,3 +28,10 @@ cli.tx
 node_modules/
 dist/
 *.log
+
+# Environment & Secrets
+.env
+.env.*
+*.env
+backend/.env
+backend/.env.*
