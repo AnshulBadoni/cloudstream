@@ -1,63 +1,14 @@
 package com.custom
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import com.fasterxml.jackson.module.kotlin.readValue
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
+import org.json.JSONArray
+import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class TpdbStreamResponse(
-    val status: String = "",
-    val results: List<TpdbStreamItem> = emptyList(),
-    val cached: Boolean = false,
-    val retryAfter: Int? = null
-)
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class TpdbStreamItem(
-    val source: String = "",
-    val quality: String = "1080p",
-    val url: String = "",
-    val isM3u8: Boolean = false,
-    val size: Long? = null,
-    val headers: Map<String, String> = emptyMap()
-)
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class TpdbSceneSearchResponse(
-    val data: List<TpdbSceneItem> = emptyList()
-)
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class TpdbSceneItem(
-    val id: String = "",
-    val title: String = "",
-    val site: TpdbSite? = null,
-    val date: String? = null,
-    val poster: String? = null,
-    val background: TpdbBackground? = null,
-    val description: String? = null,
-    val performers: List<TpdbPerformer> = emptyList(),
-    val tags: List<TpdbTag> = emptyList()
-)
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class TpdbSite(val name: String? = null)
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class TpdbBackground(val large: String? = null, val full: String? = null)
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class TpdbPerformer(val name: String = "", val image: String? = null)
-
-@JsonIgnoreProperties(ignoreUnknown = true)
-data class TpdbTag(val name: String = "")
 
 open class TpdbDiscoveryProvider : MainAPI() {
 
@@ -71,8 +22,6 @@ open class TpdbDiscoveryProvider : MainAPI() {
 
     var backendBaseUrl = "https://cloudstream-gl1n.onrender.com"
 
-    private val jsonMapper = jacksonObjectMapper()
-
     override val mainPage = listOf(
         MainPageData("Trending Scenes", "https://api.theporndb.net/scenes?sort=trending"),
         MainPageData("Latest Scenes", "https://api.theporndb.net/scenes?sort=date")
@@ -84,16 +33,27 @@ open class TpdbDiscoveryProvider : MainAPI() {
             app.get(url, headers = mapOf("Accept" to "application/json"))
         }.getOrNull() ?: return null
 
-        val searchData = runCatching {
-            jsonMapper.readValue<TpdbSceneSearchResponse>(resp.text)
-        }.getOrNull() ?: return null
+        val json = runCatching { JSONObject(resp.text) }.getOrNull() ?: return null
+        val dataArr = json.optJSONArray("data") ?: JSONArray()
+        val items = mutableListOf<SearchResponse>()
 
-        val items = searchData.data.map { scene ->
-            val displayTitle = if (scene.site?.name != null) "${scene.site.name} - ${scene.title}" else scene.title
-            newMovieSearchResponse(displayTitle, "tpdb://movie/${scene.id}", TvType.Movie) {
-                this.posterUrl = scene.poster
-                this.year = scene.date?.take(4)?.toIntOrNull()
-            }
+        for (i in 0 until dataArr.length()) {
+            val scene = dataArr.optJSONObject(i) ?: continue
+            val id = scene.optString("id")
+            if (id.isBlank()) continue
+            val title = scene.optString("title", "Untitled")
+            val siteObj = scene.optJSONObject("site")
+            val siteName = siteObj?.optString("name")
+            val displayTitle = if (!siteName.isNullOrBlank()) "$siteName - $title" else title
+            val rawPoster = scene.optString("poster")
+            val poster = if (rawPoster.isNotBlank()) rawPoster else scene.optJSONObject("background")?.optString("full")
+            val date = scene.optString("date")
+            val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
+
+            items.add(newMovieSearchResponse(displayTitle, "tpdb://movie/$id", TvType.Movie) {
+                this.posterUrl = if (!poster.isNullOrBlank()) poster else null
+                this.year = year
+            })
         }
 
         return HomePageResponse(
@@ -110,33 +70,75 @@ open class TpdbDiscoveryProvider : MainAPI() {
             app.get(searchUrl, headers = mapOf("Accept" to "application/json"))
         }.getOrNull() ?: return emptyList()
 
-        val searchData = runCatching {
-            jsonMapper.readValue<TpdbSceneSearchResponse>(resp.text)
-        }.getOrNull() ?: return emptyList()
+        val json = runCatching { JSONObject(resp.text) }.getOrNull() ?: return emptyList()
+        val dataArr = json.optJSONArray("data") ?: JSONArray()
+        val results = mutableListOf<SearchResponse>()
 
-        return searchData.data.map { scene ->
-            val displayTitle = if (scene.site?.name != null) "${scene.site.name} - ${scene.title}" else scene.title
-            newMovieSearchResponse(displayTitle, "tpdb://movie/${scene.id}", TvType.Movie) {
-                this.posterUrl = scene.poster
-                this.year = scene.date?.take(4)?.toIntOrNull()
-            }
+        for (i in 0 until dataArr.length()) {
+            val scene = dataArr.optJSONObject(i) ?: continue
+            val id = scene.optString("id")
+            if (id.isBlank()) continue
+            val title = scene.optString("title", "Untitled")
+            val siteObj = scene.optJSONObject("site")
+            val siteName = siteObj?.optString("name")
+            val displayTitle = if (!siteName.isNullOrBlank()) "$siteName - $title" else title
+            val rawPoster = scene.optString("poster")
+            val poster = if (rawPoster.isNotBlank()) rawPoster else scene.optJSONObject("background")?.optString("full")
+            val date = scene.optString("date")
+            val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
+
+            results.add(newMovieSearchResponse(displayTitle, "tpdb://movie/$id", TvType.Movie) {
+                this.posterUrl = if (!poster.isNullOrBlank()) poster else null
+                this.year = year
+            })
         }
+
+        return results
     }
 
     override suspend fun load(url: String): LoadResponse? {
         val tpdbId = url.removePrefix("tpdb://movie/").trim()
-
         val apiUrl = "https://api.theporndb.net/scenes/$tpdbId"
+
         val resp = runCatching {
             app.get(apiUrl, headers = mapOf("Accept" to "application/json"))
         }.getOrNull() ?: return null
 
-        val node = runCatching {
-            jsonMapper.readTree(resp.text).get("data")
-        }.getOrNull() ?: return null
+        val root = runCatching { JSONObject(resp.text) }.getOrNull() ?: return null
+        val scene = root.optJSONObject("data") ?: return null
+        val title = scene.optString("title", "Untitled")
+        val siteObj = scene.optJSONObject("site")
+        val siteName = siteObj?.optString("name")
+        val displayTitle = if (!siteName.isNullOrBlank()) "$siteName - $title" else title
 
-        val scene = jsonMapper.treeToValue(node, TpdbSceneItem::class.java)
-        val displayTitle = if (scene.site?.name != null) "${scene.site.name} - ${scene.title}" else scene.title
+        val rawPoster = scene.optString("poster")
+        val poster = if (rawPoster.isNotBlank()) rawPoster else scene.optJSONObject("background")?.optString("full")
+        val description = scene.optString("description")
+        val date = scene.optString("date")
+        val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
+
+        val tagsList = mutableListOf<String>()
+        val tagsArr = scene.optJSONArray("tags")
+        if (tagsArr != null) {
+            for (i in 0 until tagsArr.length()) {
+                val tagObj = tagsArr.optJSONObject(i)
+                val tagName = tagObj?.optString("name")
+                if (!tagName.isNullOrBlank()) tagsList.add(tagName)
+            }
+        }
+
+        val actorsList = mutableListOf<ActorData>()
+        val perfArr = scene.optJSONArray("performers")
+        if (perfArr != null) {
+            for (i in 0 until perfArr.length()) {
+                val perfObj = perfArr.optJSONObject(i) ?: continue
+                val perfName = perfObj.optString("name")
+                val perfImage = perfObj.optString("image")
+                if (perfName.isNotBlank()) {
+                    actorsList.add(ActorData(Actor(perfName, if (!perfImage.isNullOrBlank()) perfImage else null)))
+                }
+            }
+        }
 
         return newMovieLoadResponse(
             name = displayTitle,
@@ -144,11 +146,11 @@ open class TpdbDiscoveryProvider : MainAPI() {
             type = TvType.Movie,
             dataUrl = "tpdb://movie/$tpdbId"
         ) {
-            this.posterUrl = scene.poster
-            this.plot = scene.description
-            this.year = scene.date?.take(4)?.toIntOrNull()
-            this.tags = scene.tags.map { it.name }
-            this.actors = scene.performers.map { ActorData(Actor(it.name, it.image)) }
+            this.posterUrl = if (!poster.isNullOrBlank()) poster else null
+            this.plot = if (!description.isNullOrBlank()) description else null
+            this.year = year
+            this.tags = tagsList
+            this.actors = actorsList
         }
     }
 
@@ -179,38 +181,51 @@ open class TpdbDiscoveryProvider : MainAPI() {
             return false
         }
 
-        val backendResult = runCatching {
-            jsonMapper.readValue<TpdbStreamResponse>(resp.text)
-        }.getOrNull()
+        val json = runCatching { JSONObject(resp.text) }.getOrNull()
+        val resultsArr = json?.optJSONArray("results")
 
-        if (backendResult == null || backendResult.results.isEmpty()) {
+        if (resultsArr == null || resultsArr.length() == 0) {
             println("[TpdbDiscoveryProvider] No discovered streams returned for $tpdbId")
             return false
         }
 
-        for (item in backendResult.results) {
-            if (item.url.isBlank()) continue
+        for (i in 0 until resultsArr.length()) {
+            val item = resultsArr.optJSONObject(i) ?: continue
+            val streamUrl = item.optString("url")
+            if (streamUrl.isBlank()) continue
 
-            // If direct stream URL (m3u8 or mp4)
-            if (item.isM3u8 || item.url.contains(".m3u8") || item.url.contains(".mp4")) {
-                val qual = parseQuality(item.quality)
+            val source = item.optString("source", "TPDB")
+            val quality = item.optString("quality", "1080p")
+            val isM3u8 = item.optBoolean("isM3u8", false) || streamUrl.contains(".m3u8")
+
+            val headersMap = mutableMapOf<String, String>()
+            val headersObj = item.optJSONObject("headers")
+            if (headersObj != null) {
+                val keys = headersObj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    headersMap[key] = headersObj.optString(key)
+                }
+            }
+
+            if (isM3u8 || streamUrl.contains(".mp4")) {
+                val qual = parseQuality(quality)
                 callback(
                     ExtractorLink(
-                        source = item.source,
-                        name = "[${item.source.uppercase()}] ${item.quality}",
-                        url = item.url,
-                        referer = item.headers["Referer"] ?: "",
+                        source = source,
+                        name = "[${source.uppercase()}] $quality",
+                        url = streamUrl,
+                        referer = headersMap["Referer"] ?: "",
                         quality = qual,
-                        isM3u8 = item.isM3u8 || item.url.contains(".m3u8"),
-                        headers = item.headers
+                        isM3u8 = isM3u8,
+                        headers = headersMap
                     )
                 )
                 emitted.incrementAndGet()
             } else {
-                // Delegate to CloudStream's host extractors (e.g., Streamtape, DoodStream, MixDrop, VOE)
                 val loaded = loadExtractor(
-                    url = item.url,
-                    referer = item.headers["Referer"] ?: "",
+                    url = streamUrl,
+                    referer = headersMap["Referer"] ?: "",
                     subtitleCallback = subtitleCallback,
                     callback = callback
                 )

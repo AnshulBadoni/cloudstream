@@ -26,6 +26,7 @@ dependencies {
 
     // HTTP Networking
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.json:json:20240303")
 
     // YAML & JSON Parsing
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.0")
@@ -204,14 +205,14 @@ tasks.register("makePlugin") {
         createPluginZip("FiveMoviesPorn", "com.custom.FiveMoviesPornProvider", fiveMoviesCs3, version = 102)
         createPluginZip("ParadiseHill", "com.custom.ParadiseHillProvider", paradiseHillCs3, version = 101)
         createPluginZip("XTapes", "com.custom.XTapesProvider", xtapesCs3, version = 103)
-        createPluginZip("TpdbDiscovery", "com.custom.TpdbDiscoveryPlugin", tpdbDiscoveryCs3, version = 101)
+        createPluginZip("TpdbDiscovery", "com.custom.TpdbDiscoveryPlugin", tpdbDiscoveryCs3, version = 102)
 
         val pluginsJson = """
 [
   {
     "name": "TPDB Discovery",
     "internalName": "TpdbDiscovery",
-    "version": 101,
+    "version": 102,
     "apiVersion": 1,
     "description": "Centralized discovery and link aggregation engine powered by ThePornDB metadata and synchronized backend streaming sources.",
     "authors": ["AnshulBadoni"],
