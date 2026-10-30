@@ -7,13 +7,13 @@ import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { initRedis, closeRedis } from '../redis/clients.js';
 
-async function bootstrapWorker() {
-  await initRedis();
+let worker: Worker | null = null;
 
+export async function startWorker(): Promise<Worker> {
   // Start background DB WAL Syncer
   processDbWal().catch((err) => logger.error({ err }, 'Background WAL Syncer failed'));
 
-  const worker = new Worker(
+  worker = new Worker(
     DISCOVERY_QUEUE_NAME,
     async (job) => {
       logger.info({ jobId: job.id, data: job.data }, 'Processing background discovery job');
@@ -36,20 +36,22 @@ async function bootstrapWorker() {
   worker.on('completed', (job) => logger.info({ jobId: job.id }, 'Job completed successfully'));
   worker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'Job failed'));
 
-  const shutdown = async () => {
-    logger.info('Shutting down BullMQ worker...');
-    await worker.close();
-    await closeRedis();
-    process.exit(0);
-  };
-
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
-
   logger.info(`BullMQ Worker running with global concurrency ${env.WORKER_GLOBAL_CONCURRENCY}`);
+  return worker;
 }
 
-bootstrapWorker().catch((err) => {
-  logger.error({ err }, 'Fatal error bootstrapping worker');
-  process.exit(1);
-});
+export async function stopWorker(): Promise<void> {
+  if (worker) {
+    logger.info('Shutting down BullMQ worker...');
+    await worker.close();
+    worker = null;
+  }
+}
+
+// Support running standalone if invoked directly (e.g. `npm run worker`)
+if (process.argv[1]?.endsWith('discovery.worker.ts') || process.argv[1]?.endsWith('discovery.worker.js')) {
+  initRedis().then(startWorker).catch((err) => {
+    logger.error({ err }, 'Fatal error bootstrapping worker');
+    process.exit(1);
+  });
+}

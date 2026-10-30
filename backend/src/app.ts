@@ -8,6 +8,7 @@ import { closeDb } from './db/client.js';
 import { streamsRoutes } from './modules/streams/streams.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
 import { register, httpRequestDurationMicroseconds } from './metrics/metrics.js';
+import { startWorker, stopWorker } from './queue/discovery.worker.js';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -59,11 +60,13 @@ export async function buildApp() {
 
 async function start() {
   await initRedis();
+  await startWorker();
   const app = await buildApp();
 
   const shutdown = async () => {
     logger.info('Shutting down API server...');
     await app.close();
+    await stopWorker();
     await closeRedis();
     await closeDb();
     process.exit(0);
