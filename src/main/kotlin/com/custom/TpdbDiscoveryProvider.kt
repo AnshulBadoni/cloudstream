@@ -51,9 +51,6 @@ open class TpdbDiscoveryProvider : MainAPI() {
             val id = scene.optString("id")
             if (id.isBlank()) continue
             val title = scene.optString("title", "Untitled")
-            val siteObj = scene.optJSONObject("site")
-            val siteName = siteObj?.optString("name")
-            val displayTitle = if (!siteName.isNullOrBlank()) "$siteName - $title" else title
             val rawPoster = scene.optString("poster")
             val poster = if (rawPoster.isNotBlank()) rawPoster else scene.optJSONObject("background")?.optString("full")
             val date = scene.optString("date")
@@ -89,16 +86,13 @@ open class TpdbDiscoveryProvider : MainAPI() {
             val id = scene.optString("id")
             if (id.isBlank()) continue
             val title = scene.optString("title", "Untitled")
-            val siteObj = scene.optJSONObject("site")
-            val siteName = siteObj?.optString("name")
-            val displayTitle = if (!siteName.isNullOrBlank()) "$siteName - $title" else title
             val rawPoster = scene.optString("poster")
             val poster = if (rawPoster.isNotBlank()) rawPoster else scene.optJSONObject("background")?.optString("full")
             val date = scene.optString("date")
             val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
 
-            val encTitle = URLEncoder.encode(displayTitle, "UTF-8")
-            results.add(newMovieSearchResponse(displayTitle, "tpdb://movie/$id?title=$encTitle", TvType.Movie) {
+            val encTitle = URLEncoder.encode(title, "UTF-8")
+            results.add(newMovieSearchResponse(title, "tpdb://movie/$id?title=$encTitle", TvType.Movie) {
                 this.posterUrl = if (!poster.isNullOrBlank()) poster else null
                 this.year = year
             })
@@ -123,10 +117,6 @@ open class TpdbDiscoveryProvider : MainAPI() {
         val scene = root?.optJSONObject("data")
 
         val title = scene?.optString("title") ?: titleFromUrl ?: "Scene $tpdbId"
-        val siteObj = scene?.optJSONObject("site")
-        val siteName = siteObj?.optString("name")
-        val displayTitle = if (!siteName.isNullOrBlank() && !title.startsWith(siteName)) "$siteName - $title" else title
-
         val rawPoster = scene?.optString("poster")
         val poster = if (!rawPoster.isNullOrBlank()) rawPoster else scene?.optJSONObject("background")?.optString("full")
         val description = scene?.optString("description")
@@ -156,9 +146,9 @@ open class TpdbDiscoveryProvider : MainAPI() {
             }
         }
 
-        val encodedTitle = URLEncoder.encode(displayTitle, "UTF-8")
+        val encodedTitle = URLEncoder.encode(title, "UTF-8")
         return newMovieLoadResponse(
-            name = displayTitle,
+            name = title,
             url = url,
             type = TvType.Movie,
             dataUrl = "tpdb://movie/$tpdbId?title=$encodedTitle"
