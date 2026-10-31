@@ -56,8 +56,8 @@ open class TpdbDiscoveryProvider : MainAPI() {
             val date = scene.optString("date")
             val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
 
-            val encTitle = URLEncoder.encode(displayTitle, "UTF-8")
-            items.add(newMovieSearchResponse(displayTitle, "tpdb://movie/$id?title=$encTitle", TvType.Movie) {
+            val encTitle = URLEncoder.encode(title, "UTF-8")
+            items.add(newMovieSearchResponse(title, "tpdb://movie/$id?title=$encTitle", TvType.Movie) {
                 this.posterUrl = if (!poster.isNullOrBlank()) poster else null
                 this.year = year
             })
