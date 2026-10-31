@@ -26,17 +26,29 @@ export async function appendToDbWal(payload: {
   }
 }
 
+async function ensureConsumerGroup() {
+  try {
+    await redisQueue.xgroup('CREATE', WAL_STREAM_KEY, WAL_GROUP_NAME, '$', 'MKSTREAM');
+  } catch (err: any) {
+    if (err.message && err.message.includes('BUSYGROUP')) {
+      return;
+    }
+    try {
+      await redisQueue.xadd(WAL_STREAM_KEY, '*', 'init', 'true');
+      await redisQueue.xgroup('CREATE', WAL_STREAM_KEY, WAL_GROUP_NAME, '$');
+    } catch (e: any) {
+      if (!e.message?.includes('BUSYGROUP')) {
+        logger.warn({ err: e }, 'Could not initialize WAL consumer group; will retry');
+      }
+    }
+  }
+}
+
 export async function processDbWal(signal?: AbortSignal) {
   const db = getDb();
 
   // Create consumer group if not already present
-  try {
-    await redisQueue.xgroup('CREATE', WAL_STREAM_KEY, WAL_GROUP_NAME, '0', 'MKSTREAM');
-  } catch (err: any) {
-    if (!err.message.includes('BUSYGROUP')) {
-      logger.error({ err }, 'Error creating WAL consumer group');
-    }
-  }
+  await ensureConsumerGroup();
 
   logger.info('DB WAL Syncer consumer loop active');
 
@@ -60,7 +72,12 @@ export async function processDbWal(signal?: AbortSignal) {
       for (const [_, entries] of response) {
         for (const [id, fields] of entries) {
           const payloadIndex = fields.indexOf('payload');
-          if (payloadIndex === -1) continue;
+          if (payloadIndex === -1) {
+            // Acknowledge init or empty messages so they don't linger
+            await redisQueue.xack(WAL_STREAM_KEY, WAL_GROUP_NAME, id);
+            await redisQueue.xdel(WAL_STREAM_KEY, id);
+            continue;
+          }
 
           const data = JSON.parse(fields[payloadIndex + 1]);
 
@@ -96,8 +113,12 @@ export async function processDbWal(signal?: AbortSignal) {
           }
         }
       }
-    } catch (loopErr) {
-      logger.error({ err: loopErr }, 'Error in WAL processing loop');
+    } catch (loopErr: any) {
+      if (loopErr.message && loopErr.message.includes('NOGROUP')) {
+        await ensureConsumerGroup();
+      } else {
+        logger.error({ err: loopErr }, 'Error in WAL processing loop');
+      }
       await new Promise((r) => setTimeout(r, 3000));
     }
   }
