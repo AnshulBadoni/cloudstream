@@ -14,8 +14,18 @@ export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   fastify.get<{ Params: { tpdbId: string }; Querystring: { title?: string } }>(
     '/streams/movie/:tpdbId',
     async (request, reply) => {
-      const { tpdbId } = request.params;
-      const queryTitle = request.query?.title;
+      let { tpdbId } = request.params;
+      let queryTitle = request.query?.title;
+
+      // Handle cases where client passed &title= instead of ?title=
+      if (tpdbId.includes('&title=')) {
+        const parts = tpdbId.split('&title=');
+        tpdbId = parts[0];
+        if (!queryTitle) {
+          queryTitle = decodeURIComponent(parts[1]);
+        }
+      }
+
       const cacheKey = `m:${tpdbId}`;
 
       // 1. Check positive cache

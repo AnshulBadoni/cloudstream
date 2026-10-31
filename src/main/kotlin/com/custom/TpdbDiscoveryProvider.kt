@@ -7,6 +7,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -50,7 +51,8 @@ open class TpdbDiscoveryProvider : MainAPI() {
             val date = scene.optString("date")
             val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
 
-            items.add(newMovieSearchResponse(displayTitle, "tpdb://movie/$id", TvType.Movie) {
+            val encTitle = URLEncoder.encode(displayTitle, "UTF-8")
+            items.add(newMovieSearchResponse(displayTitle, "tpdb://movie/$id?title=$encTitle", TvType.Movie) {
                 this.posterUrl = if (!poster.isNullOrBlank()) poster else null
                 this.year = year
             })
@@ -87,7 +89,8 @@ open class TpdbDiscoveryProvider : MainAPI() {
             val date = scene.optString("date")
             val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
 
-            results.add(newMovieSearchResponse(displayTitle, "tpdb://movie/$id", TvType.Movie) {
+            val encTitle = URLEncoder.encode(displayTitle, "UTF-8")
+            results.add(newMovieSearchResponse(displayTitle, "tpdb://movie/$id?title=$encTitle", TvType.Movie) {
                 this.posterUrl = if (!poster.isNullOrBlank()) poster else null
                 this.year = year
             })
@@ -97,28 +100,33 @@ open class TpdbDiscoveryProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse? {
-        val tpdbId = url.removePrefix("tpdb://movie/").trim()
-        val apiUrl = "https://api.theporndb.net/scenes/$tpdbId"
+        val cleanUrl = url.removePrefix("tpdb://movie/").trim()
+        val tpdbId = cleanUrl.substringBefore("?").trim()
+        val titleFromUrl = if (cleanUrl.contains("title=")) {
+            runCatching { URLDecoder.decode(cleanUrl.substringAfter("title=").substringBefore("&"), "UTF-8") }.getOrNull()
+        } else null
 
+        val apiUrl = "https://api.theporndb.net/scenes/$tpdbId"
         val resp = runCatching {
             app.get(apiUrl, headers = mapOf("Accept" to "application/json"))
-        }.getOrNull() ?: return null
+        }.getOrNull()
 
-        val root = runCatching { JSONObject(resp.text) }.getOrNull() ?: return null
-        val scene = root.optJSONObject("data") ?: return null
-        val title = scene.optString("title", "Untitled")
-        val siteObj = scene.optJSONObject("site")
+        val root = runCatching { if (resp != null) JSONObject(resp.text) else null }.getOrNull()
+        val scene = root?.optJSONObject("data")
+
+        val title = scene?.optString("title") ?: titleFromUrl ?: "Scene $tpdbId"
+        val siteObj = scene?.optJSONObject("site")
         val siteName = siteObj?.optString("name")
-        val displayTitle = if (!siteName.isNullOrBlank()) "$siteName - $title" else title
+        val displayTitle = if (!siteName.isNullOrBlank() && !title.startsWith(siteName)) "$siteName - $title" else title
 
-        val rawPoster = scene.optString("poster")
-        val poster = if (rawPoster.isNotBlank()) rawPoster else scene.optJSONObject("background")?.optString("full")
-        val description = scene.optString("description")
-        val date = scene.optString("date")
+        val rawPoster = scene?.optString("poster")
+        val poster = if (!rawPoster.isNullOrBlank()) rawPoster else scene?.optJSONObject("background")?.optString("full")
+        val description = scene?.optString("description")
+        val date = scene?.optString("date")
         val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
 
         val tagsList = mutableListOf<String>()
-        val tagsArr = scene.optJSONArray("tags")
+        val tagsArr = scene?.optJSONArray("tags")
         if (tagsArr != null) {
             for (i in 0 until tagsArr.length()) {
                 val tagObj = tagsArr.optJSONObject(i)
@@ -128,7 +136,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
         }
 
         val actorsList = mutableListOf<ActorData>()
-        val perfArr = scene.optJSONArray("performers")
+        val perfArr = scene?.optJSONArray("performers")
         if (perfArr != null) {
             for (i in 0 until perfArr.length()) {
                 val perfObj = perfArr.optJSONObject(i) ?: continue
@@ -163,7 +171,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
     ): Boolean {
         val cleanData = data.removePrefix("tpdb://movie/").trim()
         val tpdbId = cleanData.substringBefore("?").trim()
-        val queryParam = if (cleanData.contains("?")) "&" + cleanData.substringAfter("?") else ""
+        val queryParam = if (cleanData.contains("?")) "?" + cleanData.substringAfter("?") else ""
         val emitted = AtomicInteger(0)
 
         val backendEndpoint = "$backendBaseUrl/api/v1/streams/movie/$tpdbId$queryParam"
