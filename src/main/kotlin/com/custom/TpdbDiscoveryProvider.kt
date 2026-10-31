@@ -245,12 +245,22 @@ open class TpdbDiscoveryProvider : MainAPI() {
 
         if (titleFromUrl != null && titleFromUrl.isNotBlank()) {
             val cleanSlug = titleFromUrl.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+            val beforeColon = titleFromUrl.substringBefore(":").trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+            val afterHyphen = if (titleFromUrl.contains("-")) titleFromUrl.substringAfterLast("-").trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') else ""
             if (cleanSlug.length > 2) {
                 val candidateSlugs = linkedSetOf(
                     cleanSlug,
                     cleanSlug.replace("-v", "-"),
                     cleanSlug.replace(Regex("-(\\d+)"), "-v$1")
                 )
+                if (beforeColon.length > 3 && beforeColon != cleanSlug) {
+                    candidateSlugs.add(beforeColon)
+                    candidateSlugs.add(beforeColon.replace("-v", "-"))
+                    candidateSlugs.add(beforeColon.replace(Regex("-(\\d+)"), "-v$1"))
+                }
+                if (afterHyphen.length > 3 && afterHyphen != cleanSlug) {
+                    candidateSlugs.add(afterHyphen)
+                }
                 for (slug in candidateSlugs) {
                     val directUrl = "https://speedporn.net/$slug/"
                     val found = runCatching {
