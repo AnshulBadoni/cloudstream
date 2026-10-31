@@ -25,7 +25,6 @@ export class TpdbClient {
 
   async getScene(id: string): Promise<TpdbMetadata | null> {
     try {
-      const url = `${this.baseUrl}/scenes/${encodeURIComponent(id)}`;
       const headers: Record<string, string> = {
         Accept: 'application/json',
       };
@@ -33,7 +32,12 @@ export class TpdbClient {
         headers['Authorization'] = `Bearer ${this.apiKey}`;
       }
 
-      const res = await fetch(url, { headers });
+      // Try /scenes/:id first, fallback to /movies/:id if 404 or missing
+      let res = await fetch(`${this.baseUrl}/scenes/${encodeURIComponent(id)}`, { headers });
+      if (!res.ok && res.status === 404) {
+        res = await fetch(`${this.baseUrl}/movies/${encodeURIComponent(id)}`, { headers });
+      }
+
       if (!res.ok) {
         if (res.status === 404) return null;
         logger.warn({ status: res.status, id }, 'TPDB API non-200 response');

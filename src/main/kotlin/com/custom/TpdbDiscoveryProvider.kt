@@ -71,31 +71,39 @@ open class TpdbDiscoveryProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
-        val searchUrl = "https://api.theporndb.net/scenes?q=$encodedQuery"
-
-        val resp = runCatching {
-            app.get(searchUrl, headers = TPDB_HEADERS)
-        }.getOrNull() ?: return emptyList()
-
-        val json = runCatching { JSONObject(resp.text) }.getOrNull() ?: return emptyList()
-        val dataArr = json.optJSONArray("data") ?: JSONArray()
         val results = mutableListOf<SearchResponse>()
+        val seenIds = mutableSetOf<String>()
 
-        for (i in 0 until dataArr.length()) {
-            val scene = dataArr.optJSONObject(i) ?: continue
-            val id = scene.optString("id")
-            if (id.isBlank()) continue
-            val title = scene.optString("title", "Untitled")
-            val rawPoster = scene.optString("poster")
-            val poster = if (rawPoster.isNotBlank()) rawPoster else scene.optJSONObject("background")?.optString("full")
-            val date = scene.optString("date")
-            val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
+        // Search both Movies (full releases) and Scenes (clips) to guarantee matches
+        val endpoints = listOf(
+            "https://api.theporndb.net/movies?q=$encodedQuery",
+            "https://api.theporndb.net/scenes?q=$encodedQuery"
+        )
 
-            val encTitle = URLEncoder.encode(title, "UTF-8")
-            results.add(newMovieSearchResponse(title, "tpdb://movie/$id?title=$encTitle", TvType.Movie) {
-                this.posterUrl = if (!poster.isNullOrBlank()) poster else null
-                this.year = year
-            })
+        for (endpoint in endpoints) {
+            val resp = runCatching {
+                app.get(endpoint, headers = TPDB_HEADERS)
+            }.getOrNull() ?: continue
+
+            val json = runCatching { JSONObject(resp.text) }.getOrNull() ?: continue
+            val dataArr = json.optJSONArray("data") ?: continue
+
+            for (i in 0 until dataArr.length()) {
+                val item = dataArr.optJSONObject(i) ?: continue
+                val id = item.optString("id")
+                if (id.isBlank() || !seenIds.add(id)) continue
+                val title = item.optString("title", "Untitled")
+                val rawPoster = item.optString("poster")
+                val poster = if (rawPoster.isNotBlank()) rawPoster else item.optJSONObject("background")?.optString("full")
+                val date = item.optString("date")
+                val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
+
+                val encTitle = URLEncoder.encode(title, "UTF-8")
+                results.add(newMovieSearchResponse(title, "tpdb://movie/$id?title=$encTitle", TvType.Movie) {
+                    this.posterUrl = if (!poster.isNullOrBlank()) poster else null
+                    this.year = year
+                })
+            }
         }
 
         return results
@@ -108,12 +116,14 @@ open class TpdbDiscoveryProvider : MainAPI() {
             runCatching { URLDecoder.decode(cleanUrl.substringAfter("title=").substringBefore("&"), "UTF-8") }.getOrNull()
         } else null
 
-        val apiUrl = "https://api.theporndb.net/scenes/$tpdbId"
-        val resp = runCatching {
-            app.get(apiUrl, headers = TPDB_HEADERS)
+        // Try /scenes/ first, fallback to /movies/ if not found
+        val metaText = runCatching {
+            app.get("https://api.theporndb.net/scenes/$tpdbId", headers = TPDB_HEADERS).text
+        }.getOrNull() ?: runCatching {
+            app.get("https://api.theporndb.net/movies/$tpdbId", headers = TPDB_HEADERS).text
         }.getOrNull()
 
-        val root = runCatching { if (resp != null) JSONObject(resp.text) else null }.getOrNull()
+        val root = if (metaText != null) runCatching { JSONObject(metaText) }.getOrNull() else null
         val scene = root?.optJSONObject("data")
 
         val title = scene?.optString("title") ?: titleFromUrl ?: "Scene $tpdbId"
