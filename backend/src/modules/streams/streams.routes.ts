@@ -137,14 +137,53 @@ export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
           const uniqueAliases = Array.from(new Set(variants));
           const cleanTitle = uniqueAliases.find((v) => v !== rawTitle) || rawTitle;
 
-          return await discoveryOrchestrator.discover({
-            tpdbId,
-            contentType: 'MOVIE',
-            title: rawTitle,
-            cleanTitle,
-            aliases: uniqueAliases,
-            releaseDate: metadata?.releaseDate,
-          }, 9000);
+          // Record process start in Redis (name, id, isProcessing: true)
+          const taskInfo = {
+            id: tpdbId,
+            name: rawTitle,
+            isProcessing: true,
+            status: 'PROCESSING',
+            startedAt: new Date().toISOString(),
+          };
+          await redisCache.set(`task:m:${tpdbId}`, JSON.stringify(taskInfo), 'EX', 180).catch(() => {});
+          await redisCache.hset('active_tasks', tpdbId, JSON.stringify(taskInfo)).catch(() => {});
+
+          try {
+            const discResult = await discoveryOrchestrator.discover({
+              tpdbId,
+              contentType: 'MOVIE',
+              title: rawTitle,
+              cleanTitle,
+              aliases: uniqueAliases,
+              releaseDate: metadata?.releaseDate,
+            }, 9000);
+
+            // Record process completion in Redis
+            const isSuccess = discResult.status === 'SUCCESS' && discResult.streams.length > 0;
+            const finishInfo = {
+              id: tpdbId,
+              name: rawTitle,
+              isProcessing: false,
+              status: isSuccess ? 'SUCCESS' : 'EMPTY',
+              streamCount: discResult.streams.length,
+              finishedAt: new Date().toISOString(),
+            };
+            await redisCache.set(`task:m:${tpdbId}`, JSON.stringify(finishInfo), 'EX', 3600).catch(() => {});
+            await redisCache.hdel('active_tasks', tpdbId).catch(() => {});
+
+            return discResult;
+          } catch (discErr) {
+            await redisCache.set(`task:m:${tpdbId}`, JSON.stringify({
+              id: tpdbId,
+              name: rawTitle,
+              isProcessing: false,
+              status: 'FAILED',
+              error: (discErr as any)?.message,
+              finishedAt: new Date().toISOString(),
+            }), 'EX', 3600).catch(() => {});
+            await redisCache.hdel('active_tasks', tpdbId).catch(() => {});
+            throw discErr;
+          }
         },
         9500
       );

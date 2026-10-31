@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq';
-import { redisQueue } from '../redis/clients.js';
+import { redisQueue, redisCache } from '../redis/clients.js';
 import { DISCOVERY_QUEUE_NAME } from './discovery.queue.js';
 import { discoveryOrchestrator } from '../modules/discovery/orchestrator.service.js';
 import { processDbWal } from '../modules/discovery/wal-sync.service.js';
@@ -20,8 +20,41 @@ export async function startWorker(): Promise<Worker> {
       const { query } = job.data;
       if (!query) return;
 
-      // Allow 15s deep crawl in background
-      await discoveryOrchestrator.discover(query, 15000);
+      const taskInfo = {
+        id: query.tpdbId,
+        name: query.title,
+        isProcessing: true,
+        status: 'PROCESSING',
+        jobId: job.id,
+        startedAt: new Date().toISOString(),
+      };
+      await redisCache.set(`task:m:${query.tpdbId}`, JSON.stringify(taskInfo), 'EX', 180).catch(() => {});
+      await redisCache.hset('active_tasks', query.tpdbId, JSON.stringify(taskInfo)).catch(() => {});
+
+      try {
+        // Allow 15s deep crawl in background
+        const res = await discoveryOrchestrator.discover(query, 15000);
+        await redisCache.set(`task:m:${query.tpdbId}`, JSON.stringify({
+          id: query.tpdbId,
+          name: query.title,
+          isProcessing: false,
+          status: res.status,
+          streamCount: res.streams.length,
+          finishedAt: new Date().toISOString(),
+        }), 'EX', 3600).catch(() => {});
+      } catch (err: any) {
+        await redisCache.set(`task:m:${query.tpdbId}`, JSON.stringify({
+          id: query.tpdbId,
+          name: query.title,
+          isProcessing: false,
+          status: 'FAILED',
+          error: err?.message,
+          finishedAt: new Date().toISOString(),
+        }), 'EX', 3600).catch(() => {});
+        throw err;
+      } finally {
+        await redisCache.hdel('active_tasks', query.tpdbId).catch(() => {});
+      }
     },
     {
       connection: redisQueue,
