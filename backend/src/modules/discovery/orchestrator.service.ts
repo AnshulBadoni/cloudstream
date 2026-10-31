@@ -71,6 +71,20 @@ export class DiscoveryOrchestrator {
     // Cache active streams for 24 hours (86,400s)
     await redisCache.set(`str:m:${query.tpdbId}`, JSON.stringify(dedupedStreams), 'EX', 86400);
 
+    // Also cache by normalized title slug (and cleanTitle) for dual ID & Title lookup
+    if (query.title) {
+      const slug = query.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      if (slug.length > 2) {
+        await redisCache.set(`str:t:${slug}`, JSON.stringify(dedupedStreams), 'EX', 86400).catch(() => {});
+      }
+    }
+    if (query.cleanTitle && query.cleanTitle !== query.title) {
+      const cleanSlug = query.cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      if (cleanSlug.length > 2) {
+        await redisCache.set(`str:t:${cleanSlug}`, JSON.stringify(dedupedStreams), 'EX', 86400).catch(() => {});
+      }
+    }
+
     return { status: 'SUCCESS', streams: dedupedStreams };
   }
 

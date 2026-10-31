@@ -28,27 +28,48 @@ export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
 
       const cacheKey = `m:${tpdbId}`;
 
-      // 1. Check positive cache
-      const cached = await redisCache.get(`str:${cacheKey}`);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        const normalized = parsed.map((s: any) => ({
+      const sendSuccess = (streams: any[], fromCache = true) => {
+        const normalized = streams.map((s: any) => ({
           ...s,
           url: s.url || s.streamUrl,
           streamUrl: s.streamUrl || s.url,
           source: s.source || s.sourceName || 'TPDB',
           sourceName: s.sourceName || s.source || 'TPDB',
+          quality: s.quality || '1080p',
+          isM3u8: Boolean(s.isM3u8),
+          headers: s.headers || {},
         }));
         return reply.send({
           status: 'SUCCESS',
           content: { id: tpdbId, type: 'MOVIE' },
           results: normalized,
-          cached: true,
+          cached: fromCache,
           lastUpdated: new Date().toISOString(),
         });
+      };
+
+      // 1. Check positive cache by ID (Highest Priority)
+      const cachedById = await redisCache.get(`str:${cacheKey}`);
+      if (cachedById) {
+        return sendSuccess(JSON.parse(cachedById), true);
       }
 
-      // 2. Check negative cache (bypass if title was provided by client)
+      // 2. If ID misses, check positive cache by Title slug (Priority 2)
+      const titleSlug = queryTitle
+        ? queryTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+        : null;
+
+      if (titleSlug) {
+        const cachedByTitle = await redisCache.get(`str:t:${titleSlug}`);
+        if (cachedByTitle) {
+          const parsed = JSON.parse(cachedByTitle);
+          // Also link to this ID in Redis so subsequent requests by ID hit immediately
+          await redisCache.set(`str:${cacheKey}`, cachedByTitle, 'EX', 86400).catch(() => {});
+          return sendSuccess(parsed, true);
+        }
+      }
+
+      // 3. Check negative cache (bypass if title was provided by client)
       if (!queryTitle) {
         const negCached = await redisCache.get(`neg:${cacheKey}`);
         if (negCached) {
@@ -140,6 +161,10 @@ export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         sizeBytes: s.sizeBytes,
         headers: s.headers || {},
       }));
+
+      if (titleSlug && normalizedStreams.length > 0) {
+        await redisCache.set(`str:t:${titleSlug}`, JSON.stringify(normalizedStreams), 'EX', 86400).catch(() => {});
+      }
 
       return reply.send({
         status: (result as any).status || (normalizedStreams.length > 0 ? 'SUCCESS' : 'EMPTY'),
