@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger
 open class TpdbDiscoveryProvider : MainAPI() {
 
     override var mainUrl = "https://theporndb.net"
-    override var name = "TPDB Discovery"
+    override var name = "ThePornDB Discovery"
     override val supportedTypes = setOf(TvType.NSFW, TvType.Movie)
     override var lang = "en"
     override val isNsfw = true
