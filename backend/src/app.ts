@@ -83,9 +83,30 @@ export async function buildApp() {
     }
     const phDuration = Date.now() - phStart;
 
+    let spDirectProbe: any = {};
+    try {
+      const probeUrl = `https://speedporn.net/${term.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}/`;
+      const pRes = await fetch(probeUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+      });
+      const pHtml = await pRes.text();
+      spDirectProbe = {
+        probeUrl,
+        status: pRes.status,
+        htmlLength: pHtml.length,
+        hasDataServers: pHtml.includes('data-servers='),
+        snippet: pHtml.slice(0, 300),
+      };
+    } catch (e: any) {
+      spDirectProbe = { error: e.message };
+    }
+
     return {
       term,
-      speedporn: { durationMs: spDuration, streamCount: spResults.length, streams: spResults, error: spError },
+      speedporn: { durationMs: spDuration, streamCount: spResults.length, streams: spResults, error: spError, directProbe: spDirectProbe },
       paradisehill: { durationMs: phDuration, streamCount: phResults.length, streams: phResults, error: phError },
       circuitBreaker: {
         speedporn: circuitBreaker.isOpen('speedporn'),
