@@ -23,6 +23,14 @@ open class TpdbDiscoveryProvider : MainAPI() {
 
     var backendBaseUrl = "https://cloudstream-gl1n.onrender.com"
 
+    companion object {
+        private const val TPDB_API_KEY = "8ABvbgloweVLDeD3HBq6x9eHpL3lMJE8qEuBtdmb213d0c62"
+        private val TPDB_HEADERS = mapOf(
+            "Accept" to "application/json",
+            "Authorization" to "Bearer $TPDB_API_KEY"
+        )
+    }
+
     override val mainPage = listOf(
         MainPageData("Trending Scenes", "https://api.theporndb.net/scenes?sort=trending"),
         MainPageData("Latest Scenes", "https://api.theporndb.net/scenes?sort=date")
@@ -31,7 +39,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val url = "${request.data}&page=$page"
         val resp = runCatching {
-            app.get(url, headers = mapOf("Accept" to "application/json"))
+            app.get(url, headers = TPDB_HEADERS)
         }.getOrNull() ?: return null
 
         val json = runCatching { JSONObject(resp.text) }.getOrNull() ?: return null
@@ -69,7 +77,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
         val searchUrl = "https://api.theporndb.net/scenes?q=$encodedQuery"
 
         val resp = runCatching {
-            app.get(searchUrl, headers = mapOf("Accept" to "application/json"))
+            app.get(searchUrl, headers = TPDB_HEADERS)
         }.getOrNull() ?: return emptyList()
 
         val json = runCatching { JSONObject(resp.text) }.getOrNull() ?: return emptyList()
@@ -108,7 +116,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
 
         val apiUrl = "https://api.theporndb.net/scenes/$tpdbId"
         val resp = runCatching {
-            app.get(apiUrl, headers = mapOf("Accept" to "application/json"))
+            app.get(apiUrl, headers = TPDB_HEADERS)
         }.getOrNull()
 
         val root = runCatching { if (resp != null) JSONObject(resp.text) else null }.getOrNull()
