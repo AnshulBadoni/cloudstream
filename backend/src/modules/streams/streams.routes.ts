@@ -48,15 +48,17 @@ export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
         });
       }
 
-      // 2. Check negative cache
-      const negCached = await redisCache.get(`neg:${cacheKey}`);
-      if (negCached) {
-        return reply.send({
-          status: 'EMPTY',
-          content: { id: tpdbId, type: 'MOVIE' },
-          results: [],
-          cached: true,
-        });
+      // 2. Check negative cache (bypass if title was provided by client)
+      if (!queryTitle) {
+        const negCached = await redisCache.get(`neg:${cacheKey}`);
+        if (negCached) {
+          return reply.send({
+            status: 'EMPTY',
+            content: { id: tpdbId, type: 'MOVIE' },
+            results: [],
+            cached: true,
+          });
+        }
       }
 
       // 3. Distributed Coalesced Resolution
@@ -121,9 +123,9 @@ export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
             cleanTitle,
             aliases: uniqueAliases,
             releaseDate: metadata?.releaseDate,
-          });
+          }, 9000);
         },
-        3500
+        9500
       );
 
       const rawStreams = (result as any).streams || (Array.isArray(result) ? result : []);
@@ -192,9 +194,9 @@ export const streamsRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
             aliases: [],
             season: sNum,
             episode: eNum,
-          });
+          }, 9000);
         },
-        3500
+        9500
       );
 
       return reply.send({

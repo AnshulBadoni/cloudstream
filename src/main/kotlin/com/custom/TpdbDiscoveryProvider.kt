@@ -183,7 +183,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
                     "Accept" to "application/json",
                     "User-Agent" to "CloudStream-TpdbDiscovery/1.0"
                 ),
-                timeout = 10L
+                timeout = 20L
             )
         }.getOrNull()
 

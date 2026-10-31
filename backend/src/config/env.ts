@@ -13,7 +13,7 @@ const envSchema = z.object({
   TPDB_API_KEY: z.string().default(''),
   ADMIN_API_KEY: z.string().default('secret_admin_token'),
   WORKER_GLOBAL_CONCURRENCY: z.coerce.number().default(16),
-  SYNC_DISCOVERY_TIMEOUT_MS: z.coerce.number().default(3800),
+  SYNC_DISCOVERY_TIMEOUT_MS: z.coerce.number().default(9000),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -30,7 +30,7 @@ export class DistributedCoalescer {
   async executeOrWait<T>(
     key: string,
     executeLeader: () => Promise<T>,
-    timeoutMs: number = 3500
+    timeoutMs: number = 9500
   ): Promise<T> {
     return this.localSf.do(key, async () => {
       const lockKey = `str:${key}`;

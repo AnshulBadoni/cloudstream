@@ -9,6 +9,9 @@ import { streamsRoutes } from './modules/streams/streams.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
 import { register, httpRequestDurationMicroseconds } from './metrics/metrics.js';
 import { startWorker, stopWorker } from './queue/discovery.worker.js';
+import { SpeedPornAdapter } from './modules/discovery/adapters/speedporn.adapter.js';
+import { ParadiseHillAdapter } from './modules/discovery/adapters/paradisehill.adapter.js';
+import { circuitBreaker } from './utils/circuit-breaker.js';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -43,6 +46,51 @@ export async function buildApp() {
   // Health check endpoint
   fastify.get('/api/v1/health', async () => {
     return { status: 'healthy', timestamp: new Date().toISOString() };
+  });
+
+  // Diagnostic Scraping endpoint
+  fastify.get<{ Querystring: { title?: string; term?: string } }>('/api/v1/diag', async (req) => {
+    const term = req.query?.term || req.query?.title || 'Tushy Raw 68';
+    const query = {
+      tpdbId: 'diag_test',
+      contentType: 'MOVIE' as const,
+      title: term,
+      cleanTitle: term,
+      aliases: [term],
+    };
+
+    const sp = new SpeedPornAdapter();
+    const ph = new ParadiseHillAdapter();
+
+    const spStart = Date.now();
+    let spResults: any = [];
+    let spError: any = null;
+    try {
+      spResults = await sp.search(query, 12000);
+    } catch (e: any) {
+      spError = { message: e.message, name: e.name, stack: e.stack };
+    }
+    const spDuration = Date.now() - spStart;
+
+    const phStart = Date.now();
+    let phResults: any = [];
+    let phError: any = null;
+    try {
+      phResults = await ph.search(query, 12000);
+    } catch (e: any) {
+      phError = { message: e.message, name: e.name, stack: e.stack };
+    }
+    const phDuration = Date.now() - phStart;
+
+    return {
+      term,
+      speedporn: { durationMs: spDuration, streamCount: spResults.length, streams: spResults, error: spError },
+      paradisehill: { durationMs: phDuration, streamCount: phResults.length, streams: phResults, error: phError },
+      circuitBreaker: {
+        speedporn: circuitBreaker.isOpen('speedporn'),
+        paradisehill: circuitBreaker.isOpen('paradisehill'),
+      },
+    };
   });
 
   // Prometheus Metrics endpoint
