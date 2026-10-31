@@ -60,8 +60,16 @@ export class DiscoveryOrchestrator {
     }
 
     if (dedupedStreams.length === 0) {
-      // Short negative cache (60 seconds) so freshly indexed items or title retries aren't locked out
-      await redisCache.set(`neg:m:${query.tpdbId}`, JSON.stringify({ status: 'EMPTY' }), 'EX', 60);
+      const failDiagnosis = {
+        status: 'EMPTY',
+        reason: elapsed >= timeoutMs ? 'DEADLINE_EXCEEDED' : 'ZERO_STREAMS_FOUND',
+        title: query.title,
+        cleanTitle: query.cleanTitle,
+        aliases: query.aliases,
+        elapsedMs: elapsed,
+        timestamp: new Date().toISOString(),
+      };
+      await redisCache.set(`neg:m:${query.tpdbId}`, JSON.stringify(failDiagnosis), 'EX', 60);
       return { status: 'EMPTY', streams: [] };
     }
 

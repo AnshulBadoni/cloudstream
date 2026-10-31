@@ -183,65 +183,85 @@ open class TpdbDiscoveryProvider : MainAPI() {
                     "Accept" to "application/json",
                     "User-Agent" to "CloudStream-TpdbDiscovery/1.0"
                 ),
-                timeout = 20L
+                timeout = 15L
             )
         }.getOrNull()
 
-        if (resp == null || resp.code != 200) {
-            println("[TpdbDiscoveryProvider] Failed contacting discovery backend for $tpdbId (code=${resp?.code})")
-            return false
-        }
+        if (resp != null && resp.code == 200) {
+            val json = runCatching { JSONObject(resp.text) }.getOrNull()
+            val resultsArr = json?.optJSONArray("results")
 
-        val json = runCatching { JSONObject(resp.text) }.getOrNull()
-        val resultsArr = json?.optJSONArray("results")
+            if (resultsArr != null) {
+                for (i in 0 until resultsArr.length()) {
+                    val item = resultsArr.optJSONObject(i) ?: continue
+                    val streamUrl = item.optString("url").ifBlank { item.optString("streamUrl") }
+                    if (streamUrl.isBlank()) continue
 
-        if (resultsArr == null || resultsArr.length() == 0) {
-            println("[TpdbDiscoveryProvider] No discovered streams returned for $tpdbId")
-            return false
-        }
+                    val source = item.optString("source").ifBlank { item.optString("sourceName", "TPDB") }
+                    val quality = item.optString("quality", "1080p")
+                    val isM3u8 = item.optBoolean("isM3u8", false) || streamUrl.contains(".m3u8")
 
-        for (i in 0 until resultsArr.length()) {
-            val item = resultsArr.optJSONObject(i) ?: continue
-            val streamUrl = item.optString("url").ifBlank { item.optString("streamUrl") }
-            if (streamUrl.isBlank()) continue
+                    val headersMap = mutableMapOf<String, String>()
+                    val headersObj = item.optJSONObject("headers")
+                    if (headersObj != null) {
+                        val keys = headersObj.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            headersMap[key] = headersObj.optString(key)
+                        }
+                    }
 
-            val source = item.optString("source").ifBlank { item.optString("sourceName", "TPDB") }
-            val quality = item.optString("quality", "1080p")
-            val isM3u8 = item.optBoolean("isM3u8", false) || streamUrl.contains(".m3u8")
-
-            val headersMap = mutableMapOf<String, String>()
-            val headersObj = item.optJSONObject("headers")
-            if (headersObj != null) {
-                val keys = headersObj.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    headersMap[key] = headersObj.optString(key)
+                    if (isM3u8 || streamUrl.contains(".mp4")) {
+                        val qual = parseQuality(quality)
+                        callback(
+                            ExtractorLink(
+                                source = source,
+                                name = "[${source.uppercase()}] $quality",
+                                url = streamUrl,
+                                referer = headersMap["Referer"] ?: "",
+                                quality = qual,
+                                isM3u8 = isM3u8,
+                                headers = headersMap
+                            )
+                        )
+                        emitted.incrementAndGet()
+                    } else {
+                        val loaded = loadExtractor(
+                            url = streamUrl,
+                            referer = headersMap["Referer"] ?: "",
+                            subtitleCallback = subtitleCallback,
+                            callback = callback
+                        )
+                        if (loaded) {
+                            emitted.incrementAndGet()
+                        }
+                    }
                 }
             }
+        }
 
-            if (isM3u8 || streamUrl.contains(".mp4")) {
-                val qual = parseQuality(quality)
-                callback(
-                    ExtractorLink(
-                        source = source,
-                        name = "[${source.uppercase()}] $quality",
-                        url = streamUrl,
-                        referer = headersMap["Referer"] ?: "",
-                        quality = qual,
-                        isM3u8 = isM3u8,
-                        headers = headersMap
-                    )
+        // Hybrid Device Fallback: extract SpeedPorn embeds directly on phone if title is available
+        val titleFromUrl = if (cleanData.contains("title=")) {
+            runCatching { URLDecoder.decode(cleanData.substringAfter("title=").substringBefore("&"), "UTF-8") }.getOrNull()
+        } else null
+
+        if (titleFromUrl != null && titleFromUrl.isNotBlank()) {
+            val cleanSlug = titleFromUrl.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+            if (cleanSlug.length > 2) {
+                val candidateSlugs = linkedSetOf(
+                    cleanSlug,
+                    cleanSlug.replace("-v", "-"),
+                    cleanSlug.replace(Regex("-(\\d+)"), "-v$1")
                 )
-                emitted.incrementAndGet()
-            } else {
-                val loaded = loadExtractor(
-                    url = streamUrl,
-                    referer = headersMap["Referer"] ?: "",
-                    subtitleCallback = subtitleCallback,
-                    callback = callback
-                )
-                if (loaded) {
-                    emitted.incrementAndGet()
+                for (slug in candidateSlugs) {
+                    val directUrl = "https://speedporn.net/$slug/"
+                    val found = runCatching {
+                        Himeros().loadLinks(directUrl, isCasting, subtitleCallback) { link ->
+                            callback(link)
+                            emitted.incrementAndGet()
+                        }
+                    }.getOrDefault(false)
+                    if (found) break
                 }
             }
         }
