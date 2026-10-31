@@ -25,6 +25,41 @@ export class SpeedPornAdapter implements ISourceAdapter {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
+      // 1. Direct slug probe (super fast: 1 request, ~300ms)
+      const directSlugs = new Set<string>();
+      for (const term of [query.title, query.cleanTitle, ...(query.aliases || [])]) {
+        if (!term) continue;
+        const slug = term.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        if (slug.length > 2) {
+          directSlugs.add(`${this.baseUrl}/${slug}/`);
+          // also add v-prefix and non-v variants (e.g. tushy-raw-v19 <-> tushy-raw-19)
+          const noV = slug.replace(/-v(\d+)/g, '-$1');
+          const withV = slug.replace(/-(\d{1,4})/g, '-v$1');
+          directSlugs.add(`${this.baseUrl}/${noV}/`);
+          directSlugs.add(`${this.baseUrl}/${withV}/`);
+        }
+      }
+
+      for (const directUrl of directSlugs) {
+        try {
+          const res = await fetch(directUrl, {
+            headers: this.headers,
+            signal: controller.signal,
+          });
+          if (res.ok) {
+            const html = await res.text();
+            const streams = this.extractStreamsFromHtml(html);
+            if (streams.length > 0) {
+              logger.info({ adapter: this.id, directUrl, streams: streams.length }, 'Found direct slug match on SpeedPorn');
+              return streams;
+            }
+          }
+        } catch {
+          // continue to next slug or search fallback
+        }
+      }
+
+      // 2. Search fallback
       const searchTerms = [query.cleanTitle, ...(query.aliases || [])]
         .map((t) => t.trim())
         .filter((t) => t.length > 2);
@@ -50,7 +85,20 @@ export class SpeedPornAdapter implements ISourceAdapter {
           .map((m) => m[1])
           .filter((u) => !u.includes('/category/') && !u.includes('/tag/') && !u.includes('/author/') && !u.includes('/page/'));
 
-        const targetHrefs = Array.from(new Set(candidateHrefs)).slice(0, 3);
+        // Rank candidates prioritizing exact volume/part numbers in slug
+        const numMatch = term.match(/\b(\d+)\b/);
+        const queryNum = numMatch ? numMatch[1] : null;
+
+        const sortedCandidates = [...new Set(candidateHrefs)].sort((a, b) => {
+          if (!queryNum) return 0;
+          const aHas = a.toLowerCase().includes(`-${queryNum}/`) || a.toLowerCase().includes(`-v${queryNum}/`);
+          const bHas = b.toLowerCase().includes(`-${queryNum}/`) || b.toLowerCase().includes(`-v${queryNum}/`);
+          if (aHas && !bHas) return -1;
+          if (!aHas && bHas) return 1;
+          return 0;
+        });
+
+        const targetHrefs = sortedCandidates.slice(0, 3);
 
         for (const movieUrl of targetHrefs) {
           try {
@@ -60,54 +108,9 @@ export class SpeedPornAdapter implements ISourceAdapter {
             });
             if (!mRes.ok) continue;
             const mHtml = await mRes.text();
-
-            // Extract data-servers embeds (VOE, LuluStream, MixDrop, DoodStream, etc.)
-            const serversMatch = mHtml.match(/data-servers=["']([^"']+)["']/i);
-            if (serversMatch) {
-              const rawJson = serversMatch[1].replace(/&quot;/g, '"').replace(/\\\//g, '/');
-              try {
-                const serverList = JSON.parse(rawJson);
-                for (const item of serverList) {
-                  if (item.u) {
-                    streams.push({
-                      sourceId: this.id,
-                      sourceName: item.l ? `SpeedPorn (${item.l})` : 'SpeedPorn',
-                      streamUrl: item.u,
-                      quality: '1080p',
-                      isM3u8: item.u.includes('.m3u8'),
-                      headers: {
-                        Referer: `${this.baseUrl}/`,
-                      },
-                      confidenceScore: 0.95,
-                    });
-                  }
-                }
-              } catch (parseErr) {
-                logger.warn({ adapter: this.id, movieUrl, err: parseErr }, 'Failed parsing data-servers JSON');
-              }
-            }
-
-            // Fallback: look for direct iframe embeds if data-servers was not found
-            if (streams.length === 0) {
-              const iframes = [...mHtml.matchAll(/<iframe[^>]+src=["'](https?:\/\/[^"']*(?:luluvdo|lulustream|streamtape|voe|mixdrop|playmogo|dood)[^"']*)["']/gi)]
-                .map((m) => m[1].replace(/\\\//g, '/'));
-
-              for (const iframeUrl of iframes) {
-                streams.push({
-                  sourceId: this.id,
-                  sourceName: 'SpeedPorn',
-                  streamUrl: iframeUrl,
-                  quality: '1080p',
-                  isM3u8: iframeUrl.includes('.m3u8'),
-                  headers: {
-                    Referer: `${this.baseUrl}/`,
-                  },
-                  confidenceScore: 0.9,
-                });
-              }
-            }
-
-            if (streams.length > 0) {
+            const extracted = this.extractStreamsFromHtml(mHtml);
+            if (extracted.length > 0) {
+              streams.push(...extracted);
               break;
             }
           } catch (mErr: any) {
@@ -130,6 +133,58 @@ export class SpeedPornAdapter implements ISourceAdapter {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private extractStreamsFromHtml(mHtml: string): DiscoveredStream[] {
+    const streams: DiscoveredStream[] = [];
+
+    // Extract data-servers embeds (VOE, LuluStream, MixDrop, DoodStream, etc.)
+    const serversMatch = mHtml.match(/data-servers=["']([^"']+)["']/i);
+    if (serversMatch) {
+      const rawJson = serversMatch[1].replace(/&quot;/g, '"').replace(/\\\//g, '/');
+      try {
+        const serverList = JSON.parse(rawJson);
+        for (const item of serverList) {
+          if (item.u) {
+            streams.push({
+              sourceId: this.id,
+              sourceName: item.l ? `SpeedPorn (${item.l})` : 'SpeedPorn',
+              streamUrl: item.u,
+              quality: '1080p',
+              isM3u8: item.u.includes('.m3u8'),
+              headers: {
+                Referer: `${this.baseUrl}/`,
+              },
+              confidenceScore: 0.95,
+            });
+          }
+        }
+      } catch (parseErr) {
+        logger.warn({ adapter: this.id, err: parseErr }, 'Failed parsing data-servers JSON');
+      }
+    }
+
+    // Fallback: look for direct iframe embeds if data-servers was not found
+    if (streams.length === 0) {
+      const iframes = [...mHtml.matchAll(/<iframe[^>]+src=["'](https?:\/\/[^"']*(?:luluvdo|lulustream|streamtape|voe|mixdrop|playmogo|dood)[^"']*)["']/gi)]
+        .map((m) => m[1].replace(/\\\//g, '/'));
+
+      for (const iframeUrl of iframes) {
+        streams.push({
+          sourceId: this.id,
+          sourceName: 'SpeedPorn',
+          streamUrl: iframeUrl,
+          quality: '1080p',
+          isM3u8: iframeUrl.includes('.m3u8'),
+          headers: {
+            Referer: `${this.baseUrl}/`,
+          },
+          confidenceScore: 0.9,
+        });
+      }
+    }
+
+    return streams;
   }
 
   async healthCheck(): Promise<boolean> {
