@@ -4,7 +4,8 @@ import rateLimit from '@fastify/rate-limit';
 import { env } from './config/env.js';
 import { logger } from './utils/logger.js';
 import { initRedis, closeRedis, redisCache } from './redis/clients.js';
-import { closeDb } from './db/client.js';
+import { closeDb, getDb } from './db/client.js';
+import { content, releases, sources } from './db/schema.js';
 import { streamsRoutes } from './modules/streams/streams.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
 import { register, httpRequestDurationMicroseconds } from './metrics/metrics.js';
@@ -197,6 +198,300 @@ export async function buildApp() {
     };
   });
 
+  // Helper: Strip emojis and irregular symbols
+  function cleanTextWithoutEmojis(str: string): string {
+    if (!str) return '';
+    return str
+      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}\u{FE00}-\u{FE0F}]/gu, '')
+      .replace(/[^\x20-\x7E\u00A0-\u024F]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // Video Library API: Paged retrieval from PostgreSQL & Redis with emoji stripping & full links
+  fastify.get<{
+    Querystring: {
+      page?: string;
+      limit?: string;
+      source?: 'all' | 'db' | 'redis';
+      search?: string;
+    };
+  }>('/api/v1/admin/videos', async (req) => {
+    const rawPage = parseInt(req.query.page || '1', 10);
+    const page = isNaN(rawPage) || rawPage < 1 ? 1 : rawPage;
+    const rawLimit = parseInt(req.query.limit || '10', 10);
+    const limit = Math.min(100, Math.max(10, isNaN(rawLimit) ? 10 : rawLimit));
+    const filterSource = req.query.source || 'all';
+    const searchTerm = (req.query.search || '').toLowerCase().trim();
+
+    const itemMap = new Map<string, {
+      id: string;
+      title: string;
+      storage: 'DB' | 'Redis' | 'DB + Redis';
+      createdAt: string;
+      streams: Array<{
+        source: string;
+        url: string;
+        quality: string;
+        isM3u8: boolean;
+        headers?: Record<string, string>;
+      }>;
+    }>();
+
+    // 1. Fetch from PostgreSQL
+    try {
+      const db = getDb();
+      const dbRows = await db.query.content.findMany({
+        with: {
+          releases: {
+            with: {
+              sources: true,
+            },
+          },
+        },
+      });
+
+      for (const c of dbRows) {
+        const cleanTitle = cleanTextWithoutEmojis(c.title || `Item ${c.tpdbId}`);
+        const streamList: any[] = [];
+        for (const r of c.releases || []) {
+          for (const s of r.sources || []) {
+            streamList.push({
+              source: s.providerId || 'Database',
+              url: s.streamUrl,
+              quality: r.resolution || '1080p',
+              isM3u8: Boolean(s.isM3u8),
+              headers: (s.headers as Record<string, string>) || {},
+            });
+          }
+        }
+
+        itemMap.set(c.tpdbId, {
+          id: c.tpdbId,
+          title: cleanTitle,
+          storage: 'DB',
+          createdAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
+          streams: streamList,
+        });
+      }
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'Failed reading videos from PostgreSQL, falling back to Redis');
+    }
+
+    // 2. Fetch from Redis (Cache)
+    try {
+      const strMKeys = await redisCache.keys('str:m:*').catch(() => []);
+      const strTKeys = await redisCache.keys('str:t:*').catch(() => []);
+      const allKeys = Array.from(new Set([...strMKeys, ...strTKeys]));
+
+      if (allKeys.length > 0) {
+        const values = await redisCache.mget(...allKeys).catch(() => []);
+        for (let i = 0; i < allKeys.length; i++) {
+          const key = allKeys[i];
+          const val = values[i];
+          if (!val) continue;
+
+          let parsedStreams: any[] = [];
+          try {
+            parsedStreams = JSON.parse(val);
+          } catch {
+            continue;
+          }
+
+          if (!Array.isArray(parsedStreams) || parsedStreams.length === 0) continue;
+
+          const isSlugKey = key.startsWith('str:t:');
+          const keyIdentifier = isSlugKey ? key.substring(6) : key.substring(6);
+
+          const normalizedList = parsedStreams.map((s: any) => ({
+            source: s.source || s.sourceName || s.sourceId || 'Redis',
+            url: s.url || s.streamUrl || '',
+            quality: s.quality || '1080p',
+            isM3u8: Boolean(s.isM3u8) || (s.url || s.streamUrl || '').includes('.m3u8'),
+            headers: s.headers || {},
+          }));
+
+          if (itemMap.has(keyIdentifier)) {
+            const existing = itemMap.get(keyIdentifier)!;
+            existing.storage = 'DB + Redis';
+            const existingUrls = new Set(existing.streams.map((s) => s.url));
+            for (const ns of normalizedList) {
+              if (ns.url && !existingUrls.has(ns.url)) {
+                existing.streams.push(ns);
+                existingUrls.add(ns.url);
+              }
+            }
+          } else {
+            let title = keyIdentifier;
+            if (isSlugKey) {
+              title = keyIdentifier
+                .split('-')
+                .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                .join(' ');
+            }
+            title = cleanTextWithoutEmojis(title);
+
+            itemMap.set(keyIdentifier, {
+              id: keyIdentifier,
+              title,
+              storage: 'Redis',
+              createdAt: new Date().toISOString(),
+              streams: normalizedList,
+            });
+          }
+        }
+      }
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'Failed reading videos from Redis');
+    }
+
+    let allVideos = Array.from(itemMap.values());
+
+    // 3. Filter by Storage
+    if (filterSource === 'db') {
+      allVideos = allVideos.filter((v) => v.storage === 'DB' || v.storage === 'DB + Redis');
+    } else if (filterSource === 'redis') {
+      allVideos = allVideos.filter((v) => v.storage === 'Redis' || v.storage === 'DB + Redis');
+    }
+
+    // 4. Filter by Search Query
+    if (searchTerm) {
+      allVideos = allVideos.filter(
+        (v) =>
+          v.title.toLowerCase().includes(searchTerm) ||
+          v.id.toLowerCase().includes(searchTerm) ||
+          v.streams.some((s) => s.url.toLowerCase().includes(searchTerm) || s.source.toLowerCase().includes(searchTerm))
+      );
+    }
+
+    // 5. Sort: Most streams first, then title
+    allVideos.sort((a, b) => b.streams.length - a.streams.length);
+
+    // 6. Pagination (10 to 100 per page)
+    const total = allVideos.length;
+    const totalPages = Math.ceil(total / limit) || 1;
+    const safePage = Math.min(page, totalPages);
+    const startIndex = (safePage - 1) * limit;
+    const pagedItems = allVideos.slice(startIndex, startIndex + limit);
+
+    return {
+      total,
+      page: safePage,
+      limit,
+      totalPages,
+      items: pagedItems,
+      timestamp: new Date().toISOString(),
+    };
+  });
+
+  // Manual Stream Insertion API: Permanently save stream into PostgreSQL & Redis
+  fastify.post<{
+    Body: {
+      title: string;
+      tpdbId?: string;
+      streamUrl: string;
+      sourceName?: string;
+      quality?: string;
+      isM3u8?: boolean;
+      headers?: Record<string, string>;
+    };
+  }>('/api/v1/admin/videos', async (req, reply) => {
+    const { title, streamUrl, tpdbId, sourceName = 'Manual', quality = '1080p', isM3u8 = false, headers = {} } = req.body || {};
+    if (!title || !streamUrl) {
+      return reply.status(400).send({ error: 'title and streamUrl are required' });
+    }
+
+    const cleanTitle = cleanTextWithoutEmojis(title);
+    const cleanId = (tpdbId || cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')).trim();
+    const titleSlug = cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const detectedM3u8 = Boolean(isM3u8) || streamUrl.includes('.m3u8');
+
+    const streamObj = {
+      sourceId: sourceName.toLowerCase().replace(/\s+/g, '-'),
+      sourceName,
+      source: sourceName,
+      streamUrl,
+      url: streamUrl,
+      quality,
+      isM3u8: detectedM3u8,
+      headers,
+      confidenceScore: 1.0,
+    };
+
+    // 1. Save to PostgreSQL
+    try {
+      const db = getDb();
+      await db.transaction(async (tx) => {
+        const [c] = await tx
+          .insert(content)
+          .values({
+            tpdbId: cleanId,
+            contentType: 'MOVIE',
+            title: cleanTitle,
+          })
+          .onConflictDoUpdate({
+            target: content.tpdbId,
+            set: { updatedAt: new Date(), title: cleanTitle },
+          })
+          .returning();
+
+        const [rel] = await tx
+          .insert(releases)
+          .values({
+            contentId: c.id,
+            releaseTitle: `${cleanTitle} [${sourceName}] ${quality}`,
+            resolution: quality,
+          })
+          .returning();
+
+        await tx.insert(sources).values({
+          releaseId: rel.id,
+          providerId: sourceName,
+          streamUrl,
+          isDirectStream: !detectedM3u8,
+          isM3u8: detectedM3u8,
+          headers,
+          status: 'ACTIVE',
+        });
+      });
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'Failed persisting manual stream to PostgreSQL, proceeding with Redis');
+    }
+
+    // 2. Save / Update in Redis cache (both ID and Title Slug)
+    try {
+      const existingStr = await redisCache.get(`str:m:${cleanId}`).catch(() => null);
+      let currentStreams: any[] = [];
+      if (existingStr) {
+        try {
+          currentStreams = JSON.parse(existingStr);
+        } catch {}
+      }
+      if (!Array.isArray(currentStreams)) currentStreams = [];
+
+      if (!currentStreams.some((s: any) => (s.url || s.streamUrl) === streamUrl)) {
+        currentStreams.push(streamObj);
+      }
+
+      await redisCache.set(`str:m:${cleanId}`, JSON.stringify(currentStreams), 'EX', 86400 * 7);
+      if (titleSlug) {
+        await redisCache.set(`str:t:${titleSlug}`, JSON.stringify(currentStreams), 'EX', 86400 * 7);
+      }
+    } catch (err: any) {
+      logger.warn({ err: err.message }, 'Failed writing manual stream to Redis');
+    }
+
+    return reply.send({
+      status: 'SUCCESS',
+      message: 'Stream saved permanently to Database & Redis',
+      video: {
+        id: cleanId,
+        title: cleanTitle,
+        stream: streamObj,
+      },
+    });
+  });
+
   // Web Dashboard for Monitoring Scraping & Queue Status
   fastify.get('/dashboard', async (req, reply) => {
     const html = `<!DOCTYPE html>
@@ -204,7 +499,7 @@ export async function buildApp() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CloudStream Discovery & Task Monitor</title>
+  <title>CloudStream Discovery & Library Monitor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -217,7 +512,7 @@ export async function buildApp() {
       min-height: 100vh;
       padding: 24px;
     }
-    .container { max-width: 1200px; margin: 0 auto; }
+    .container { max-width: 1280px; margin: 0 auto; }
     header {
       display: flex;
       justify-content: space-between;
@@ -255,7 +550,7 @@ export async function buildApp() {
     }
     .metrics-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       gap: 16px;
       margin-bottom: 24px;
     }
@@ -273,8 +568,8 @@ export async function buildApp() {
       top: 0; left: 0; right: 0; height: 3px;
       background: linear-gradient(90deg, #38bdf8, #818cf8);
     }
-    .metric-title { font-size: 0.85rem; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
-    .metric-value { font-size: 2rem; font-weight: 700; color: #f1f5f9; font-family: 'JetBrains Mono', monospace; }
+    .metric-title { font-size: 0.82rem; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .metric-value { font-size: 1.85rem; font-weight: 700; color: #f1f5f9; font-family: 'JetBrains Mono', monospace; }
     .metric-desc { font-size: 0.75rem; color: #64748b; margin-top: 4px; }
     .card {
       background: #131b2e;
@@ -305,6 +600,7 @@ export async function buildApp() {
       padding: 12px 14px;
       border-bottom: 1px solid #192339;
       color: #cbd5e1;
+      vertical-align: top;
     }
     tr:last-child td { border-bottom: none; }
     .badge {
@@ -320,8 +616,12 @@ export async function buildApp() {
     .badge-success { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); }
     .badge-empty { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
     .badge-failed { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .badge-db { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+    .badge-redis { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .badge-hybrid { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
+    .badge-qual { background: #1e293b; color: #38bdf8; border: 1px solid #334155; }
     .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; }
-    .empty-msg { text-align: center; padding: 32px; color: #64748b; font-style: italic; }
+    .empty-msg { text-align: center; padding: 28px; color: #64748b; font-style: italic; }
     .refresh-bar {
       display: flex;
       align-items: center;
@@ -329,28 +629,100 @@ export async function buildApp() {
       font-size: 0.85rem;
       color: #94a3b8;
     }
-    button {
+    button, .btn {
       background: #2563eb;
       color: #fff;
       border: none;
-      padding: 6px 14px;
+      padding: 7px 14px;
       border-radius: 6px;
       font-weight: 600;
       cursor: pointer;
       font-size: 0.85rem;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
-    button:hover { background: #1d4ed8; }
+    button:hover, .btn:hover { background: #1d4ed8; }
+    .btn-secondary { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+    .btn-secondary:hover { background: #334155; color: #fff; }
+    .btn-sm { padding: 4px 8px; font-size: 0.75rem; }
     .input-row { display: flex; gap: 8px; margin-top: 12px; }
-    input[type="text"] {
-      flex: 1;
+    input[type="text"], select {
       background: #090d16;
       border: 1px solid #243048;
       border-radius: 6px;
       padding: 8px 12px;
       color: #f1f5f9;
-      font-size: 0.9rem;
+      font-size: 0.88rem;
     }
-    input[type="text"]:focus { outline: none; border-color: #38bdf8; }
+    input[type="text"]:focus, select:focus { outline: none; border-color: #38bdf8; }
+    .controls-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid #1a2438;
+    }
+    .controls-left, .controls-right { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .stream-drawer {
+      background: #0a0f1d;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 10px;
+    }
+    .stream-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid #162035;
+      font-size: 0.82rem;
+    }
+    .stream-row:last-child { border-bottom: none; }
+    .stream-left { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+    .stream-url-text {
+      font-family: 'JetBrains Mono', monospace;
+      color: #38bdf8;
+      text-decoration: none;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 620px;
+      display: inline-block;
+    }
+    .stream-url-text:hover { text-decoration: underline; }
+    .pagination-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid #1a2438;
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+    .manual-form-card {
+      background: #0d1424;
+      border: 1px dashed #334155;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 18px;
+      display: none;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group label { font-size: 0.75rem; text-transform: uppercase; color: #94a3b8; font-weight: 600; letter-spacing: 0.04em; }
   </style>
 </head>
 <body>
@@ -358,12 +730,12 @@ export async function buildApp() {
     <header>
       <div class="logo-area">
         <div class="pulse-dot"></div>
-        <h1>CloudStream Task & Scrape Monitor</h1>
+        <h1>CloudStream Task & Library Monitor</h1>
         <span class="status-badge">System Live</span>
       </div>
       <div class="refresh-bar">
         <span>Auto-refreshing in <b id="countdown" class="mono">3</b>s</span>
-        <button onclick="fetchTasks()">Refresh Now</button>
+        <button onclick="fetchTasks(); fetchLibrary();">Refresh All</button>
       </div>
     </header>
 
@@ -374,14 +746,19 @@ export async function buildApp() {
         <div class="metric-desc">Live scraping tasks in progress</div>
       </div>
       <div class="metric-card">
+        <div class="metric-title">Indexed in DB & Redis</div>
+        <div class="metric-value" id="val-library" style="color: #c084fc;">0</div>
+        <div class="metric-desc">Permanent videos with stored links</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Recent Scrapes</div>
+        <div class="metric-value" id="val-recent" style="color: #4ade80;">0</div>
+        <div class="metric-desc">Cached results in past hour</div>
+      </div>
+      <div class="metric-card">
         <div class="metric-title">Queue Waiting</div>
         <div class="metric-value" id="val-waiting">0</div>
         <div class="metric-desc">Jobs queued in BullMQ</div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-title">Recent Finished</div>
-        <div class="metric-value" id="val-recent" style="color: #4ade80;">0</div>
-        <div class="metric-desc">Cached results in past hour</div>
       </div>
       <div class="metric-card">
         <div class="metric-title">Queue Failures</div>
@@ -394,7 +771,7 @@ export async function buildApp() {
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          <span>⚡ Active Tasks Currently Scraping</span>
+          <span>[ACTIVE] Scrapes Currently In-Flight</span>
           <span id="active-count-pill" class="badge badge-processing">0 Active</span>
         </div>
       </div>
@@ -403,11 +780,90 @@ export async function buildApp() {
       </div>
     </div>
 
+    <!-- Video Library (PostgreSQL & Redis) -->
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">[LIBRARY] Stored Video Database & Redis Cache</div>
+          <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px;">Live inventory of all stored titles with full streaming links, direct MP4/M3U8/Torrent indicators, and pagination.</div>
+        </div>
+        <button class="btn-secondary" onclick="toggleAddForm()">+ Add Custom Link</button>
+      </div>
+
+      <!-- Add Video Form -->
+      <div id="add-video-panel" class="manual-form-card">
+        <div style="font-size: 0.9rem; font-weight: 600; color: #f8fafc; margin-bottom: 12px;">Save Video Stream Permanently to DB & Redis</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Title (Required)</label>
+            <input type="text" id="m-title" placeholder="e.g. Up Close 4" />
+          </div>
+          <div class="form-group">
+            <label>TPDB ID / Slug (Optional)</label>
+            <input type="text" id="m-id" placeholder="e.g. up-close-4 or numeric ID" />
+          </div>
+          <div class="form-group">
+            <label>Quality</label>
+            <input type="text" id="m-quality" value="1080p" placeholder="1080p, 720p, 4k" />
+          </div>
+          <div class="form-group">
+            <label>Source Provider</label>
+            <input type="text" id="m-source" value="Manual" placeholder="Manual, Personal, Archive" />
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom: 14px;">
+          <label>Stream URL or Magnet (Required)</label>
+          <input type="text" id="m-url" placeholder="https://.../video.mp4 or https://.../playlist.m3u8 or magnet:?xt=urn:..." />
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <button onclick="submitManualVideo()">Save Stream Forever</button>
+          <button class="btn-secondary" onclick="toggleAddForm()">Cancel</button>
+          <span id="manual-save-status" style="font-size: 0.85rem; color: #38bdf8;"></span>
+        </div>
+      </div>
+
+      <!-- Controls Toolbar -->
+      <div class="controls-bar">
+        <div class="controls-left">
+          <input type="text" id="library-search" placeholder="Search by title, ID, or URL..." style="width: 280px;" oninput="onSearchInput()" />
+          <select id="library-source-filter" onchange="onSourceFilterChange()">
+            <option value="all">Storage: All (DB & Redis)</option>
+            <option value="db">Storage: PostgreSQL Database</option>
+            <option value="redis">Storage: Redis Cache</option>
+          </select>
+        </div>
+        <div class="controls-right">
+          <label style="font-size: 0.82rem; color: #94a3b8;">Show per page:</label>
+          <select id="library-limit-select" onchange="onLimitChange()">
+            <option value="10">10 per page</option>
+            <option value="25">25 per page</option>
+            <option value="50">50 per page</option>
+            <option value="100">100 per page</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Video Library List -->
+      <div id="library-container">
+        <div class="empty-msg">Loading stored video library...</div>
+      </div>
+
+      <!-- Pagination Footer -->
+      <div class="pagination-bar">
+        <div id="pagination-info" class="mono">Showing 0 of 0 videos</div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-secondary btn-sm" id="btn-prev" onclick="prevPage()">Prev</button>
+          <span id="page-display" class="mono" style="display: flex; align-items: center; padding: 0 8px;">Page 1 of 1</span>
+          <button class="btn-secondary btn-sm" id="btn-next" onclick="nextPage()">Next</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Recent Completed Tasks -->
     <div class="card">
       <div class="card-header">
         <div class="card-title">
-          <span>🕒 Recently Scraped Movies (Past Hour)</span>
+          <span>[RECENT] Completed Scrape Tasks (Past Hour)</span>
         </div>
       </div>
       <div id="recent-tasks-container">
@@ -418,11 +874,11 @@ export async function buildApp() {
     <!-- Quick Test Trigger Box -->
     <div class="card">
       <div class="card-header">
-        <div class="card-title">🚀 Dispatch Quick Test Scrape</div>
+        <div class="card-title">[TEST] Dispatch Direct Scrape Probe</div>
       </div>
       <p style="font-size: 0.85rem; color: #94a3b8;">Trigger a live scrape directly against the backend engine to watch the real-time processing row appear above:</p>
       <div class="input-row">
-        <input type="text" id="test-title" placeholder="e.g. How I Met My Girlfriend: Chanel Preston" value="How I Met My Girlfriend: Chanel Preston" />
+        <input type="text" id="test-title" placeholder="e.g. Up Close 4" value="Up Close 4" />
         <button onclick="triggerTestScrape()">Test Scrape</button>
       </div>
       <div id="test-result" style="margin-top: 12px; font-size: 0.85rem; color: #38bdf8;"></div>
@@ -431,6 +887,12 @@ export async function buildApp() {
 
   <script>
     let countdown = 3;
+    let libPage = 1;
+    let libLimit = 10;
+    let libSource = 'all';
+    let libSearch = '';
+    let searchDebounce = null;
+
     setInterval(() => {
       countdown--;
       if (countdown <= 0) {
@@ -440,20 +902,202 @@ export async function buildApp() {
       document.getElementById('countdown').innerText = countdown;
     }, 1000);
 
+    function toggleAddForm() {
+      const panel = document.getElementById('add-video-panel');
+      panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+    }
+
+    function onSearchInput() {
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        libSearch = document.getElementById('library-search').value.trim();
+        libPage = 1;
+        fetchLibrary();
+      }, 350);
+    }
+
+    function onSourceFilterChange() {
+      libSource = document.getElementById('library-source-filter').value;
+      libPage = 1;
+      fetchLibrary();
+    }
+
+    function onLimitChange() {
+      libLimit = parseInt(document.getElementById('library-limit-select').value, 10);
+      libPage = 1;
+      fetchLibrary();
+    }
+
+    function prevPage() {
+      if (libPage > 1) {
+        libPage--;
+        fetchLibrary();
+      }
+    }
+
+    function nextPage() {
+      libPage++;
+      fetchLibrary();
+    }
+
+    function toggleStreams(idx) {
+      const el = document.getElementById('streams-' + idx);
+      const btn = document.getElementById('toggle-btn-' + idx);
+      if (el.style.display === 'none' || !el.style.display) {
+        el.style.display = 'block';
+        btn.innerText = 'Hide Links';
+      } else {
+        el.style.display = 'none';
+        btn.innerText = 'View Links';
+      }
+    }
+
+    function copyToClipboard(text, btnId) {
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById(btnId);
+        if (btn) {
+          const original = btn.innerText;
+          btn.innerText = 'Copied!';
+          setTimeout(() => { btn.innerText = original; }, 1500);
+        }
+      });
+    }
+
+    async function submitManualVideo() {
+      const title = document.getElementById('m-title').value.trim();
+      const tpdbId = document.getElementById('m-id').value.trim();
+      const streamUrl = document.getElementById('m-url').value.trim();
+      const quality = document.getElementById('m-quality').value.trim() || '1080p';
+      const sourceName = document.getElementById('m-source').value.trim() || 'Manual';
+      const statusEl = document.getElementById('manual-save-status');
+
+      if (!title || !streamUrl) {
+        statusEl.innerText = 'Error: Title and Stream URL are required.';
+        return;
+      }
+
+      statusEl.innerText = 'Saving permanently...';
+      try {
+        const res = await fetch('/api/v1/admin/videos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, tpdbId, streamUrl, quality, sourceName })
+        });
+        const data = await res.json();
+        if (data.status === 'SUCCESS') {
+          statusEl.innerText = 'Stream saved forever to DB & Redis!';
+          document.getElementById('m-title').value = '';
+          document.getElementById('m-url').value = '';
+          setTimeout(() => {
+            toggleAddForm();
+            statusEl.innerText = '';
+          }, 1500);
+          fetchLibrary();
+        } else {
+          statusEl.innerText = 'Error: ' + (data.error || 'Failed to save');
+        }
+      } catch (err) {
+        statusEl.innerText = 'Network error: ' + err.message;
+      }
+    }
+
+    async function fetchLibrary() {
+      try {
+        const url = '/api/v1/admin/videos?page=' + libPage + '&limit=' + libLimit + '&source=' + libSource + '&search=' + encodeURIComponent(libSearch);
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        document.getElementById('val-library').innerText = data.total;
+        document.getElementById('page-display').innerText = 'Page ' + data.page + ' of ' + data.totalPages;
+        document.getElementById('btn-prev').disabled = data.page <= 1;
+        document.getElementById('btn-next').disabled = data.page >= data.totalPages;
+
+        const startIdx = (data.page - 1) * data.limit + (data.total > 0 ? 1 : 0);
+        const endIdx = Math.min(data.page * data.limit, data.total);
+        document.getElementById('pagination-info').innerText = 'Showing ' + startIdx + ' - ' + endIdx + ' of ' + data.total + ' videos';
+
+        const container = document.getElementById('library-container');
+        if (!data.items || data.items.length === 0) {
+          container.innerHTML = '<div class="empty-msg">No videos found matching your filters.</div>';
+          return;
+        }
+
+        let html = '<table><thead><tr><th>Movie Title (Clean)</th><th>Identifier / Slug</th><th>Storage</th><th>Streams</th><th>Action</th></tr></thead><tbody>';
+
+        data.items.forEach((item, idx) => {
+          let storageBadge = 'badge-hybrid';
+          if (item.storage === 'DB') storageBadge = 'badge-db';
+          else if (item.storage === 'Redis') storageBadge = 'badge-redis';
+
+          html += '<tr>' +
+            '<td><strong>' + escapeHtml(item.title) + '</strong></td>' +
+            '<td class="mono">' + escapeHtml(item.id) + '</td>' +
+            '<td><span class="badge ' + storageBadge + '">' + item.storage + '</span></td>' +
+            '<td class="mono"><b>' + item.streams.length + '</b> links</td>' +
+            '<td><button class="btn-secondary btn-sm" id="toggle-btn-' + idx + '" onclick="toggleStreams(' + idx + ')">View Links</button></td>' +
+          '</tr>';
+
+          // Hidden Streams Drawer
+          html += '<tr id="streams-' + idx + '" style="display: none;"><td colspan="5">' +
+            '<div class="stream-drawer">' +
+            '<div style="font-size: 0.78rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; margin-bottom: 8px;">Available Streams (' + item.streams.length + ')</div>';
+
+          if (item.streams.length === 0) {
+            html += '<div style="font-size: 0.8rem; color: #64748b; font-style: italic;">No stream links available for this title.</div>';
+          } else {
+            item.streams.forEach((s, sIdx) => {
+              const copyBtnId = 'copy-btn-' + idx + '-' + sIdx;
+              const isTorrent = s.url.startsWith('magnet:') || s.url.endsWith('.torrent');
+              const formatLabel = isTorrent ? 'TORRENT' : (s.isM3u8 ? 'HLS / M3U8' : 'DIRECT MP4');
+
+              html += '<div class="stream-row">' +
+                '<div class="stream-left">' +
+                  '<span class="badge badge-qual">' + escapeHtml(s.quality) + '</span>' +
+                  '<span class="badge" style="background: #172554; color: #93c5fd; border: 1px solid #1e40af;">' + escapeHtml(s.source) + '</span>' +
+                  '<span class="badge" style="background: #1e1b4b; color: #a5b4fc; border: 1px solid #3730a3;">' + formatLabel + '</span>' +
+                  '<a href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener noreferrer" class="stream-url-text" title="' + escapeHtml(s.url) + '">' + escapeHtml(s.url) + '</a>' +
+                '</div>' +
+                '<div style="display: flex; gap: 6px;">' +
+                  '<button class="btn-secondary btn-sm" id="' + copyBtnId + '" onclick="copyToClipboard(\'' + escapeJsString(s.url) + '\', \'' + copyBtnId + '\')">Copy</button>' +
+                  '<a href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm">Open</a>' +
+                '</div>' +
+              '</div>';
+            });
+          }
+
+          html += '</div></td></tr>';
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+      } catch (err) {
+        console.error('Library fetch error:', err);
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function escapeJsString(str) {
+      if (!str) return '';
+      return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+
     async function fetchTasks() {
       try {
         const res = await fetch('/api/v1/admin/tasks');
         if (!res.ok) return;
         const data = await res.json();
 
-        // Update KPIs
         document.getElementById('val-active').innerText = data.activeTasks.length;
         document.getElementById('val-waiting').innerText = data.queue.waiting || 0;
         document.getElementById('val-recent').innerText = data.recentTasks.length;
         document.getElementById('val-failed').innerText = data.queue.failed || 0;
         document.getElementById('active-count-pill').innerText = data.activeTasks.length + ' Active';
 
-        // Render Active Tasks
         const activeContainer = document.getElementById('active-tasks-container');
         if (data.activeTasks.length === 0) {
           activeContainer.innerHTML = '<div class="empty-msg">No active scrapes running right now. Ready for incoming requests.</div>';
@@ -462,8 +1106,8 @@ export async function buildApp() {
           for (const t of data.activeTasks) {
             const elapsed = Math.round((Date.now() - new Date(t.startedAt).getTime()) / 1000);
             html += '<tr>' +
-              '<td><strong>' + (t.name || 'Unknown') + '</strong></td>' +
-              '<td class="mono">' + (t.id || 'N/A') + '</td>' +
+              '<td><strong>' + escapeHtml(t.name || 'Unknown') + '</strong></td>' +
+              '<td class="mono">' + escapeHtml(t.id || 'N/A') + '</td>' +
               '<td><span class="badge badge-processing">SCRAPING</span></td>' +
               '<td class="mono">' + new Date(t.startedAt).toLocaleTimeString() + '</td>' +
               '<td class="mono">' + elapsed + 's ago</td>' +
@@ -473,7 +1117,6 @@ export async function buildApp() {
           activeContainer.innerHTML = html;
         }
 
-        // Render Recent Tasks
         const recentContainer = document.getElementById('recent-tasks-container');
         if (data.recentTasks.length === 0) {
           recentContainer.innerHTML = '<div class="empty-msg">No recent tasks recorded yet.</div>';
@@ -485,8 +1128,8 @@ export async function buildApp() {
             else if (t.status === 'FAILED') badgeClass = 'badge-failed';
 
             html += '<tr>' +
-              '<td><strong>' + (t.name || 'Unknown') + '</strong></td>' +
-              '<td class="mono">' + (t.id || 'N/A') + '</td>' +
+              '<td><strong>' + escapeHtml(t.name || 'Unknown') + '</strong></td>' +
+              '<td class="mono">' + escapeHtml(t.id || 'N/A') + '</td>' +
               '<td><span class="badge ' + badgeClass + '">' + (t.status || 'DONE') + '</span></td>' +
               '<td class="mono"><b>' + (t.streamCount || 0) + '</b> streams</td>' +
               '<td class="mono">' + (t.finishedAt ? new Date(t.finishedAt).toLocaleTimeString() : 'N/A') + '</td>' +
@@ -511,16 +1154,17 @@ export async function buildApp() {
         .then(data => {
           resEl.innerText = 'Completed! Streams found: ' + (data.results ? data.results.length : 0);
           fetchTasks();
+          fetchLibrary();
         })
         .catch(err => {
           resEl.innerText = 'Error: ' + err.message;
         });
-      // Immediate fetch to see processing row appear
       setTimeout(fetchTasks, 300);
     }
 
-    // Initial fetch on page load
+    // Initial loads
     fetchTasks();
+    fetchLibrary();
   </script>
 </body>
 </html>`;
