@@ -138,19 +138,41 @@ open class TpdbDiscoveryProvider : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse? {
-        val cleanUrl = url.removePrefix("tpdb://movie/").trim()
+        val cleanUrl = url
+            .replaceFirst(Regex("""^https?://api\.theporndb\.net/(?:movies|scenes)/"""), "")
+            .replaceFirst(Regex("""^tpdb:(?://)?(?:movie|scene)?/?(?::)?"""), "")
+            .trim()
         val tpdbId = cleanUrl.substringBefore("?").trim()
         val titleFromUrl = if (cleanUrl.contains("title=")) {
             runCatching { URLDecoder.decode(cleanUrl.substringAfter("title=").substringBefore("&"), "UTF-8") }.getOrNull()
         } else null
 
-        // Try /scenes/ first, fallback to /movies/ if not found (skip for synthetic search targets)
+        // 1. Instant zero-latency return if title is already embedded
+        if (!titleFromUrl.isNullOrBlank()) {
+            val encTitle = URLEncoder.encode(titleFromUrl, "UTF-8")
+            return newMovieLoadResponse(
+                name = titleFromUrl,
+                url = url,
+                type = TvType.Movie,
+                dataUrl = "tpdb://movie/$tpdbId?title=$encTitle"
+            )
+        }
+
+        // 2. Parallel bounded metadata lookup if title was not provided
         val metaText = if (!tpdbId.startsWith("search_")) {
-            runCatching {
-                app.get("https://api.theporndb.net/scenes/$tpdbId", headers = TPDB_HEADERS).text
-            }.getOrNull() ?: runCatching {
-                app.get("https://api.theporndb.net/movies/$tpdbId", headers = TPDB_HEADERS).text
-            }.getOrNull()
+            withTimeoutOrNull(1500L) {
+                coroutineScope {
+                    val endpoints = listOf(
+                        "https://api.theporndb.net/movies/$tpdbId",
+                        "https://api.theporndb.net/scenes/$tpdbId"
+                    )
+                    endpoints.map { ep ->
+                        async {
+                            runCatching { app.get(ep, headers = TPDB_HEADERS).text }.getOrNull()
+                        }
+                    }.awaitAll().firstOrNull { !it.isNullOrBlank() }
+                }
+            }
         } else null
 
         val root = if (metaText != null) runCatching { JSONObject(metaText) }.getOrNull() else null
@@ -207,12 +229,45 @@ open class TpdbDiscoveryProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val cleanData = data.removePrefix("tpdb://movie/").trim()
+        val cleanData = data
+            .replaceFirst(Regex("""^https?://api\.theporndb\.net/(?:movies|scenes)/"""), "")
+            .replaceFirst(Regex("""^tpdb:(?://)?(?:movie|scene)?/?(?::)?"""), "")
+            .trim()
         val tpdbId = cleanData.substringBefore("?").trim()
         val queryParam = if (cleanData.contains("?")) "?" + cleanData.substringAfter("?") else ""
         val emitted = AtomicInteger(0)
 
-        val backendEndpoint = "$backendBaseUrl/api/v1/streams/movie/$tpdbId$queryParam"
+        val titleFromUrl = if (cleanData.contains("title=")) {
+            runCatching { URLDecoder.decode(cleanData.substringAfter("title=").substringBefore("&"), "UTF-8") }.getOrNull()
+        } else null
+
+        // Resolve title if missing from URL
+        val resolvedTitle = titleFromUrl ?: if (!tpdbId.startsWith("search_")) {
+            withTimeoutOrNull(1500L) {
+                coroutineScope {
+                    listOf(
+                        "https://api.theporndb.net/movies/$tpdbId",
+                        "https://api.theporndb.net/scenes/$tpdbId"
+                    ).map { ep ->
+                        async {
+                            runCatching {
+                                val text = app.get(ep, headers = TPDB_HEADERS).text
+                                JSONObject(text).optJSONObject("data")?.optString("title")
+                            }.getOrNull()
+                        }
+                    }.awaitAll().firstOrNull { !it.isNullOrBlank() }
+                }
+            }
+        } else null
+
+        val finalQuery = if (!queryParam.contains("title=") && !resolvedTitle.isNullOrBlank()) {
+            val enc = URLEncoder.encode(resolvedTitle, "UTF-8")
+            if (queryParam.isBlank()) "?title=$enc" else "$queryParam&title=$enc"
+        } else {
+            queryParam
+        }
+
+        val backendEndpoint = "$backendBaseUrl/api/v1/streams/movie/$tpdbId$finalQuery"
 
         val resp = runCatching {
             app.get(
@@ -281,14 +336,11 @@ open class TpdbDiscoveryProvider : MainAPI() {
         }
 
         // Hybrid Device Fallback: extract SpeedPorn embeds directly on phone if title is available
-        val titleFromUrl = if (cleanData.contains("title=")) {
-            runCatching { URLDecoder.decode(cleanData.substringAfter("title=").substringBefore("&"), "UTF-8") }.getOrNull()
-        } else null
-
-        if (titleFromUrl != null && titleFromUrl.isNotBlank()) {
-            val cleanSlug = titleFromUrl.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
-            val beforeColon = titleFromUrl.substringBefore(":").trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
-            val afterHyphen = if (titleFromUrl.contains("-")) titleFromUrl.substringAfterLast("-").trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') else ""
+        val speedTitle = resolvedTitle ?: titleFromUrl
+        if (speedTitle != null && speedTitle.isNotBlank()) {
+            val cleanSlug = speedTitle.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+            val beforeColon = speedTitle.substringBefore(":").trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+            val afterHyphen = if (speedTitle.contains("-")) speedTitle.substringAfterLast("-").trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') else ""
             if (cleanSlug.length > 2) {
                 val candidateSlugs = linkedSetOf(
                     cleanSlug,
@@ -319,7 +371,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
                 }
 
                 if (!speedPornFound) {
-                    val searchHits = runCatching { Himeros().search(titleFromUrl) }.getOrDefault(emptyList())
+                    val searchHits = runCatching { Himeros().search(speedTitle) }.getOrDefault(emptyList())
                     for (hit in searchHits.take(2)) {
                         val found = runCatching {
                             Himeros().loadLinks(hit.url, isCasting, subtitleCallback) { link ->
