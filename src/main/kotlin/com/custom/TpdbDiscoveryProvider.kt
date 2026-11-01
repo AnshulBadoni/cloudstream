@@ -228,7 +228,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
-    ): Boolean {
+    ): Boolean = coroutineScope {
         val cleanData = data
             .replaceFirst(Regex("""^https?://api\.theporndb\.net/(?:movies|scenes)/"""), "")
             .replaceFirst(Regex("""^tpdb:(?://)?(?:movie|scene)?/?(?::)?"""), "")
@@ -243,7 +243,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
 
         // Resolve title if missing from URL
         val resolvedTitle = titleFromUrl ?: if (!tpdbId.startsWith("search_")) {
-            withTimeoutOrNull(1500L) {
+            withTimeoutOrNull(1000L) {
                 coroutineScope {
                     listOf(
                         "https://api.theporndb.net/movies/$tpdbId",
@@ -269,123 +269,129 @@ open class TpdbDiscoveryProvider : MainAPI() {
 
         val backendEndpoint = "$backendBaseUrl/api/v1/streams/movie/$tpdbId$finalQuery"
 
-        val resp = runCatching {
-            app.get(
-                backendEndpoint,
-                headers = mapOf(
-                    "Accept" to "application/json",
-                    "User-Agent" to "CloudStream-TpdbDiscovery/1.0"
-                ),
-                timeout = 25L
-            )
-        }.getOrNull()
+        // 1. Fetch from Render backend concurrently
+        val backendJob = async {
+            val resp = runCatching {
+                app.get(
+                    backendEndpoint,
+                    headers = mapOf(
+                        "Accept" to "application/json",
+                        "User-Agent" to "CloudStream-TpdbDiscovery/1.0"
+                    ),
+                    timeout = 15L
+                )
+            }.getOrNull()
 
-        if (resp != null && resp.code == 200) {
-            val json = runCatching { JSONObject(resp.text) }.getOrNull()
-            val resultsArr = json?.optJSONArray("results")
+            if (resp != null && resp.code == 200) {
+                val json = runCatching { JSONObject(resp.text) }.getOrNull()
+                val resultsArr = json?.optJSONArray("results")
 
-            if (resultsArr != null) {
-                for (i in 0 until resultsArr.length()) {
-                    val item = resultsArr.optJSONObject(i) ?: continue
-                    val streamUrl = item.optString("url").ifBlank { item.optString("streamUrl") }
-                    if (streamUrl.isBlank()) continue
+                if (resultsArr != null) {
+                    for (i in 0 until resultsArr.length()) {
+                        val item = resultsArr.optJSONObject(i) ?: continue
+                        val streamUrl = item.optString("url").ifBlank { item.optString("streamUrl") }
+                        if (streamUrl.isBlank()) continue
 
-                    val source = item.optString("source").ifBlank { item.optString("sourceName", "TPDB") }
-                    val quality = item.optString("quality", "1080p")
-                    val isM3u8 = item.optBoolean("isM3u8", false) || streamUrl.contains(".m3u8")
+                        val source = item.optString("source").ifBlank { item.optString("sourceName", "TPDB") }
+                        val quality = item.optString("quality", "1080p")
+                        val isM3u8 = item.optBoolean("isM3u8", false) || streamUrl.contains(".m3u8")
 
-                    val headersMap = mutableMapOf<String, String>()
-                    val headersObj = item.optJSONObject("headers")
-                    if (headersObj != null) {
-                        val keys = headersObj.keys()
-                        while (keys.hasNext()) {
-                            val key = keys.next()
-                            headersMap[key] = headersObj.optString(key)
+                        val headersMap = mutableMapOf<String, String>()
+                        val headersObj = item.optJSONObject("headers")
+                        if (headersObj != null) {
+                            val keys = headersObj.keys()
+                            while (keys.hasNext()) {
+                                val key = keys.next()
+                                headersMap[key] = headersObj.optString(key)
+                            }
                         }
-                    }
 
-                    val isTorrent = streamUrl.startsWith("magnet:") || streamUrl.endsWith(".torrent")
+                        val isTorrent = streamUrl.startsWith("magnet:") || streamUrl.endsWith(".torrent")
 
-                    if (isM3u8 || streamUrl.contains(".mp4") || isTorrent) {
-                        val qual = parseQuality(quality)
-                        callback(
-                            ExtractorLink(
-                                source = source,
-                                name = "[${source.uppercase()}] $quality",
+                        if (isM3u8 || streamUrl.contains(".mp4") || isTorrent) {
+                            val qual = parseQuality(quality)
+                            callback(
+                                ExtractorLink(
+                                    source = source,
+                                    name = "[${source.uppercase()}] $quality",
+                                    url = streamUrl,
+                                    referer = headersMap["Referer"] ?: "",
+                                    quality = qual,
+                                    isM3u8 = isM3u8,
+                                    headers = headersMap
+                                )
+                            )
+                            emitted.incrementAndGet()
+                        } else {
+                            val loaded = loadExtractor(
                                 url = streamUrl,
                                 referer = headersMap["Referer"] ?: "",
-                                quality = qual,
-                                isM3u8 = isM3u8,
-                                headers = headersMap
+                                subtitleCallback = subtitleCallback,
+                                callback = callback
                             )
-                        )
-                        emitted.incrementAndGet()
-                    } else {
-                        val loaded = loadExtractor(
-                            url = streamUrl,
-                            referer = headersMap["Referer"] ?: "",
-                            subtitleCallback = subtitleCallback,
-                            callback = callback
-                        )
-                        if (loaded) {
-                            emitted.incrementAndGet()
-                        }
-                    }
-                }
-            }
-        }
-
-        // Hybrid Device Fallback: extract SpeedPorn embeds directly on phone if title is available
-        val speedTitle = resolvedTitle ?: titleFromUrl
-        if (speedTitle != null && speedTitle.isNotBlank()) {
-            val cleanSlug = speedTitle.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
-            val beforeColon = speedTitle.substringBefore(":").trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
-            val afterHyphen = if (speedTitle.contains("-")) speedTitle.substringAfterLast("-").trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') else ""
-            if (cleanSlug.length > 2) {
-                val candidateSlugs = linkedSetOf(
-                    cleanSlug,
-                    cleanSlug.replace("-v", "-"),
-                    cleanSlug.replace(Regex("-(\\d+)"), "-v$1")
-                )
-                if (beforeColon.length > 3 && beforeColon != cleanSlug) {
-                    candidateSlugs.add(beforeColon)
-                    candidateSlugs.add(beforeColon.replace("-v", "-"))
-                    candidateSlugs.add(beforeColon.replace(Regex("-(\\d+)"), "-v$1"))
-                }
-                if (afterHyphen.length > 3 && afterHyphen != cleanSlug) {
-                    candidateSlugs.add(afterHyphen)
-                }
-                var speedPornFound = false
-                for (slug in candidateSlugs) {
-                    val directUrl = "https://speedporn.net/$slug/"
-                    val found = runCatching {
-                        Himeros().loadLinks(directUrl, isCasting, subtitleCallback) { link ->
-                            callback(link)
-                            emitted.incrementAndGet()
-                        }
-                    }.getOrDefault(false)
-                    if (found) {
-                        speedPornFound = true
-                        break
-                    }
-                }
-
-                if (!speedPornFound) {
-                    val searchHits = runCatching { Himeros().search(speedTitle) }.getOrDefault(emptyList())
-                    for (hit in searchHits.take(2)) {
-                        val found = runCatching {
-                            Himeros().loadLinks(hit.url, isCasting, subtitleCallback) { link ->
-                                callback(link)
+                            if (loaded) {
                                 emitted.incrementAndGet()
                             }
-                        }.getOrDefault(false)
-                        if (found) break
+                        }
                     }
                 }
             }
         }
 
-        return emitted.get() > 0
+        // 2. Hybrid Device Fallback: extract SpeedPorn embeds directly on phone capped at 5.0s max
+        val speedpornJob = async {
+            val speedTitle = resolvedTitle ?: titleFromUrl
+            if (speedTitle != null && speedTitle.isNotBlank()) {
+                withTimeoutOrNull(5000L) {
+                    runCatching {
+                        val cleanSlug = speedTitle.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+                        val beforeColon = speedTitle.substringBefore(":").trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+                        if (cleanSlug.length > 2) {
+                            val candidateSlugs = linkedSetOf(
+                                cleanSlug,
+                                cleanSlug.replace("-v", "-"),
+                                cleanSlug.replace(Regex("-(\\d+)"), "-v$1")
+                            )
+                            if (beforeColon.length > 3 && beforeColon != cleanSlug) {
+                                candidateSlugs.add(beforeColon)
+                            }
+                            var speedPornFound = false
+                            for (slug in candidateSlugs) {
+                                val directUrl = "https://speedporn.net/$slug/"
+                                val found = runCatching {
+                                    Himeros().loadLinks(directUrl, isCasting, subtitleCallback) { link ->
+                                        callback(link)
+                                        emitted.incrementAndGet()
+                                    }
+                                }.getOrDefault(false)
+                                if (found) {
+                                    speedPornFound = true
+                                    break
+                                }
+                            }
+
+                            if (!speedPornFound) {
+                                val searchHits = runCatching { Himeros().search(speedTitle) }.getOrDefault(emptyList())
+                                for (hit in searchHits.take(2)) {
+                                    val found = runCatching {
+                                        Himeros().loadLinks(hit.url, isCasting, subtitleCallback) { link ->
+                                            callback(link)
+                                            emitted.incrementAndGet()
+                                        }
+                                    }.getOrDefault(false)
+                                    if (found) break
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        backendJob.await()
+        speedpornJob.await()
+
+        emitted.get() > 0
     }
 
     private fun parseQuality(q: String): Int {
