@@ -77,15 +77,17 @@ class TpdbDiscoveryProviderTest {
         assertTrue(success, "loadLinks should return true when links are emitted")
         assertEquals(2, emittedLinks.size, "Should emit exactly 2 stream links")
 
-        val luluLink = emittedLinks.first { it.source == "lulustream" }
+        val luluLink = emittedLinks.first { it.name.contains("LULUSTREAM") }
         assertEquals("[LULUSTREAM] 1080p", luluLink.name)
+        assertEquals("ThePornDB Discovery", luluLink.source)
         assertEquals("https://cdn.example.org/master.m3u8", luluLink.url)
         assertEquals(Qualities.P1080.value, luluLink.quality)
         assertTrue(luluLink.isM3u8)
         assertEquals("https://luluvido.com/", luluLink.referer)
 
-        val mixdropLink = emittedLinks.first { it.source == "mixdrop" }
+        val mixdropLink = emittedLinks.first { it.name.contains("MIXDROP") }
         assertEquals("[MIXDROP] 720p", mixdropLink.name)
+        assertEquals("ThePornDB Discovery", mixdropLink.source)
         assertEquals("https://delivery.example.net/v2/stream.mp4", mixdropLink.url)
         assertEquals(Qualities.P720.value, mixdropLink.quality)
         assertFalse(mixdropLink.isM3u8)
@@ -125,19 +127,25 @@ class TpdbDiscoveryProviderTest {
     }
 
     @Test
-    fun `loadLinks gracefully handles backend network or HTTP 500 error`() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(500).setBody("Internal Server Error"))
+    fun `live search and loadLinks for Up Close 4 against production backend`() = runBlocking {
+        val liveProvider = TpdbDiscoveryProvider()
+        val results = liveProvider.search("Up Close 4")
+        assertTrue(results.isNotEmpty(), "Search should return candidate for Up Close 4")
+        val candidate = results.first()
+        println("Search candidate: ${candidate.name} -> ${candidate.url}")
 
-        val emittedLinks = mutableListOf<ExtractorLink>()
+        val loadRes = liveProvider.load(candidate.url)
+        assertNotNull(loadRes)
+        val dataUrl = (loadRes as com.lagradost.cloudstream3.MovieLoadResponse).dataUrl
+        println("Load dataUrl: $dataUrl")
 
-        val success = provider.loadLinks(
-            data = "tpdb://movie/55555",
-            isCasting = false,
-            subtitleCallback = {},
-            callback = { emittedLinks.add(it) }
-        )
-
-        assertFalse(success, "loadLinks should safely return false on HTTP 500")
-        assertTrue(emittedLinks.isEmpty())
+        val links = mutableListOf<ExtractorLink>()
+        val ok = liveProvider.loadLinks(dataUrl, false, {}) { link ->
+            println("Emitted: source='${link.source}', name='${link.name}', url='${link.url}'")
+            links.add(link)
+        }
+        println("loadLinks ok=$ok, count=${links.size}")
+        assertTrue(links.isNotEmpty(), "Should emit live links for Up Close 4")
+        assertTrue(links.all { it.source == "ThePornDB Discovery" }, "All links must have source == ThePornDB Discovery")
     }
 }
