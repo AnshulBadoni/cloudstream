@@ -303,6 +303,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
                 if (afterHyphen.length > 3 && afterHyphen != cleanSlug) {
                     candidateSlugs.add(afterHyphen)
                 }
+                var speedPornFound = false
                 for (slug in candidateSlugs) {
                     val directUrl = "https://speedporn.net/$slug/"
                     val found = runCatching {
@@ -311,7 +312,23 @@ open class TpdbDiscoveryProvider : MainAPI() {
                             emitted.incrementAndGet()
                         }
                     }.getOrDefault(false)
-                    if (found) break
+                    if (found) {
+                        speedPornFound = true
+                        break
+                    }
+                }
+
+                if (!speedPornFound) {
+                    val searchHits = runCatching { Himeros().search(titleFromUrl) }.getOrDefault(emptyList())
+                    for (hit in searchHits.take(2)) {
+                        val found = runCatching {
+                            Himeros().loadLinks(hit.url, isCasting, subtitleCallback) { link ->
+                                callback(link)
+                                emitted.incrementAndGet()
+                            }
+                        }.getOrDefault(false)
+                        if (found) break
+                    }
                 }
             }
         }
