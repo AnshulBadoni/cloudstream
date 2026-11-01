@@ -13,6 +13,7 @@ import { discoveryQueue } from './queue/discovery.queue.js';
 import { SpeedPornAdapter } from './modules/discovery/adapters/speedporn.adapter.js';
 import { ParadiseHillAdapter } from './modules/discovery/adapters/paradisehill.adapter.js';
 import { PornoTorrentAdapter } from './modules/discovery/adapters/pornotorrent.adapter.js';
+import { FilmAdultAdapter } from './modules/discovery/adapters/filmadult.adapter.js';
 import { circuitBreaker } from './utils/circuit-breaker.js';
 
 export async function buildApp() {
@@ -64,6 +65,7 @@ export async function buildApp() {
     const sp = new SpeedPornAdapter();
     const ph = new ParadiseHillAdapter();
     const pt = new PornoTorrentAdapter();
+    const fa = new FilmAdultAdapter();
 
     const spStart = Date.now();
     let spResults: any = [];
@@ -95,6 +97,16 @@ export async function buildApp() {
     }
     const ptDuration = Date.now() - ptStart;
 
+    const faStart = Date.now();
+    let faResults: any = [];
+    let faError: any = null;
+    try {
+      faResults = await fa.search(query, 12000);
+    } catch (e: any) {
+      faError = { message: e.message, name: e.name, stack: e.stack };
+    }
+    const faDuration = Date.now() - faStart;
+
     let spDirectProbe: any = {};
     try {
       const probeUrl = `https://speedporn.net/${term.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}/`;
@@ -121,10 +133,12 @@ export async function buildApp() {
       speedporn: { durationMs: spDuration, streamCount: spResults.length, streams: spResults, error: spError, directProbe: spDirectProbe },
       paradisehill: { durationMs: phDuration, streamCount: phResults.length, streams: phResults, error: phError },
       pornotorrent: { durationMs: ptDuration, streamCount: ptResults.length, streams: ptResults, error: ptError },
+      filmadult: { durationMs: faDuration, streamCount: faResults.length, streams: faResults, error: faError },
       circuitBreaker: {
         speedporn: circuitBreaker.isOpen('speedporn'),
         paradisehill: circuitBreaker.isOpen('paradisehill'),
         pornotorrent: circuitBreaker.isOpen('pornotorrent'),
+        filmadult: circuitBreaker.isOpen('filmadult'),
       },
     };
   });
