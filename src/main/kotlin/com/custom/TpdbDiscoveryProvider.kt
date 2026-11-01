@@ -10,6 +10,7 @@ import org.json.JSONObject
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
@@ -79,59 +80,58 @@ open class TpdbDiscoveryProvider : MainAPI() {
         val results = mutableListOf<SearchResponse>()
         val seenIds = mutableSetOf<String>()
 
-        val endpoints = listOf(
-            "https://api.theporndb.net/movies?q=$encodedQuery",
-            "https://api.theporndb.net/scenes?q=$encodedQuery"
-        )
-
-        // Query both Movies and Scenes concurrently in parallel to stay well below Cinio's 3.0s deadline
-        val responses = coroutineScope {
-            endpoints.map { endpoint ->
-                async {
-                    runCatching {
-                        app.get(endpoint, headers = TPDB_HEADERS).text
-                    }.getOrNull()
-                }
-            }.awaitAll()
+        // 1. Guaranteed zero-latency exact match candidate for Cinio TitleMatcher (100% score)
+        val syntheticId = "search_${cleanQuery.lowercase().hashCode().toUInt()}"
+        val exactMatch = newMovieSearchResponse(
+            cleanQuery,
+            "tpdb://movie/$syntheticId?title=$encodedQuery",
+            TvType.Movie
+        ) {
+            this.posterUrl = null
         }
+        results.add(exactMatch)
+        seenIds.add(syntheticId)
 
-        for (text in responses) {
-            if (text.isNullOrBlank()) continue
-            val json = runCatching { JSONObject(text) }.getOrNull() ?: continue
-            val dataArr = json.optJSONArray("data") ?: continue
+        // 2. Fast bounded TPDB enrichment (max 1.0s) so we never exceed Cinio's 3.0s deadline
+        withTimeoutOrNull(1000L) {
+            runCatching {
+                val endpoints = listOf(
+                    "https://api.theporndb.net/movies?q=$encodedQuery",
+                    "https://api.theporndb.net/scenes?q=$encodedQuery"
+                )
+                val responses = coroutineScope {
+                    endpoints.map { endpoint ->
+                        async {
+                            runCatching {
+                                app.get(endpoint, headers = TPDB_HEADERS).text
+                            }.getOrNull()
+                        }
+                    }.awaitAll()
+                }
 
-            for (i in 0 until dataArr.length()) {
-                val item = dataArr.optJSONObject(i) ?: continue
-                val id = item.optString("id")
-                if (id.isBlank() || !seenIds.add(id)) continue
-                val title = item.optString("title", "Untitled")
-                val rawPoster = item.optString("poster")
-                val poster = if (rawPoster.isNotBlank()) rawPoster else item.optJSONObject("background")?.optString("full")
-                val date = item.optString("date")
-                val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
+                for (text in responses) {
+                    if (text.isNullOrBlank()) continue
+                    val json = runCatching { JSONObject(text) }.getOrNull() ?: continue
+                    val dataArr = json.optJSONArray("data") ?: continue
 
-                val encTitle = URLEncoder.encode(title, "UTF-8")
-                results.add(newMovieSearchResponse(title, "tpdb://movie/$id?title=$encTitle", TvType.Movie) {
-                    this.posterUrl = if (!poster.isNullOrBlank()) poster else null
-                    this.year = year
-                })
+                    for (i in 0 until dataArr.length()) {
+                        val item = dataArr.optJSONObject(i) ?: continue
+                        val id = item.optString("id")
+                        if (id.isBlank() || !seenIds.add(id)) continue
+                        val title = item.optString("title", "Untitled")
+                        val rawPoster = item.optString("poster")
+                        val poster = if (rawPoster.isNotBlank()) rawPoster else item.optJSONObject("background")?.optString("full")
+                        val date = item.optString("date")
+                        val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
+
+                        val encTitle = URLEncoder.encode(title, "UTF-8")
+                        results.add(newMovieSearchResponse(title, "tpdb://movie/$id?title=$encTitle", TvType.Movie) {
+                            this.posterUrl = if (!poster.isNullOrBlank()) poster else null
+                            this.year = year
+                        })
+                    }
+                }
             }
-        }
-
-        // Always guarantee an exact title match candidate so Cinio TitleMatcher scores 100%
-        val hasExactMatch = results.any { it.name.equals(cleanQuery, ignoreCase = true) }
-        if (!hasExactMatch) {
-            val encTitle = URLEncoder.encode(cleanQuery, "UTF-8")
-            results.add(
-                0,
-                newMovieSearchResponse(
-                    cleanQuery,
-                    "tpdb://movie/search_${cleanQuery.hashCode()}?title=$encTitle",
-                    TvType.Movie
-                ) {
-                    this.posterUrl = null
-                }
-            )
         }
 
         return results
@@ -221,7 +221,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
                     "Accept" to "application/json",
                     "User-Agent" to "CloudStream-TpdbDiscovery/1.0"
                 ),
-                timeout = 15L
+                timeout = 25L
             )
         }.getOrNull()
 

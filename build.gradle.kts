@@ -205,14 +205,14 @@ tasks.register("makePlugin") {
         createPluginZip("FiveMoviesPorn", "com.custom.FiveMoviesPornProvider", fiveMoviesCs3, version = 102)
         createPluginZip("ParadiseHill", "com.custom.ParadiseHillProvider", paradiseHillCs3, version = 101)
         createPluginZip("XTapes", "com.custom.XTapesProvider", xtapesCs3, version = 103)
-        createPluginZip("TpdbDiscovery", "com.custom.TpdbDiscoveryPlugin", tpdbDiscoveryCs3, version = 111)
+        createPluginZip("TpdbDiscovery", "com.custom.TpdbDiscoveryPlugin", tpdbDiscoveryCs3, version = 112)
 
         val pluginsJson = """
 [
   {
     "name": "ThePornDB Discovery",
     "internalName": "TpdbDiscovery",
-    "version": 111,
+    "version": 112,
     "apiVersion": 1,
     "description": "Centralized discovery and link aggregation engine powered by ThePornDB metadata and synchronized backend streaming sources.",
     "authors": ["AnshulBadoni"],
