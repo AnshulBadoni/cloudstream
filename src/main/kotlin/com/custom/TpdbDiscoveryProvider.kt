@@ -4,6 +4,7 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.json.JSONArray
 import org.json.JSONObject
@@ -228,7 +229,9 @@ open class TpdbDiscoveryProvider : MainAPI() {
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
-    ): Boolean = coroutineScope {
+    ): Boolean {
+        val providerName = this.name
+        return coroutineScope {
         val cleanData = data
             .replaceFirst(Regex("""^https?://api\.theporndb\.net/(?:movies|scenes)/"""), "")
             .replaceFirst(Regex("""^tpdb:(?://)?(?:movie|scene)?/?(?::)?"""), "")
@@ -310,25 +313,42 @@ open class TpdbDiscoveryProvider : MainAPI() {
 
                         if (isM3u8 || streamUrl.contains(".mp4") || isTorrent) {
                             val qual = parseQuality(quality)
-                            callback(
-                                ExtractorLink(
-                                    source = source,
-                                    name = "[${source.uppercase()}] $quality",
-                                    url = streamUrl,
-                                    referer = headersMap["Referer"] ?: "",
-                                    quality = qual,
-                                    isM3u8 = isM3u8,
-                                    headers = headersMap
-                                )
+                            val link = ExtractorLink(
+                                source = providerName,
+                                name = "[${source.uppercase()}] $quality",
+                                url = streamUrl,
+                                referer = headersMap["Referer"] ?: "",
+                                quality = qual,
+                                isM3u8 = isM3u8,
+                                headers = headersMap
                             )
+                            if (isTorrent) {
+                                link.type = ExtractorLinkType.TORRENT
+                            } else if (isM3u8) {
+                                link.type = ExtractorLinkType.M3U8
+                            } else {
+                                link.type = ExtractorLinkType.VIDEO
+                            }
+                            callback(link)
                             emitted.incrementAndGet()
                         } else {
                             val loaded = loadExtractor(
                                 url = streamUrl,
                                 referer = headersMap["Referer"] ?: "",
-                                subtitleCallback = subtitleCallback,
-                                callback = callback
-                            )
+                                subtitleCallback = subtitleCallback
+                            ) { extractedLink ->
+                                val wrapped = ExtractorLink(
+                                    source = providerName,
+                                    name = "[${source.uppercase()}] ${extractedLink.name}",
+                                    url = extractedLink.url,
+                                    referer = extractedLink.referer,
+                                    quality = extractedLink.quality,
+                                    isM3u8 = extractedLink.isM3u8,
+                                    headers = extractedLink.headers
+                                )
+                                wrapped.type = extractedLink.type
+                                callback(wrapped)
+                            }
                             if (loaded) {
                                 emitted.incrementAndGet()
                             }
@@ -360,7 +380,17 @@ open class TpdbDiscoveryProvider : MainAPI() {
                                 val directUrl = "https://speedporn.net/$slug/"
                                 val found = runCatching {
                                     Himeros().loadLinks(directUrl, isCasting, subtitleCallback) { link ->
-                                        callback(link)
+                                        val wrapped = ExtractorLink(
+                                            source = providerName,
+                                            name = "[SPEEDPORN] ${link.name}",
+                                            url = link.url,
+                                            referer = link.referer,
+                                            quality = link.quality,
+                                            isM3u8 = link.isM3u8,
+                                            headers = link.headers
+                                        )
+                                        wrapped.type = link.type
+                                        callback(wrapped)
                                         emitted.incrementAndGet()
                                     }
                                 }.getOrDefault(false)
@@ -375,7 +405,17 @@ open class TpdbDiscoveryProvider : MainAPI() {
                                 for (hit in searchHits.take(2)) {
                                     val found = runCatching {
                                         Himeros().loadLinks(hit.url, isCasting, subtitleCallback) { link ->
-                                            callback(link)
+                                            val wrapped = ExtractorLink(
+                                                source = providerName,
+                                                name = "[SPEEDPORN] ${link.name}",
+                                                url = link.url,
+                                                referer = link.referer,
+                                                quality = link.quality,
+                                                isM3u8 = link.isM3u8,
+                                                headers = link.headers
+                                            )
+                                            wrapped.type = link.type
+                                            callback(wrapped)
                                             emitted.incrementAndGet()
                                         }
                                     }.getOrDefault(false)
@@ -393,6 +433,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
 
         emitted.get() > 0
     }
+}
 
     private fun parseQuality(q: String): Int {
         val clean = q.lowercase().replace("p", "").trim()
