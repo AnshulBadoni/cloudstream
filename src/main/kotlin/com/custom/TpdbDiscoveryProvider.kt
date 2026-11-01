@@ -249,7 +249,9 @@ open class TpdbDiscoveryProvider : MainAPI() {
                         }
                     }
 
-                    if (isM3u8 || streamUrl.contains(".mp4")) {
+                    val isTorrent = streamUrl.startsWith("magnet:") || streamUrl.endsWith(".torrent")
+
+                    if (isM3u8 || streamUrl.contains(".mp4") || isTorrent) {
                         val qual = parseQuality(quality)
                         callback(
                             ExtractorLink(

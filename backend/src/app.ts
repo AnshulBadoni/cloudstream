@@ -12,6 +12,7 @@ import { startWorker, stopWorker } from './queue/discovery.worker.js';
 import { discoveryQueue } from './queue/discovery.queue.js';
 import { SpeedPornAdapter } from './modules/discovery/adapters/speedporn.adapter.js';
 import { ParadiseHillAdapter } from './modules/discovery/adapters/paradisehill.adapter.js';
+import { PornoTorrentAdapter } from './modules/discovery/adapters/pornotorrent.adapter.js';
 import { circuitBreaker } from './utils/circuit-breaker.js';
 
 export async function buildApp() {
@@ -62,6 +63,7 @@ export async function buildApp() {
 
     const sp = new SpeedPornAdapter();
     const ph = new ParadiseHillAdapter();
+    const pt = new PornoTorrentAdapter();
 
     const spStart = Date.now();
     let spResults: any = [];
@@ -82,6 +84,16 @@ export async function buildApp() {
       phError = { message: e.message, name: e.name, stack: e.stack };
     }
     const phDuration = Date.now() - phStart;
+
+    const ptStart = Date.now();
+    let ptResults: any = [];
+    let ptError: any = null;
+    try {
+      ptResults = await pt.search(query, 12000);
+    } catch (e: any) {
+      ptError = { message: e.message, name: e.name, stack: e.stack };
+    }
+    const ptDuration = Date.now() - ptStart;
 
     let spDirectProbe: any = {};
     try {
@@ -108,9 +120,11 @@ export async function buildApp() {
       term,
       speedporn: { durationMs: spDuration, streamCount: spResults.length, streams: spResults, error: spError, directProbe: spDirectProbe },
       paradisehill: { durationMs: phDuration, streamCount: phResults.length, streams: phResults, error: phError },
+      pornotorrent: { durationMs: ptDuration, streamCount: ptResults.length, streams: ptResults, error: ptError },
       circuitBreaker: {
         speedporn: circuitBreaker.isOpen('speedporn'),
         paradisehill: circuitBreaker.isOpen('paradisehill'),
+        pornotorrent: circuitBreaker.isOpen('pornotorrent'),
       },
     };
   });
