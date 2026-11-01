@@ -899,31 +899,37 @@ export async function buildApp() {
         countdown = 3;
         fetchTasks();
       }
-      document.getElementById('countdown').innerText = countdown;
+      const cdEl = document.getElementById('countdown');
+      if (cdEl) cdEl.innerText = countdown;
     }, 1000);
 
     function toggleAddForm() {
       const panel = document.getElementById('add-video-panel');
-      panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+      if (panel) {
+        panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+      }
     }
 
     function onSearchInput() {
       clearTimeout(searchDebounce);
       searchDebounce = setTimeout(() => {
-        libSearch = document.getElementById('library-search').value.trim();
+        const inputEl = document.getElementById('library-search');
+        libSearch = inputEl ? inputEl.value.trim() : '';
         libPage = 1;
         fetchLibrary();
       }, 350);
     }
 
     function onSourceFilterChange() {
-      libSource = document.getElementById('library-source-filter').value;
+      const filterEl = document.getElementById('library-source-filter');
+      libSource = filterEl ? filterEl.value : 'all';
       libPage = 1;
       fetchLibrary();
     }
 
     function onLimitChange() {
-      libLimit = parseInt(document.getElementById('library-limit-select').value, 10);
+      const limitEl = document.getElementById('library-limit-select');
+      libLimit = limitEl ? parseInt(limitEl.value, 10) : 10;
       libPage = 1;
       fetchLibrary();
     }
@@ -940,28 +946,36 @@ export async function buildApp() {
       fetchLibrary();
     }
 
-    function toggleStreams(idx) {
-      const el = document.getElementById('streams-' + idx);
-      const btn = document.getElementById('toggle-btn-' + idx);
-      if (el.style.display === 'none' || !el.style.display) {
-        el.style.display = 'block';
-        btn.innerText = 'Hide Links';
-      } else {
-        el.style.display = 'none';
-        btn.innerText = 'View Links';
-      }
-    }
+    // Delegated click handler for copy & toggle buttons (no inline JS string quoting)
+    document.addEventListener('click', function(e) {
+      const target = e.target;
+      if (!target) return;
 
-    function copyToClipboard(text, btnId) {
-      navigator.clipboard.writeText(text).then(() => {
-        const btn = document.getElementById(btnId);
-        if (btn) {
-          const original = btn.innerText;
-          btn.innerText = 'Copied!';
-          setTimeout(() => { btn.innerText = original; }, 1500);
+      if (target.classList && target.classList.contains('copy-btn')) {
+        const url = target.getAttribute('data-url');
+        if (url) {
+          navigator.clipboard.writeText(url).then(function() {
+            const orig = target.innerText;
+            target.innerText = 'Copied!';
+            setTimeout(function() { target.innerText = orig; }, 1500);
+          }).catch(function() {
+            prompt('Copy stream URL:', url);
+          });
         }
-      });
-    }
+      } else if (target.classList && target.classList.contains('toggle-btn')) {
+        const idx = target.getAttribute('data-idx');
+        const el = document.getElementById('streams-' + idx);
+        if (el) {
+          if (el.style.display === 'none' || !el.style.display) {
+            el.style.display = 'table-row';
+            target.innerText = 'Hide Links';
+          } else {
+            el.style.display = 'none';
+            target.innerText = 'View Links';
+          }
+        }
+      }
+    });
 
     async function submitManualVideo() {
       const title = document.getElementById('m-title').value.trim();
@@ -972,11 +986,11 @@ export async function buildApp() {
       const statusEl = document.getElementById('manual-save-status');
 
       if (!title || !streamUrl) {
-        statusEl.innerText = 'Error: Title and Stream URL are required.';
+        if (statusEl) statusEl.innerText = 'Error: Title and Stream URL are required.';
         return;
       }
 
-      statusEl.innerText = 'Saving permanently...';
+      if (statusEl) statusEl.innerText = 'Saving permanently...';
       try {
         const res = await fetch('/api/v1/admin/videos', {
           method: 'POST',
@@ -985,19 +999,19 @@ export async function buildApp() {
         });
         const data = await res.json();
         if (data.status === 'SUCCESS') {
-          statusEl.innerText = 'Stream saved forever to DB & Redis!';
+          if (statusEl) statusEl.innerText = 'Stream saved forever to DB & Redis!';
           document.getElementById('m-title').value = '';
           document.getElementById('m-url').value = '';
           setTimeout(() => {
             toggleAddForm();
-            statusEl.innerText = '';
+            if (statusEl) statusEl.innerText = '';
           }, 1500);
           fetchLibrary();
         } else {
-          statusEl.innerText = 'Error: ' + (data.error || 'Failed to save');
+          if (statusEl) statusEl.innerText = 'Error: ' + (data.error || 'Failed to save');
         }
       } catch (err) {
-        statusEl.innerText = 'Network error: ' + err.message;
+        if (statusEl) statusEl.innerText = 'Network error: ' + err.message;
       }
     }
 
@@ -1008,16 +1022,26 @@ export async function buildApp() {
         if (!res.ok) return;
         const data = await res.json();
 
-        document.getElementById('val-library').innerText = data.total;
-        document.getElementById('page-display').innerText = 'Page ' + data.page + ' of ' + data.totalPages;
-        document.getElementById('btn-prev').disabled = data.page <= 1;
-        document.getElementById('btn-next').disabled = data.page >= data.totalPages;
+        const libValEl = document.getElementById('val-library');
+        if (libValEl) libValEl.innerText = data.total;
+
+        const pageDisplayEl = document.getElementById('page-display');
+        if (pageDisplayEl) pageDisplayEl.innerText = 'Page ' + data.page + ' of ' + data.totalPages;
+
+        const btnPrev = document.getElementById('btn-prev');
+        if (btnPrev) btnPrev.disabled = data.page <= 1;
+
+        const btnNext = document.getElementById('btn-next');
+        if (btnNext) btnNext.disabled = data.page >= data.totalPages;
 
         const startIdx = (data.page - 1) * data.limit + (data.total > 0 ? 1 : 0);
         const endIdx = Math.min(data.page * data.limit, data.total);
-        document.getElementById('pagination-info').innerText = 'Showing ' + startIdx + ' - ' + endIdx + ' of ' + data.total + ' videos';
+        const infoEl = document.getElementById('pagination-info');
+        if (infoEl) infoEl.innerText = 'Showing ' + startIdx + ' - ' + endIdx + ' of ' + data.total + ' videos';
 
         const container = document.getElementById('library-container');
+        if (!container) return;
+
         if (!data.items || data.items.length === 0) {
           container.innerHTML = '<div class="empty-msg">No videos found matching your filters.</div>';
           return;
@@ -1035,7 +1059,7 @@ export async function buildApp() {
             '<td class="mono">' + escapeHtml(item.id) + '</td>' +
             '<td><span class="badge ' + storageBadge + '">' + item.storage + '</span></td>' +
             '<td class="mono"><b>' + item.streams.length + '</b> links</td>' +
-            '<td><button class="btn-secondary btn-sm" id="toggle-btn-' + idx + '" onclick="toggleStreams(' + idx + ')">View Links</button></td>' +
+            '<td><button class="btn-secondary btn-sm toggle-btn" data-idx="' + idx + '">View Links</button></td>' +
           '</tr>';
 
           // Hidden Streams Drawer
@@ -1046,8 +1070,7 @@ export async function buildApp() {
           if (item.streams.length === 0) {
             html += '<div style="font-size: 0.8rem; color: #64748b; font-style: italic;">No stream links available for this title.</div>';
           } else {
-            item.streams.forEach((s, sIdx) => {
-              const copyBtnId = 'copy-btn-' + idx + '-' + sIdx;
+            item.streams.forEach((s) => {
               const isTorrent = s.url.startsWith('magnet:') || s.url.endsWith('.torrent');
               const formatLabel = isTorrent ? 'TORRENT' : (s.isM3u8 ? 'HLS / M3U8' : 'DIRECT MP4');
 
@@ -1059,7 +1082,7 @@ export async function buildApp() {
                   '<a href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener noreferrer" class="stream-url-text" title="' + escapeHtml(s.url) + '">' + escapeHtml(s.url) + '</a>' +
                 '</div>' +
                 '<div style="display: flex; gap: 6px;">' +
-                  '<button class="btn-secondary btn-sm" id="' + copyBtnId + '" onclick="copyToClipboard(\'' + escapeJsString(s.url) + '\', \'' + copyBtnId + '\')">Copy</button>' +
+                  '<button class="btn-secondary btn-sm copy-btn" data-url="' + escapeHtml(s.url) + '">Copy</button>' +
                   '<a href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener noreferrer" class="btn btn-sm">Open</a>' +
                 '</div>' +
               '</div>';
@@ -1081,62 +1104,70 @@ export async function buildApp() {
       return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    function escapeJsString(str) {
-      if (!str) return '';
-      return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
-    }
-
     async function fetchTasks() {
       try {
         const res = await fetch('/api/v1/admin/tasks');
         if (!res.ok) return;
         const data = await res.json();
 
-        document.getElementById('val-active').innerText = data.activeTasks.length;
-        document.getElementById('val-waiting').innerText = data.queue.waiting || 0;
-        document.getElementById('val-recent').innerText = data.recentTasks.length;
-        document.getElementById('val-failed').innerText = data.queue.failed || 0;
-        document.getElementById('active-count-pill').innerText = data.activeTasks.length + ' Active';
+        const vAct = document.getElementById('val-active');
+        if (vAct) vAct.innerText = data.activeTasks.length;
+
+        const vWait = document.getElementById('val-waiting');
+        if (vWait) vWait.innerText = (data.queue && data.queue.waiting) || 0;
+
+        const vRec = document.getElementById('val-recent');
+        if (vRec) vRec.innerText = data.recentTasks.length;
+
+        const vFail = document.getElementById('val-failed');
+        if (vFail) vFail.innerText = (data.queue && data.queue.failed) || 0;
+
+        const pill = document.getElementById('active-count-pill');
+        if (pill) pill.innerText = data.activeTasks.length + ' Active';
 
         const activeContainer = document.getElementById('active-tasks-container');
-        if (data.activeTasks.length === 0) {
-          activeContainer.innerHTML = '<div class="empty-msg">No active scrapes running right now. Ready for incoming requests.</div>';
-        } else {
-          let html = '<table><thead><tr><th>Movie Title</th><th>TPDB ID</th><th>Status</th><th>Started At</th><th>Elapsed</th></tr></thead><tbody>';
-          for (const t of data.activeTasks) {
-            const elapsed = Math.round((Date.now() - new Date(t.startedAt).getTime()) / 1000);
-            html += '<tr>' +
-              '<td><strong>' + escapeHtml(t.name || 'Unknown') + '</strong></td>' +
-              '<td class="mono">' + escapeHtml(t.id || 'N/A') + '</td>' +
-              '<td><span class="badge badge-processing">SCRAPING</span></td>' +
-              '<td class="mono">' + new Date(t.startedAt).toLocaleTimeString() + '</td>' +
-              '<td class="mono">' + elapsed + 's ago</td>' +
-            '</tr>';
+        if (activeContainer) {
+          if (data.activeTasks.length === 0) {
+            activeContainer.innerHTML = '<div class="empty-msg">No active scrapes running right now. Ready for incoming requests.</div>';
+          } else {
+            let html = '<table><thead><tr><th>Movie Title</th><th>TPDB ID</th><th>Status</th><th>Started At</th><th>Elapsed</th></tr></thead><tbody>';
+            for (const t of data.activeTasks) {
+              const elapsed = Math.round((Date.now() - new Date(t.startedAt).getTime()) / 1000);
+              html += '<tr>' +
+                '<td><strong>' + escapeHtml(t.name || 'Unknown') + '</strong></td>' +
+                '<td class="mono">' + escapeHtml(t.id || 'N/A') + '</td>' +
+                '<td><span class="badge badge-processing">SCRAPING</span></td>' +
+                '<td class="mono">' + new Date(t.startedAt).toLocaleTimeString() + '</td>' +
+                '<td class="mono">' + elapsed + 's ago</td>' +
+              '</tr>';
+            }
+            html += '</tbody></table>';
+            activeContainer.innerHTML = html;
           }
-          html += '</tbody></table>';
-          activeContainer.innerHTML = html;
         }
 
         const recentContainer = document.getElementById('recent-tasks-container');
-        if (data.recentTasks.length === 0) {
-          recentContainer.innerHTML = '<div class="empty-msg">No recent tasks recorded yet.</div>';
-        } else {
-          let html = '<table><thead><tr><th>Movie Title</th><th>TPDB ID</th><th>Status</th><th>Streams Found</th><th>Finished</th></tr></thead><tbody>';
-          for (const t of data.recentTasks) {
-            let badgeClass = 'badge-empty';
-            if (t.status === 'SUCCESS' && t.streamCount > 0) badgeClass = 'badge-success';
-            else if (t.status === 'FAILED') badgeClass = 'badge-failed';
+        if (recentContainer) {
+          if (data.recentTasks.length === 0) {
+            recentContainer.innerHTML = '<div class="empty-msg">No recent tasks recorded yet.</div>';
+          } else {
+            let html = '<table><thead><tr><th>Movie Title</th><th>TPDB ID</th><th>Status</th><th>Streams Found</th><th>Finished</th></tr></thead><tbody>';
+            for (const t of data.recentTasks) {
+              let badgeClass = 'badge-empty';
+              if (t.status === 'SUCCESS' && t.streamCount > 0) badgeClass = 'badge-success';
+              else if (t.status === 'FAILED') badgeClass = 'badge-failed';
 
-            html += '<tr>' +
-              '<td><strong>' + escapeHtml(t.name || 'Unknown') + '</strong></td>' +
-              '<td class="mono">' + escapeHtml(t.id || 'N/A') + '</td>' +
-              '<td><span class="badge ' + badgeClass + '">' + (t.status || 'DONE') + '</span></td>' +
-              '<td class="mono"><b>' + (t.streamCount || 0) + '</b> streams</td>' +
-              '<td class="mono">' + (t.finishedAt ? new Date(t.finishedAt).toLocaleTimeString() : 'N/A') + '</td>' +
-            '</tr>';
+              html += '<tr>' +
+                '<td><strong>' + escapeHtml(t.name || 'Unknown') + '</strong></td>' +
+                '<td class="mono">' + escapeHtml(t.id || 'N/A') + '</td>' +
+                '<td><span class="badge ' + badgeClass + '">' + (t.status || 'DONE') + '</span></td>' +
+                '<td class="mono"><b>' + (t.streamCount || 0) + '</b> streams</td>' +
+                '<td class="mono">' + (t.finishedAt ? new Date(t.finishedAt).toLocaleTimeString() : 'N/A') + '</td>' +
+              '</tr>';
+            }
+            html += '</tbody></table>';
+            recentContainer.innerHTML = html;
           }
-          html += '</tbody></table>';
-          recentContainer.innerHTML = html;
         }
       } catch (err) {
         console.error('Fetch error:', err);
@@ -1147,17 +1178,17 @@ export async function buildApp() {
       const title = document.getElementById('test-title').value.trim();
       if (!title) return;
       const resEl = document.getElementById('test-result');
-      resEl.innerText = 'Triggering test scrape for: ' + title + '...';
+      if (resEl) resEl.innerText = 'Triggering test scrape for: ' + title + '...';
       const fakeId = 'diag_' + Date.now().toString().slice(-6);
       fetch('/api/v1/streams/movie/' + fakeId + '?title=' + encodeURIComponent(title))
         .then(r => r.json())
         .then(data => {
-          resEl.innerText = 'Completed! Streams found: ' + (data.results ? data.results.length : 0);
+          if (resEl) resEl.innerText = 'Completed! Streams found: ' + (data.results ? data.results.length : 0);
           fetchTasks();
           fetchLibrary();
         })
         .catch(err => {
-          resEl.innerText = 'Error: ' + err.message;
+          if (resEl) resEl.innerText = 'Error: ' + err.message;
         });
       setTimeout(fetchTasks, 300);
     }
