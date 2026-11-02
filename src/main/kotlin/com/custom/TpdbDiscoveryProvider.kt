@@ -140,7 +140,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse? {
         val cleanUrl = url
-            .replaceFirst(Regex("""^https?://api\.theporndb\.net/(?:movies|scenes)/"""), "")
+            .replaceFirst(Regex("""^https?://(?:api\.)?theporndb\.net/(?:movies|scenes)/"""), "")
             .replaceFirst(Regex("""^tpdb:(?://)?(?:movie|scene)?/?(?::)?"""), "")
             .trim()
         val tpdbId = cleanUrl.substringBefore("?").trim()
@@ -233,7 +233,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
         val providerName = this.name
         return coroutineScope {
         val cleanData = data
-            .replaceFirst(Regex("""^https?://api\.theporndb\.net/(?:movies|scenes)/"""), "")
+            .replaceFirst(Regex("""^https?://(?:api\.)?theporndb\.net/(?:movies|scenes)/"""), "")
             .replaceFirst(Regex("""^tpdb:(?://)?(?:movie|scene)?/?(?::)?"""), "")
             .trim()
         val tpdbId = cleanData.substringBefore("?").trim()
@@ -281,7 +281,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
                         "Accept" to "application/json",
                         "User-Agent" to "CloudStream-TpdbDiscovery/1.0"
                     ),
-                    timeout = 15L
+                    timeout = 10L
                 )
             }.getOrNull()
 
@@ -322,12 +322,14 @@ open class TpdbDiscoveryProvider : MainAPI() {
                                 isM3u8 = isM3u8,
                                 headers = headersMap
                             )
-                            if (isTorrent) {
-                                link.type = ExtractorLinkType.TORRENT
-                            } else if (isM3u8) {
-                                link.type = ExtractorLinkType.M3U8
-                            } else {
-                                link.type = ExtractorLinkType.VIDEO
+                            runCatching {
+                                if (isTorrent) {
+                                    link.type = ExtractorLinkType.TORRENT
+                                } else if (isM3u8) {
+                                    link.type = ExtractorLinkType.M3U8
+                                } else {
+                                    link.type = ExtractorLinkType.VIDEO
+                                }
                             }
                             callback(link)
                             emitted.incrementAndGet()
@@ -346,7 +348,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
                                     isM3u8 = extractedLink.isM3u8,
                                     headers = extractedLink.headers
                                 )
-                                wrapped.type = extractedLink.type
+                                runCatching { wrapped.type = extractedLink.type }
                                 callback(wrapped)
                             }
                             if (loaded) {
@@ -358,69 +360,28 @@ open class TpdbDiscoveryProvider : MainAPI() {
             }
         }
 
-        // 2. Hybrid Device Fallback: extract SpeedPorn embeds directly on phone capped at 5.0s max
+        // 2. Hybrid Device Fallback: extract SpeedPorn embeds directly on phone capped at 3.0s max
         val speedpornJob = async {
             val speedTitle = resolvedTitle ?: titleFromUrl
             if (speedTitle != null && speedTitle.isNotBlank()) {
-                withTimeoutOrNull(5000L) {
+                withTimeoutOrNull(3000L) {
                     runCatching {
                         val cleanSlug = speedTitle.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
-                        val beforeColon = speedTitle.substringBefore(":").trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
                         if (cleanSlug.length > 2) {
-                            val candidateSlugs = linkedSetOf(
-                                cleanSlug,
-                                cleanSlug.replace("-v", "-"),
-                                cleanSlug.replace(Regex("-(\\d+)"), "-v$1")
-                            )
-                            if (beforeColon.length > 3 && beforeColon != cleanSlug) {
-                                candidateSlugs.add(beforeColon)
-                            }
-                            var speedPornFound = false
-                            for (slug in candidateSlugs) {
-                                val directUrl = "https://speedporn.net/$slug/"
-                                val found = runCatching {
-                                    Himeros().loadLinks(directUrl, isCasting, subtitleCallback) { link ->
-                                        val wrapped = ExtractorLink(
-                                            source = providerName,
-                                            name = "[SPEEDPORN] ${link.name}",
-                                            url = link.url,
-                                            referer = link.referer,
-                                            quality = link.quality,
-                                            isM3u8 = link.isM3u8,
-                                            headers = link.headers
-                                        )
-                                        wrapped.type = link.type
-                                        callback(wrapped)
-                                        emitted.incrementAndGet()
-                                    }
-                                }.getOrDefault(false)
-                                if (found) {
-                                    speedPornFound = true
-                                    break
-                                }
-                            }
-
-                            if (!speedPornFound) {
-                                val searchHits = runCatching { Himeros().search(speedTitle) }.getOrDefault(emptyList())
-                                for (hit in searchHits.take(2)) {
-                                    val found = runCatching {
-                                        Himeros().loadLinks(hit.url, isCasting, subtitleCallback) { link ->
-                                            val wrapped = ExtractorLink(
-                                                source = providerName,
-                                                name = "[SPEEDPORN] ${link.name}",
-                                                url = link.url,
-                                                referer = link.referer,
-                                                quality = link.quality,
-                                                isM3u8 = link.isM3u8,
-                                                headers = link.headers
-                                            )
-                                            wrapped.type = link.type
-                                            callback(wrapped)
-                                            emitted.incrementAndGet()
-                                        }
-                                    }.getOrDefault(false)
-                                    if (found) break
-                                }
+                            val directUrl = "https://speedporn.net/$cleanSlug/"
+                            Himeros().loadLinks(directUrl, isCasting, subtitleCallback) { link ->
+                                val wrapped = ExtractorLink(
+                                    source = providerName,
+                                    name = "[SPEEDPORN] ${link.name}",
+                                    url = link.url,
+                                    referer = link.referer,
+                                    quality = link.quality,
+                                    isM3u8 = link.isM3u8,
+                                    headers = link.headers
+                                )
+                                runCatching { wrapped.type = link.type }
+                                callback(wrapped)
+                                emitted.incrementAndGet()
                             }
                         }
                     }
@@ -428,9 +389,14 @@ open class TpdbDiscoveryProvider : MainAPI() {
             }
         }
 
+        // Fast-path: If backend returns streams immediately, cancel device fallback and return
         backendJob.await()
-        speedpornJob.await()
+        if (emitted.get() > 0) {
+            speedpornJob.cancel()
+            return@coroutineScope true
+        }
 
+        speedpornJob.await()
         emitted.get() > 0
     }
 }
