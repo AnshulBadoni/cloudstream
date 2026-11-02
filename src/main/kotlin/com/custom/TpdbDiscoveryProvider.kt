@@ -126,13 +126,21 @@ open class TpdbDiscoveryProvider : MainAPI() {
                         val year = if (!date.isNullOrBlank()) date.take(4).toIntOrNull() else null
 
                         val encTitle = URLEncoder.encode(title, "UTF-8")
-                        results.add(newMovieSearchResponse(title, "tpdb://movie/$id?title=$encTitle", TvType.Movie) {
+                        val encPoster = if (!poster.isNullOrBlank()) "&poster=" + URLEncoder.encode(poster, "UTF-8") else ""
+                        results.add(newMovieSearchResponse(title, "tpdb://movie/$id?title=$encTitle$encPoster", TvType.Movie) {
                             this.posterUrl = if (!poster.isNullOrBlank()) poster else null
                             this.year = year
                         })
                     }
                 }
             }
+        }
+
+        // Prioritize exact title matches at the top of results
+        results.sortByDescending {
+            if (it.name.equals(cleanQuery, ignoreCase = true)) 2
+            else if (it.name.contains(cleanQuery, ignoreCase = true)) 1
+            else 0
         }
 
         return results
@@ -147,6 +155,9 @@ open class TpdbDiscoveryProvider : MainAPI() {
         val titleFromUrl = if (cleanUrl.contains("title=")) {
             runCatching { URLDecoder.decode(cleanUrl.substringAfter("title=").substringBefore("&"), "UTF-8") }.getOrNull()
         } else null
+        val posterFromUrl = if (cleanUrl.contains("poster=")) {
+            runCatching { URLDecoder.decode(cleanUrl.substringAfter("poster=").substringBefore("&"), "UTF-8") }.getOrNull()
+        } else null
 
         // 1. Instant zero-latency return if title is already embedded
         if (!titleFromUrl.isNullOrBlank()) {
@@ -156,7 +167,9 @@ open class TpdbDiscoveryProvider : MainAPI() {
                 url = url,
                 type = TvType.Movie,
                 dataUrl = "tpdb://movie/$tpdbId?title=$encTitle"
-            )
+            ) {
+                this.posterUrl = if (!posterFromUrl.isNullOrBlank()) posterFromUrl else null
+            }
         }
 
         // 2. Parallel bounded metadata lookup if title was not provided
@@ -280,8 +293,7 @@ open class TpdbDiscoveryProvider : MainAPI() {
                     headers = mapOf(
                         "Accept" to "application/json",
                         "User-Agent" to "CloudStream-TpdbDiscovery/1.0"
-                    ),
-                    timeout = 10L
+                    )
                 )
             }.getOrNull()
 
